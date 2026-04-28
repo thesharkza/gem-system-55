@@ -78,15 +78,15 @@ def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w
            {"n": "ต่ำ", "ev": ev_under, "m": u_k_m, "p": u_k_p}]
     best = max(res, key=lambda x: x['ev'])
 
-    return f"""📊 GEM System Patch 5.6.0: Universal AH Engine
+    return f"""📊 GEM System 5.6.0 (Universal Engine)
 คู่: {match_name}
 
 สถิติจริง 🚨
 - True Prob: เหย้า {p_h*100:.1f}% | เสมอ {p_d*100:.1f}% | เยือน {p_a*100:.1f}%
 
-วิเคราะห์ EV (แก้ไขกฎ 0.25 แล้ว) 🛡️
-- เจ้าบ้าน (ต่อ 0.25): EV {ev_h*100:.2f}%
-- ทีมเยือน (รอง 0.25): EV {ev_a*100:.2f}%
+วิเคราะห์ EV (คำนวณที่เรต AH {hdp_line}) 🛡️
+- เจ้าบ้าน ({"ต่อ" if is_h_fav else "รอง"}): EV {ev_h*100:.2f}%
+- ทีมเยือน ({"รอง" if is_h_fav else "ต่อ"}): EV {ev_a*100:.2f}%
 - สูง/ต่ำ {ou_line}: สูง {ev_over*100:.2f}% | ต่ำ {ev_under*100:.2f}%
 
 💡 สรุป: {"🔥 INVEST" if best['ev']>=0.03 else "🚫 NO BET"}
