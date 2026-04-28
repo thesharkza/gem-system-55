@@ -1,61 +1,71 @@
 import streamlit as st
 
 # ==========================================
-# 1. ฟังก์ชันสมองกล (Patch 5.5.8: Quarter-Ball Accuracy)
+# 1. ฟังก์ชันสมองกล (Patch 5.6.0: Universal AH Engine)
 # ==========================================
-def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w, ou_line, ou_o_w, ou_u_w, hdba_pct, total_bankroll):
+def calc_universal_ev(hdp, p_win, p_draw, p_loss, odds, is_fav):
+    """
+    ฟังก์ชันคำนวณ EV แบบครอบจักรวาล รองรับทุกราคาแฮนดิแคป
+    """
+    b = odds - 1  # กำไรสุทธิ
     
-    def fix_odds(o): return o + 1.0 if o < 1.1 else o 
-    h1, d1, a1 = fix_odds(h1x2), fix_odds(d1x2), fix_odds(a1x2)
-    h_w, a_w = fix_odds(hdp_h_w), fix_odds(hdp_a_w)
-    o_w, u_w = fix_odds(ou_o_w), fix_odds(ou_u_w)
+    # 1. กลุ่มราคาเลขกลม (0, 1, 2, 3...)
+    if hdp % 1 == 0:
+        return (p_win * b) - (p_loss * 1)
+    
+    # 2. กลุ่มราคาเลขครึ่ง (0.5, 1.5, 2.5...)
+    elif hdp % 1 == 0.5:
+        if is_fav: return (p_win * b) - ((p_draw + p_loss) * 1)
+        else: return ((p_win + p_draw) * b) - (p_loss * 1)
+        
+    # 3. กลุ่มราคาควบ (0.25, 1.25, 2.25...) - เน้นผลเสมอ
+    elif hdp % 0.5 == 0.25:
+        # ถ้าราคาลงท้ายด้วย .25 (เช่น 0.25, 1.25)
+        if is_fav: return (p_win * b) - (p_draw * 0.5) - (p_loss * 1) # ต่อ: เสมอเสียครึ่ง
+        else: return (p_win * b) + (p_draw * b/2) - (p_loss * 1) # รอง: เสมอกินครึ่ง
+        
+    # 4. กลุ่มราคาควบ (0.75, 1.75, 2.75...) - เน้นผลชนะห่าง 1 ลูก
+    # หมายเหตุ: ในระบบ 1X2 พื้นฐาน เราจะใช้ Conservative Logic (ปลอดภัยไว้ก่อน)
+    elif hdp % 0.5 == 0.75:
+        if is_fav: return (p_win * b * 0.7) - ((p_draw + p_loss) * 1) # ต่อ: ชนะลูกเดียวอาจได้ไม่เต็ม
+        else: return ((p_win + p_draw) * b) - (p_loss * 0.5) # รอง: แพ้ลูกเดียวเสียครึ่ง
+        
+    return (p_win * b) - ((p_draw + p_loss) * 1) # Default
 
+def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w, ou_line, ou_o_w, ou_u_w, hdba_pct, total_bankroll):
+    # Fix Odds System
+    def f_o(o): return o + 1.0 if o < 1.1 else o 
+    h1, d1, a1 = f_o(h1x2), f_o(d1x2), f_o(a1x2)
+    h_w, a_w, o_w, u_w = f_o(hdp_h_w), f_o(hdp_a_w), f_o(ou_o_w), f_o(ou_u_w)
+
+    # Devigging 1X2
     m_1x2 = (1/h1 + 1/d1 + 1/a1) - 1
     p_h, p_d, p_a = (1/h1)/(1+m_1x2), (1/d1)/(1+m_1x2), (1/a1)/(1+m_1x2)
     
+    # Devigging O/U
     m_ou = (1/o_w + 1/u_w) - 1
     p_o, p_u = (1/o_w)/(1+m_ou), (1/u_w)/(1+m_ou)
 
-    is_home_fav = p_h >= p_a
+    # AH EV Calculation (Using Universal Engine)
+    is_h_fav = p_h >= p_a
+    ev_h = calc_universal_ev(hdp_line, p_h, p_d, p_a, h_w, is_h_fav)
+    ev_a = calc_universal_ev(hdp_line, p_a, p_d, p_h, a_w, not is_h_fav)
     
-    # --- [PATCH 5.5.8] คำนวณ EV ตามกฎ Quarter Ball ---
-    if is_home_fav:
-        # เจ้าบ้านต่อ
-        if hdp_line == 0.25:
-            ev_h = (p_h * (h_w-1)) - (p_d * 0.5) - (p_a * 1) # ต่อ 0.25: เสมอเสียครึ่ง
-            ev_a = (p_a * (a_w-1)) + (p_d * (a_w-1)/2) - (p_h * 1) # รอง 0.25: เสมอกินครึ่ง
-        elif hdp_line == 0.5:
-            ev_h = (p_h * (h_w-1)) - ((p_d + p_a) * 1)
-            ev_a = ((p_a + p_d) * (a_w-1)) - (p_h * 1)
-        else: # กรณี HDP 0
-            ev_h = (p_h * (h_w-1)) - (p_a * 1)
-            ev_a = (p_a * (a_w-1)) - (p_h * 1)
-        ev_a -= (hdba_pct/100) # หัก HDBA ทีมเยือน
-    else:
-        # ทีมเยือนต่อ
-        if hdp_line == 0.25:
-            ev_a = (p_a * (a_w-1)) - (p_d * 0.5) - (p_h * 1)
-            ev_h = (p_h * (h_w-1)) + (p_d * (h_w-1)/2) - (p_a * 1)
-        elif hdp_line == 0.5:
-            ev_a = (p_a * (a_w-1)) - ((p_d + p_h) * 1)
-            ev_h = ((p_h + p_d) * (h_w-1)) - (p_a * 1)
-        else:
-            ev_a = (p_a * (a_w-1)) - (p_h * 1)
-            ev_h = (p_h * (h_w-1)) - (p_a * 1)
-        ev_a -= (hdba_pct/100)
+    # หัก HDBA เฉพาะทีมเยือน
+    if is_h_fav: ev_a -= (hdba_pct/100)
+    else: ev_a -= (hdba_pct/100) # ทีมเยือนเป็นต่อก็ต้องหักค่าเดินทาง
 
-    # ตลาดสกอร์รวม
+    # O/U EV
     ev_over = (p_o * (o_w-1)) - (p_u * 1)
     ev_under = (p_u * (u_w-1)) - (p_o * 1)
     if p_h > 0.5 and ou_line <= 2.5: ev_under -= 0.05
 
+    # Kelly Criterion
     def get_k(ev, odds, bank):
         if ev < 0.03: return 0, 0
-        b = odds - 1
-        p_win = (ev + 1) / odds
-        k_pct = ( (b * p_win) - (1 - p_win) ) / b
+        k_pct = (( (odds-1) * ((ev+1)/odds) ) - (1 - ((ev+1)/odds))) / (odds-1)
         safe_k = min(k_pct * 0.5, 0.10)
-        return max(0, safe_k * 100), max(0, safe_k * bank)
+        return safe_k * 100, safe_k * bank
 
     h_k_p, h_k_m = get_k(ev_h, h_w, total_bankroll)
     a_k_p, a_k_m = get_k(ev_a, a_w, total_bankroll)
