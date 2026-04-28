@@ -121,6 +121,7 @@ with col3:
     ou_over = st.number_input("น้ำสูง", value=0.81, format="%.2f")
     ou_under = st.number_input("น้ำต่ำ", value=1.06, format="%.2f")
     
+st.markdown("---")    
 st.markdown("Remark HDBA")
 st.markdown("-หากเป็นลีกมาตรฐานยุโรป (พรีเมียร์ลีก, ลาลีกา) การเดินทางสะดวก ให้ใส่ HDBA = 1.5 (Base 1.0 + กองเชียร์ 0.5)")
 st.markdown("-หากเป็นบอลถ้วยละตินอเมริกาที่ต้องบินข้ามประเทศ ให้ยืนพื้น HDBA = 2.5 ถึง 3.0 ไว้ก่อนเลย")
