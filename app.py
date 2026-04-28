@@ -1,9 +1,9 @@
 import streamlit as st
 
 # ==========================================
-# 1. ฟังก์ชันสมองกล (Patch 5.5.2: Auto-Detect Favorite/Underdog)
+# 1. ฟังก์ชันสมองกล (Patch 5.5.3: Kelly Criterion Integration)
 # ==========================================
-def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_home_water, hdp_away_water, ou_line, ou_over_water, ou_under_water, hdba_pct):
+def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_home_water, hdp_away_water, ou_line, ou_over_water, ou_under_water, hdba_pct, total_bankroll):
     # --- ระยะที่ 1: Devigging (1X2) ---
     i_h, i_d, i_a = 1/h1x2, 1/d1x2, 1/a1x2
     margin = (i_h + i_d + i_a) - 1
@@ -15,139 +15,115 @@ def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_home_water, 
     team_home = teams[0].strip() if len(teams) > 1 else "เจ้าบ้าน"
     team_away = teams[1].strip() if len(teams) > 1 else "ทีมเยือน"
 
-    # --- ตรวจสอบว่าใครเป็นทีมต่อ (Favorite) ---
+    # --- ตรวจสอบสถานะทีมต่อ/ทีมรอง ---
     is_home_fav = t_ph >= t_pa
-    hdp_val = abs(hdp_line) # บังคับให้ราคาต่อเป็นบวกเสมอเวลาแสดงผล
+    hdp_val = abs(hdp_line)
 
-    # --- ระยะที่ 4: EV Calculation (แยกกรณีเจ้าบ้านต่อ vs ทีมเยือนต่อ) ---
+    # --- ระยะที่ 4: EV & Kelly Calculation ---
+    # หมายเหตุ: ในสูตร Kelly, b คือ "ราคาจ่ายสุทธิ" (ซึ่งก็คือค่าน้ำที่เรากรอก)
     if is_home_fav:
-        # เจ้าบ้านต่อ
-        ev_home_raw = (t_ph * hdp_home_water) - ((t_pd + t_pa) * 1)
-        ev_away_raw = ((t_pa + t_pd) * hdp_away_water) - (t_ph * 1)
-        
-        team_fav_name, team_und_name = team_home, team_away
-        ev_fav_raw, ev_und_raw = ev_home_raw, ev_away_raw
+        ev_fav_raw = (t_ph * hdp_home_water) - ((t_pd + t_pa) * 1)
+        ev_und_raw = ((t_pa + t_pd) * hdp_away_water) - (t_ph * 1)
+        team_fav, team_und = team_home, team_away
         water_fav, water_und = hdp_home_water, hdp_away_water
-        
-        # HDBA คิดเฉพาะตอนทีมเยือนเป็นทีมรอง
-        ev_und_adj = ev_und_raw - (hdba_pct / 100)
         ev_fav_adj = ev_fav_raw 
+        ev_und_adj = ev_und_raw - (hdba_pct / 100)
+        final_b_fav = hdp_home_water
+        final_b_und = hdp_away_water
     else:
-        # ทีมเยือนต่อ
-        ev_away_raw = (t_pa * hdp_away_water) - ((t_ph + t_pd) * 1)
-        ev_home_raw = ((t_ph + t_pd) * hdp_home_water) - (t_pa * 1)
-        
-        team_fav_name, team_und_name = team_away, team_home
-        ev_fav_raw, ev_und_raw = ev_away_raw, ev_home_raw
+        ev_fav_raw = (t_pa * hdp_away_water) - ((t_ph + t_pd) * 1)
+        ev_und_raw = ((t_ph + t_pd) * hdp_home_water) - (t_pa * 1)
+        team_fav, team_und = team_away, team_home
         water_fav, water_und = hdp_away_water, hdp_home_water
-        
-        # HDBA คิดเป็นความเหนื่อยล้าของทีมเยือน (ที่เป็นทีมต่อ)
         ev_fav_adj = ev_fav_raw - (hdba_pct / 100)
-        ev_und_adj = ev_und_raw # เจ้าบ้านไม่มี HDBA
+        ev_und_adj = ev_und_raw
+        final_b_fav = hdp_away_water
+        final_b_und = hdp_home_water
 
-    # --- ระยะที่ 2: T21CB Protocol ---
-    is_t21cb = (t_ph > 0.50 and hdp_val >= 0.5 and ou_line <= 2.5)
-    t21cb_text = "[TRUE]" if is_t21cb else "[FALSE]"
+    # --- ระบบคำนวณ Kelly Criterion (Half-Kelly 50%) ---
+    def calc_kelly_amt(ev, b, bankroll):
+        if ev <= 0 or b <= 0: return 0, 0
+        full_k_pct = ev / b
+        half_k_pct = full_k_pct * 0.5 # ใช้ Half-Kelly เพื่อความปลอดภัย
+        # จำกัดการลงเงินไม่เกิน 10% ของพอร์ตต่อไม้เพื่อป้องกันความเสี่ยงสูงสุด
+        safe_k_pct = min(half_k_pct, 0.10) 
+        return safe_k_pct * 100, safe_k_pct * bankroll
 
-    # --- ระยะที่ 3: HTP Filter ---
-    delta_htp = abs(ou_line - hdp_val)
-    htp_matrix = "🟡 Warning Zone (โซนเฝ้าระวัง)" if delta_htp <= 1.5 else "🟢 Normal Zone"
+    # คำนวณเงินลงทุน
+    fav_k_pct, fav_k_money = calc_kelly_amt(ev_fav_adj, final_b_fav, total_bankroll)
+    und_k_pct, und_k_money = calc_kelly_amt(ev_und_adj, final_b_und, total_bankroll)
 
-    # --- เช็ค Margin of Safety (Minimum Edge 3%) ---
+    # --- เช็ค Margin of Safety (3%) ---
     MIN_EDGE = 0.03 
     is_fav_invest = ev_fav_adj >= MIN_EDGE
     is_und_invest = ev_und_adj >= MIN_EDGE
     is_any_invest = is_fav_invest or is_und_invest
 
-    # สร้างคำตัดสิน
-    fav_status = "🟢 (ผ่านเกณฑ์ลงทุน)" if is_fav_invest else ("🟡 (บวกบางเกินไป - ไม่คุ้มเสี่ยง)" if ev_fav_adj > 0 else "🔴 (Value Trap - ติดลบ)")
-    und_status = "🟢 (ผ่านเกณฑ์ลงทุน)" if is_und_invest else ("🟡 (บวกบางเกินไป - ไม่คุ้มเสี่ยง)" if ev_und_adj > 0 else "🔴 (DEAD ZONE - ติดลบ)")
+    report = f"""📊 รายงานผลการวิเคราะห์ (GEM System 5.5.3 - The Kelly Module)
+คู่แข่งขัน: {match_name} | ทุนเริ่มต้น: {total_bankroll:,.2f} THB
 
-    report = f"""📊 รายงานผลการวิเคราะห์ (GEM System 5.5.2 - Auto Switch Logic)
-คู่แข่งขัน: {match_name}
+ระยะที่ 1-3: สรุปโครงสร้างราคา 🚨
+Margin: {margin*100:.2f}% | สถานะ T21CB: {"ถูกกระตุ้น" if (t_ph > 0.5 and hdp_val >= 0.5 and ou_line <= 2.5) else "ปกติ"}
+True Prob: {team_home} {t_ph*100:.1f}% | เสมอ {t_pd*100:.1f}% | {team_away} {t_pa*100:.1f}%
 
-ระยะที่ 1: การสกัดราคาจริงด้วยอัลกอริทึม Power Margin (Devigging) 🚨
-จากราคาพูล 1X2 (เหย้า {h1x2:.2f} / เสมอ {d1x2:.2f} / เยือน {a1x2:.2f}) เครื่องยนต์พบ Margin สำหรับแมตช์นี้ที่ {margin*100:.2f}%
-ความน่าจะเป็นที่แท้จริง (True Market Probability):
-โอกาส {team_home} ชนะ: {t_ph*100:.2f}%
-โอกาส เสมอ: {t_pd*100:.2f}%
-โอกาส {team_away} ชนะ: {t_pa*100:.2f}%
-(กระดานนี้ {team_fav_name} เป็นทีมต่อ ด้วยโอกาสชนะ {max(t_ph, t_pa)*100:.2f}%)
+ระยะที่ 4: การคำนวณ Expected Value & Money Management 🛡️
+(เกณฑ์การลงทุน: EV ต้อง > 3% | ใช้กลยุทท์ Half-Kelly 50% ในการเดินเงิน)
 
-ระยะที่ 2: โปรโตคอล T21CB (The 2-1 Curse Breaker) 🚨
-Home Dominance Factor: โอกาสชนะของเจ้าบ้านเกิน 50% หรือไม่? ➡️ {t21cb_text} ({t_ph*100:.2f}%)
-Handicap Pressure: เจ้าบ้านต่อแพงตั้งแต่ 0.5 หรือไม่? ➡️ {"[TRUE]" if (is_home_fav and hdp_val >= 0.5) else "[FALSE]"}
-Under Trap Line: สกอร์รวมเปิดมากดดันที่ <= 2.5 หรือไม่? ➡️ {"[TRUE]" if ou_line <= 2.5 else "[FALSE]"}
-ผลการทำงาน: ระบบ {"\"ถูกกระตุ้นการทำงาน 100%\"" if is_t21cb else "\"ไม่ถูกกระตุ้นการทำงาน\""}
+1. {team_fav} (ต่อ {hdp_val}) ค่าน้ำ {water_fav}:
+   - EV_adj: {ev_fav_adj*100:.2f}%
+   - สถานะ: {"🟢 ผ่านเกณฑ์" if is_fav_invest else "🔴 ไม่ผ่านเกณฑ์"}
+   - คำแนะนำ: {"ลงทุน " + str(round(fav_k_pct, 2)) + "% ของพอร์ต" if is_fav_invest else "งดลงทุน"}
 
-ระยะที่ 3: โปรโตคอล HTP Filter (จับผิด Handicap-Total Paradox) ⚡
-|AH|line = {hdp_val}
-O/U line = {ou_line}
-ΔHTP = {ou_line} - {hdp_val} = {delta_htp:.2f}
-ผลลัพธ์ HTP Matrix: ตกอยู่ใน {htp_matrix}
+2. {team_und} (รอง {hdp_val}) ค่าน้ำ {water_und}:
+   - EV_adj: {ev_und_adj*100:.2f}%
+   - สถานะ: {"🟢 ผ่านเกณฑ์" if is_und_invest else "🔴 ไม่ผ่านเกณฑ์"}
+   - คำแนะนำ: {"ลงทุน " + str(round(und_k_pct, 2)) + "% ของพอร์ต" if is_und_invest else "งดลงทุน"}
 
-ระยะที่ 4: การคำนวณ Expected Value (AH Value Analysis) 🛡️
-คำนวณ EV หักลบค่าต๋ง {margin*100:.2f}% (ต้องการ Margin of Safety > 3%):
-
-{team_fav_name} (ต่อ {hdp_val}) ค่าน้ำ {water_fav}:
-{"หักลบค่าเสียเปรียบของทีมเยือน (HDBA) ที่ "+str(hdba_pct)+"%" if not is_home_fav else ""}
-EV_adj ≈ {ev_fav_adj*100:.2f}%
-{fav_status}
-
-{team_und_name} (รอง {hdp_val}) ค่าน้ำ {water_und}:
-{"หักลบค่าเสียเปรียบของทีมเยือน (HDBA) ที่ "+str(hdba_pct)+"%" if is_home_fav else ""}
-EV_adj ≈ {ev_und_adj*100:.2f}% 
-{und_status}
-
-💡 บทสรุปและสัญญาณการลงทุน (GEM Signal 5.5.2)
-🔥 สัญญาณลงทุนหลัก: {"🔥 INVEST (พบช่องโหว่ทำกำไร)" if is_any_invest else "🚫 NO BET (กักกันเงินทุน - เสี่ยงเกินไป)"}
-ฝั่งต่อ ({team_fav_name}): {"ผ่านเกณฑ์ EV > 3% น่าลงทุน" if is_fav_invest else "ไม่ผ่านเกณฑ์การลงทุน"}
-ฝั่งรอง ({team_und_name}): {"ผ่านเกณฑ์ EV > 3% น่าลงทุน" if is_und_invest else "ไม่ผ่านเกณฑ์การลงทุน"}
-
-🚨 สถานะเดินเงิน: {"Standard Kelly" if is_any_invest else "เซฟเงินต้น 100% (Hold your bankroll)"}
+💡 บทสรุปและคำสั่งเดินเงิน (GEM Signal 5.5.3)
+--------------------------------------------------
+🔥 สัญญาณหลัก: {"🔥 INVEST" if is_any_invest else "🚫 NO BET"}
+🎯 เป้าหมาย: {"ฝั่งรอง " + team_und if is_und_invest else ("ฝั่งต่อ " + team_fav if is_fav_invest else "N/A")}
+💰 จำนวนเงินที่ควรลงทุน: {max(fav_k_money, und_k_money):,.2f} THB
+--------------------------------------------------
+*(คำนวณจากความได้เปรียบ {max(ev_fav_adj, ev_und_adj)*100:.2f}% สู้กับราคาจ่าย {max(final_b_fav, final_b_und):.2f})*
+🚨 สถานะ: {"Standard Kelly 50% (เดินเงินแบบเน้นความปลอดภัย)" if is_any_invest else "Hold your bankroll 100%"}
 """
     return report
 
 # ==========================================
-# 2. ส่วนของหน้าจอโปรแกรม (UI Layout)
+# 2. UI Layout
 # ==========================================
-st.set_page_config(page_title="GEM System 5.5.2", layout="wide")
-st.title("⚽ GEM System 5.5.2 - Automated Quant Terminal")
-st.markdown("ระบบคำนวณสถิติฟุตบอลส่วนตัว (Patch: Auto-Detect Favorite/Underdog)")
+st.set_page_config(page_title="GEM System 5.5.3", layout="wide")
+st.title("⚽ GEM System 5.5.3 - Kelly Module")
+st.markdown("ระบบคำนวณสถิติและบริหารเงินลงทุน (Money Management)")
 
-match_name_input = st.text_input("📝 ชื่อคู่การแข่งขัน (รูปแบบ: เหย้า VS เยือน)", "โตเกียวเวอร์ดี้ VS คาชิม่า แอนท์เลอร์ส")
+# เพิ่มช่องกรอกเงินทุน
+total_bankroll = st.sidebar.number_input("💰 ทุนทั้งหมดของคุณ (THB)", min_value=0.0, value=10000.0, step=1000.0)
+
+match_name_input = st.text_input("📝 ชื่อคู่การแข่งขัน", "โตเกียวเวอร์ดี้ VS คาชิม่า แอนท์เลอร์ส")
 
 col1, col2, col3 = st.columns(3)
 with col1:
     st.subheader("1. ราคาพูล 1X2")
-    h_odds = st.number_input("เหย้า (Home)", min_value=1.01, value=3.75, format="%.2f")
-    d_odds = st.number_input("เสมอ (Draw)", min_value=1.01, value=3.03, format="%.2f")
-    a_odds = st.number_input("เยือน (Away)", min_value=1.01, value=1.97, format="%.2f")
+    h_odds = st.number_input("เหย้า", value=3.75, format="%.2f")
+    d_odds = st.number_input("เสมอ", value=3.03, format="%.2f")
+    a_odds = st.number_input("เยือน", value=1.97, format="%.2f")
 
 with col2:
-    st.subheader("2. ตลาดแฮนดิแคป (AH)")
-    hdp_line = st.number_input("เรตต่อรอง (HDP ใส่เป็นค่าบวกได้เลย)", value=0.50, step=0.25, format="%.2f")
-    hdp_home = st.number_input("น้ำฝั่งเจ้าบ้าน", value=0.93, format="%.2f")
-    hdp_away = st.number_input("น้ำฝั่งทีมเยือน", value=0.97, format="%.2f")
+    st.subheader("2. ตลาดแฮนดิแคป")
+    hdp_line = st.number_input("HDP", value=0.50, format="%.2f")
+    hdp_home = st.number_input("น้ำเจ้าบ้าน", value=0.93, format="%.2f")
+    hdp_away = st.number_input("น้ำทีมเยือน", value=0.97, format="%.2f")
 
 with col3:
-    st.subheader("3. ตลาดสกอร์รวม (O/U)")
-    ou_line = st.number_input("เรตสกอร์รวม (O/U)", value=2.00, step=0.25, format="%.2f")
-    ou_over = st.number_input("น้ำหน้าสูง (Over)", value=0.81, format="%.2f")
-    ou_under = st.number_input("น้ำหน้าต่ำ (Under)", value=1.06, format="%.2f")
+    st.subheader("3. ตลาดสกอร์รวม")
+    ou_line = st.number_input("O/U", value=2.00, format="%.2f")
+    ou_over = st.number_input("น้ำสูง", value=0.81, format="%.2f")
+    ou_under = st.number_input("น้ำต่ำ", value=1.06, format="%.2f")
 
-st.markdown("---")
-st.markdown("Remark HDBA")
-st.markdown("-หากเป็นลีกมาตรฐานยุโรป (พรีเมียร์ลีก, ลาลีกา) การเดินทางสะดวก ให้ใส่ HDBA = 1.5 (Base 1.0 + กองเชียร์ 0.5)")
-st.markdown("-หากเป็นบอลถ้วยละตินอเมริกาที่ต้องบินข้ามประเทศ ให้ยืนพื้น HDBA = 2.5 ถึง 3.0 ไว้ก่อนเลย")
-st.markdown("-หากไปเยือน โบลิเวีย หรือ เอกวาดอร์ (ที่ราบสูง) ให้กด HDBA = 4.5 หรือ 5.0 ได้เลยครับ")
-hdba_val = st.slider("⚖️ HDBA Penalty (ค่าประเมินความเสียเปรียบของทีมเยือน %)", min_value=0.0, max_value=10.0, value=1.5, step=0.1)
+hdba_val = st.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5, 0.1)
 
-if st.button("🚀 ประมวลผลและสร้างรายงาน (Generate Report)", type="primary"):
-    final_report = generate_gem_report(
-        match_name_input, h_odds, d_odds, a_odds, 
-        hdp_line, hdp_home, hdp_away, 
-        ou_line, ou_over, ou_under, hdba_val
-    )
-    st.success("✅ อัปเดตระบบ 5.5.2 แก้บั๊กสลับฝั่งเรียบร้อย! สามารถก็อปปี้รายงานด้านล่างได้เลยครับ")
-    st.code(final_report, language="text")
+if st.button("🚀 คำนวณแผนการลงทุน", type="primary"):
+    report = generate_gem_report(match_name_input, h_odds, d_odds, a_odds, hdp_line, hdp_home, hdp_away, ou_line, ou_over, ou_under, hdba_val, total_bankroll)
+    st.success("✅ วิเคราะห์แผนเดินเงินสำเร็จ!")
+    st.code(report, language="text")
