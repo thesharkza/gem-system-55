@@ -25,64 +25,62 @@ def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_home_water, 
     ev_away_adj = ev_away_raw - (hdba_pct / 100)
     ev_home_raw = (t_ph * hdp_home_water) - ((t_pd + t_pa) * 1)
 
+    # --- อัปเกรด: กำหนดจุดตัด Margin of Safety ที่ 3% (0.03) ---
+    MIN_EDGE = 0.03 
+    is_home_invest = ev_home_raw >= MIN_EDGE
+    is_away_invest = ev_away_adj >= MIN_EDGE
+    is_any_invest = is_home_invest or is_away_invest
+
     # หาสื่อความหมายของชื่อทีม
     teams = match_name.split('VS')
     team_home = teams[0].strip() if len(teams) > 1 else "เจ้าบ้าน"
     team_away = teams[1].strip() if len(teams) > 1 else "ทีมเยือน"
 
-    # --- เริ่มสร้างเทมเพลตรายงาน (ใช้ F-String ประกอบร่าง) ---
+    # --- สร้างเงื่อนไขข้อความแบบไดนามิก ---
+    home_status_text = "🟢 (Value Discovery - ผ่านเกณฑ์ลงทุน)" if is_home_invest else ("🟡 (บวกบางเกินไป Margin of Safety ต่ำ - ไม่คุ้มเสี่ยง)" if ev_home_raw > 0 else "🔴 (Value Trap - โดนหัก Margin จนติดลบ)")
+    away_status_text = "🟢 (ทะลุเข้าสู่ PROFIT ZONE - ผ่านเกณฑ์ลงทุน)" if is_away_invest else ("🟡 (บวกบางเกินไป - ไม่คุ้มเสี่ยง)" if ev_away_adj > 0 else "🔴 (ร่วงลงสู่ DEAD ZONE - ไม่คุ้มเสี่ยง)")
+
     report = f"""📊 รายงานผลการวิเคราะห์ (GEM System 5.5 - The Variance Control)
 คู่แข่งขัน: {match_name}
 
 ระยะที่ 1: การสกัดราคาจริงด้วยอัลกอริทึม Power Margin (Devigging) 🚨
-จากราคาพูล 1X2 (เหย้า {h1x2:.2f} / เสมอ {d1x2:.2f} / เยือน {a1x2:.2f}) เครื่องยนต์ทำการสแกนและพบกำแพงหัก Margin (ค่าต๋ง) สำหรับแมตช์นี้เอาไว้ที่ {margin*100:.2f}% {"ยังคงเกาะหนึบอยู่ในระดับ Predatory Market (ตลาดกินรวบ) ตามสไตล์บอลละตินอเมริกา" if margin > 0.09 else "อยู่ในระดับมาตรฐาน"}
+จากราคาพูล 1X2 (เหย้า {h1x2:.2f} / เสมอ {d1x2:.2f} / เยือน {a1x2:.2f}) เครื่องยนต์ทำการสแกนและพบกำแพงหัก Margin (ค่าต๋ง) สำหรับแมตช์นี้เอาไว้ที่ {margin*100:.2f}% {"ยังคงเกาะหนึบอยู่ในระดับ Predatory Market (ตลาดกินรวบ)" if margin > 0.09 else "อยู่ในระดับมาตรฐาน"}
 เมื่อทำการรีดค่าต๋ง {margin*100:.2f}% ออกไป เราได้ความน่าจะเป็นที่แท้จริง (True Market Probability) ดังนี้:
 โอกาส {team_home} ชนะ: {t_ph*100:.2f}%
 โอกาส เสมอ: {t_pd*100:.2f}%
 โอกาส {team_away} ชนะ: {t_pa*100:.2f}%
-(จุดสังเกตสำคัญ: เจ้าบ้านมีโอกาสชนะ{"เกิน" if t_ph > 0.5 else "ไม่ถึง"}ครึ่งสนามที่ {t_ph*100:.2f}% การเปิดราคาต่อ {hdp_line} ถือว่าสมเหตุสมผลทางสถิติ แต่ปัญหาคือค่าน้ำที่บ่อนจ่ายให้ ถือเป็นการขูดรีดผลตอบแทนอย่างรุนแรงเมื่อเทียบกับความน่าจะเป็น)
 
 ระยะที่ 2: โปรโตคอล T21CB (The 2-1 Curse Breaker) 🚨
-มาเช็คกับดักสกอร์ 2-1 ของระบบ 5.5 ซึ่งเป็นคีย์สำคัญของกระดานนี้:
 Home Dominance Factor: โอกาสชนะของเจ้าบ้านเกิน 50% หรือไม่? ➡️ {t21cb_text} ({t_ph*100:.2f}%)
 Handicap Pressure: เจ้าบ้านต่อแพงตั้งแต่ 0.5 หรือไม่? ➡️ {"[TRUE]" if hdp_line >= 0.5 else "[FALSE]"} (ต่อ {hdp_line})
 Under Trap Line: สกอร์รวมเปิดมากดดันที่ <= 2.5 หรือไม่? ➡️ {"[TRUE]" if ou_line <= 2.5 else "[FALSE]"} (เรตเปิดมาที่ {ou_line})
-ผลการทำงาน: ระบบ {"\"ถูกกระตุ้นการทำงาน 100%\" ครับ! นี่คือ The Perfect Trap ของบอลอเมริกาใต้ บ่อนรู้ว่าสถิติการยิงประตูน้อยจะดึงดูดคนให้แทงต่ำ หากโดนทีมเยือนสวนกลับ สกอร์ 2-1 จะทำลายบิลหน้าต่ำจนพังพินาศ" if is_t21cb else "\"ไม่ถูกกระตุ้นการทำงาน\""}
-{"คำสั่ง: หักลบค่า EV หน้าต่ำทิ้งทันที 5.00%" if is_t21cb else ""}
+ผลการทำงาน: ระบบ {"\"ถูกกระตุ้นการทำงาน 100%\" (สกอร์ 2-1 จะทำลายบิลหน้าต่ำจนพังพินาศ)" if is_t21cb else "\"ไม่ถูกกระตุ้นการทำงาน\""}
 
 ระยะที่ 3: โปรโตคอล HTP Filter (จับผิด Handicap-Total Paradox) ⚡
 |AH|line = {hdp_line}
 O/U line = {ou_line}
 ΔHTP = {ou_line} - {hdp_line} = {delta_htp:.2f}
-ผลลัพธ์ HTP Matrix: ตกอยู่ใน {htp_matrix} โครงสร้างราคามีความตึงเครียด บ่อนคาดหวังให้เจ้าบ้านชนะแบบหืดจับ (เช่น 1-0 หรือ 2-0) ซึ่งเป็นการบีบพื้นที่ความน่าจะเป็นให้แคบมากสำหรับคนเล่นฝั่งต่อ
+ผลลัพธ์ HTP Matrix: ตกอยู่ใน {htp_matrix}
 
 ระยะที่ 4: การคำนวณ Expected Value (AH Value Analysis) 🛡️
-เจาะตลาดแฮนดิแคปสู้กับกำแพงค่าต๋ง {margin*100:.2f}% ด้วยสมการ EV:
-
-สกอร์รวม ต่ำ (Under) {ou_line} (ค่าน้ำ {ou_under_water}):
-{"โดนกฎ T21CB ลงโทษหัก 5.00% เมื่อรวมกับค่าต๋งหน้ากระดานกว่า 10% ทำให้ค่า EV ร่วงลงไปติดลบ 🔴 [ABSOLUTE VETO]" if is_t21cb else "ผ่านการคัดกรองเบื้องต้น"}
+เจาะตลาดแฮนดิแคปสู้กับกำแพงค่าต๋ง {margin*100:.2f}% ด้วยสมการ EV (ต้องการ Margin of Safety > 3%):
 
 {team_home} ต่อ {hdp_line} (ค่าน้ำ {hdp_home_water}):
-บังคับให้ถือทีมต่อด้วยผลตอบแทนสุดขี้เหร่ ({hdp_home_water})
 EV ≈ {ev_home_raw*100:.2f}%
-{"🔴 (Value Trap ตัวจริง! การแบกราคาต่อในค่าน้ำแค่นี้ ภายใต้ค่าต๋งระดับนี้ คือการเดินลงเหว)" if ev_home_raw < 0 else "🟢 (Value Discovery)"}
+{home_status_text}
 
 {team_away} รอง {hdp_line} (ค่าน้ำ {hdp_away_water}):
-บ่อนเอาน้ำล้นมายั่วใจ โอกาสรอดตายเบ็ดเสร็จ (เสมอ+ชนะ) คือ {(t_pa+t_pd)*100:.2f}%
-ค่า EV_raw หน้ากระดานคำนวณได้เป็นบวกบางๆ ({ev_away_raw*100:.2f}%)
-เปิดเกราะ Exponential Away Penalty (HDBA): เมื่อทีมต้องเดินทางข้ามทวีปและสภาพแวดล้อมจะตัดกำลังอย่างหนัก ระบบประเมิน Geo-Penalty โหดที่ {hdba_pct:.2f}%
-เมื่อนำไปหักลบกับตัวเลขดิบ ทำให้ค่า EV_adj ≈ {ev_away_adj*100:.2f}% {"🔴 พลิกกลับมาร่วงลงสู่ [DEAD ZONE] ไม่คุ้มค่าที่จะเอาเงินไปเสี่ยง" if ev_away_adj < 0 else "🟢 ทะลุเข้าสู่ [PROFIT ZONE] น่าลงทุน"}
+หักลบค่าเสียเปรียบของทีมเยือน (HDBA) ที่ {hdba_pct:.2f}%
+EV_adj ≈ {ev_away_adj*100:.2f}% 
+{away_status_text}
 
 💡 บทสรุปและสัญญาณการลงทุน (GEM Signal 5.5)
-กระดานนี้คือผลงานศิลปะการวางหลุมพรางที่แนบเนียนของ Bookmaker ครับ ปิดประตูชนะของเราไว้ทุกมิติ:
-🔥 สัญญาณลงทุนหลัก: {"🚫 NO BET (งดลงทุน - กักกันทั้งกระดาน)" if (ev_home_raw < 0 and ev_away_adj < 0) else "🔥 INVEST (พบช่องโหว่ทำกำไร)"}
-เครื่องยนต์ GEM System 5.5 สั่ง {"Veto แบบ 100% ไร้ข้อกังขา:" if (ev_home_raw < 0 and ev_away_adj < 0) else "ลุย:"}
-ฝั่งต่อ ({team_home}): โดนกดค่าน้ำจน EV {"ติดลบอย่างหนัก" if ev_home_raw < 0 else "เป็นบวก"} 
-ฝั่งรอง ({team_away}): {"น้ำล้นคือเหยื่อล่อ ไม่สามารถต้านทานความเสียเปรียบของ HDBA ได้" if ev_away_adj < 0 else "มีค่า EV สุทธิเป็นบวก เอาชนะสภาพแวดล้อมได้"}
-สกอร์รวม: {"หน้าต่ำติดกับดัก 2-1 Curse ส่วนหน้าสูงก็โดนหัก Margin จนไม่คุ้มค่า" if is_t21cb else "ประเมินตามหน้ากระดาน"}
+🔥 สัญญาณลงทุนหลัก: {"🔥 INVEST (พบช่องโหว่ทำกำไร)" if is_any_invest else "🚫 NO BET (กักกันเงินทุน - เสี่ยงเกินไป)"}
+เครื่องยนต์ GEM System 5.5 สั่ง {"ลุย:" if is_any_invest else "Veto แบบ 100% ไร้ข้อกังขา:"}
+ฝั่งต่อ ({team_home}): {"มีค่า EV ทะลุเกณฑ์ 3% น่าลงทุน" if is_home_invest else ("แม้ EV เป็นบวกแต่กำไรบางเกินไป สู้ค่าต๋งไม่ไหว" if ev_home_raw > 0 else "ค่าน้ำแย่จน EV ติดลบ")}
+ฝั่งรอง ({team_away}): {"ค่า EV หัก HDBA แล้วยังเกิน 3% ทรงพลังมาก" if is_away_invest else ("น้ำล้นคือเหยื่อล่อ สู้แรงกดดันทีมเยือนไม่ไหว" if ev_away_adj > 0 else "ติดลบยับเยิน")}
 
-🚨 สถานะเดินเงิน: {"เซฟเงินต้น 100% (Hold your bankroll)" if (ev_home_raw < 0 and ev_away_adj < 0) else "Standard Kelly 50%"}
-{"การเผชิญหน้ากับกระดานที่บ่อนกินส่วนต่างเกิน 10% และมีหลุมพรางซ่อนอยู่ การเก็บเงินสดไว้ในมือและปฏิเสธการลงทุน คือชัยชนะที่เด็ดขาดที่สุดในแมตช์นี้ครับ!" if (ev_home_raw < 0 and ev_away_adj < 0) else ""}
+🚨 สถานะเดินเงิน: {"Standard Kelly" if is_any_invest else "เซฟเงินต้น 100% (Hold your bankroll)"}
 """
     return report
 
