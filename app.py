@@ -4,14 +4,21 @@ import streamlit as st
 # 1. ฟังก์ชันสมองกล (Patch 5.5.4: Total Market Integration)
 # ==========================================
 def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_home_water, hdp_away_water, ou_line, ou_over_water, ou_under_water, hdba_pct, total_bankroll):
+    def fix_odds(o):
+        return o + 1.0 if o < 1.0 else o
+        
+    h1, d1, a1 = fix_odds(h1x2), fix_odds(d1x2), fix_odds(a1x2)
+    hdp_h, hdp_a = fix_odds(hdp_home_water), fix_odds(hdp_away_water)
+    ou_o, ou_u = fix_odds(ou_over_water), fix_odds(ou_under_water)
+    
     # --- ระยะที่ 1: Devigging (1X2 & O/U) ---
     # 1X2 Market
-    i_h, i_d, i_a = 1/h1x2, 1/d1x2, 1/a1x2
+    i_h, i_d, i_a = 1/h1, 1/d1, 1/a1
     m_1x2 = (i_h + i_d + i_a) - 1
     t_ph, t_pd, t_pa = i_h/(1+m_1x2), i_d/(1+m_1x2), i_a/(1+m_1x2)
 
     # O/U Market
-    i_over, i_under = 1/ou_over_water, 1/ou_under_water
+    i_over, i_under = 1/ou_o, 1/ou_u
     m_ou = (i_over + i_under) - 1
     t_p_over, t_p_under = i_over/(1+m_ou), i_under/(1+m_ou)
 
