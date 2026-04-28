@@ -78,7 +78,7 @@ def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w
            {"n": "ต่ำ", "ev": ev_under, "m": u_k_m, "p": u_k_p}]
     best = max(res, key=lambda x: x['ev'])
 
-    return f"""📊 GEM System 5.6.0 (The Quarter-Ball Logic)
+    return f"""📊 GEM System Patch 5.6.0: Universal AH Engine
 คู่: {match_name}
 
 สถิติจริง 🚨
@@ -99,7 +99,7 @@ def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w
 # 2. UI Layout
 # ==========================================
 st.set_page_config(page_title="GEM System 5.5.4", layout="wide")
-st.title("⚽ GEM System 5.5.4 - Total Market Integration")
+st.title("⚽ GEM System Patch 5.6.0: Universal AH Engine")
 st.sidebar.header("💰 Portfolio Management")
 total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0, step=1000.0)
 
