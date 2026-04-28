@@ -78,7 +78,7 @@ def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w
            {"n": "ต่ำ", "ev": ev_under, "m": u_k_m, "p": u_k_p}]
     best = max(res, key=lambda x: x['ev'])
 
-    return f"""📊 GEM System 5.5.8 (The Quarter-Ball Logic)
+    return f"""📊 GEM System 5.6.0 (The Quarter-Ball Logic)
 คู่: {match_name}
 
 สถิติจริง 🚨
