@@ -130,5 +130,5 @@ hdba_val = st.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5, 0.1)
 
 if st.button("🚀 คำนวณแผนการลงทุน", type="primary"):
     report = generate_gem_report(match_name_input, h_odds, d_odds, a_odds, hdp_line, hdp_home, hdp_away, ou_line, ou_over, ou_under, hdba_val, total_bankroll)
-    st.success("✅ วิเคราะห์แผนเดินเงินสำเร็จ!")
+    st.success("✅ วิเคราะห์สำเร็จ!")
     st.code(report, language="text")
