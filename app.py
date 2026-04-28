@@ -116,7 +116,9 @@ with col3:
     ou_under = st.number_input("น้ำหน้าต่ำ (Under)", value=0.95, format="%.2f")
 
 st.markdown("---")
-hdba_val = st.slider("⚖️ HDBA Penalty (ค่าประเมินความเสียเปรียบของทีมเยือน %)", min_value=0.0, max_value=10.0, value=3.5, step=0.1)
+hdba_val = st.slider("⚖️ HDBA Penalty (ค่าประเมินความเสียเปรียบของทีมเยือน %)"
+                     "หากเป็นลีกมาตรฐานยุโรป (พรีเมียร์ลีก, ลาลีกา) การเดินทางสะดวก ให้ใส่ HDBA = 1.5 (Base 1.0 + กองเชียร์ 0.5)"
+                     , min_value=0.0, max_value=10.0, value=3.5, step=0.1)
 
 # ปุ่มกดให้เริ่มทำงาน
 if st.button("🚀 ประมวลผลและสร้างรายงาน (Generate Report)", type="primary"):
