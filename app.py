@@ -1,43 +1,54 @@
 import streamlit as st
 
 # ==========================================
-# 1. ฟังก์ชันสมองกล (Patch 5.5.6: The Ultimate Brain)
+# 1. ฟังก์ชันสมองกล (Patch 5.5.7: The AH Matrix)
 # ==========================================
 def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w, ou_line, ou_o_w, ou_u_w, hdba_pct, total_bankroll):
     
-    def fix_odds(o):
-        return o + 1.0 if o < 1.1 else o 
+    def fix_odds(o): return o + 1.0 if o < 1.1 else o 
 
-    # แปลงค่าน้ำให้เป็นระบบเดียวกันทั้งหมด
     h1, d1, a1 = fix_odds(h1x2), fix_odds(d1x2), fix_odds(a1x2)
     h_w, a_w = fix_odds(hdp_h_w), fix_odds(hdp_a_w)
     o_w, u_w = fix_odds(ou_o_w), fix_odds(ou_u_w)
 
-    # ระยะที่ 1: Devigging (หาโอกาสชนะที่แท้จริง)
+    # ระยะที่ 1: Devigging (หาโอกาสชนะที่แท้จริงจาก 1X2)
     m_1x2 = (1/h1 + 1/d1 + 1/a1) - 1
     p_h, p_d, p_a = (1/h1)/(1+m_1x2), (1/d1)/(1+m_1x2), (1/a1)/(1+m_1x2)
     
     m_ou = (1/o_w + 1/u_w) - 1
     p_o, p_u = (1/o_w)/(1+m_ou), (1/u_w)/(1+m_ou)
 
-    # ระยะที่ 4: คำนวณ EV แบบ Matrix (แก้บั๊กสลับฝั่งถาวร)
-    # ฝั่งเจ้าบ้าน (Home)
-    ev_h = (p_h * (h_w-1)) - ((p_d + p_a) * 1)
-    # ฝั่งทีมเยือน (Away) + หัก HDBA
-    ev_a = (p_a * (a_w-1)) - ((p_h + p_d) * 1) - (hdba_pct/100)
+    # --- [NEW] ระยะที่ 4: AH EV Calculation (คำนวณตามแต้มต่อจริง) ---
+    # ในกรณี AH 0.5 (หรือ ครึ่งลูก)
+    # ถ้าเล่นฝั่งรอง: โอกาสชนะเดิมพัน = p_win + p_draw
+    # ถ้าเล่นฝั่งต่อ: โอกาสชนะเดิมพัน = p_win
     
-    # ฝั่งสกอร์รวม
+    # สมมติฐาน: ระบบปัจจุบันรับ hdp_line เป็นค่าบวกเสมอ (เช่น 0.5) 
+    # และบ่อนตั้งให้เจ้าบ้านเป็นทีมต่อในกรณีนี้ (ตามราคา 1.95 vs 4.00)
+    is_home_fav = p_h >= p_a
+    
+    if is_home_fav:
+        # เจ้าบ้านต่อ 0.5: ต้องชนะเท่านั้น
+        ev_h = (p_h * (h_w-1)) - ((p_d + p_a) * 1)
+        # ทีมเยือนรอง 0.5: ชนะหรือเสมอได้เงิน
+        ev_a = ((p_a + p_d) * (a_w-1)) - (p_h * 1) - (hdba_pct/100)
+    else:
+        # ทีมเยือนต่อ 0.5
+        ev_a = (p_a * (a_w-1)) - ((p_h + p_d) * 1) - (hdba_pct/100)
+        # เจ้าบ้านรอง 0.5
+        ev_h = ((p_h + p_d) * (h_w-1)) - (p_a * 1)
+
+    # ตลาดสกอร์รวม
     ev_over = (p_o * (o_w-1)) - (p_u * 1)
     ev_under = (p_u * (u_w-1)) - (p_o * 1)
-    # กฎ T21CB
     if p_h > 0.5 and ou_line <= 2.5: ev_under -= 0.05
 
     def get_k(ev, odds, bank):
         if ev < 0.03: return 0, 0
-        p_win = (ev + 1) / odds
         b = odds - 1
+        p_win = (ev + 1) / odds # หาความน่าจะเป็นที่รวมผลลัพธ์แฮนดิแคปแล้ว
         k_pct = ( (b * p_win) - (1 - p_win) ) / b
-        safe_k = min(k_pct * 0.5, 0.10) # Half-Kelly & Cap 10%
+        safe_k = min(k_pct * 0.5, 0.10)
         return max(0, safe_k * 100), max(0, safe_k * bank)
 
     h_k_p, h_k_m = get_k(ev_h, h_w, total_bankroll)
@@ -45,28 +56,25 @@ def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w
     o_k_p, o_k_m = get_k(ev_over, o_w, total_bankroll)
     u_k_p, u_k_m = get_k(ev_under, u_w, total_bankroll)
 
-    res = [
-        {"n": "เจ้าบ้าน (Home)", "ev": ev_h, "m": h_k_m, "p": h_k_p},
-        {"n": "ทีมเยือน (Away)", "ev": ev_a, "m": a_k_m, "p": a_k_p},
-        {"n": "สูง (Over)", "ev": ev_over, "m": o_k_m, "p": o_k_p},
-        {"n": "ต่ำ (Under)", "ev": ev_under, "m": u_k_m, "p": u_k_p}
-    ]
+    res = [{"n": "เจ้าบ้าน", "ev": ev_h, "m": h_k_m, "p": h_k_p},
+           {"n": "ทีมเยือน", "ev": ev_a, "m": a_k_m, "p": a_k_p},
+           {"n": "สูง", "ev": ev_over, "m": o_k_m, "p": o_k_p},
+           {"n": "ต่ำ", "ev": ev_under, "m": u_k_m, "p": u_k_p}]
     best = max(res, key=lambda x: x['ev'])
 
-    return f"""📊 GEM System 5.5.6 (The Ultimate Brain)
+    return f"""📊 GEM System 5.5.7 (AH Matrix Integration)
 คู่: {match_name}
 
-สถิติจริง 🚨
+สถิติจริง (Devigged) 🚨
 - Margin 1X2: {m_1x2*100:.2f}% | O/U: {m_ou*100:.2f}%
 - True Prob: เหย้า {p_h*100:.1f}% | เสมอ {p_d*100:.1f}% | เยือน {p_a*100:.1f}%
 
-ความคุ้มค่า (Margin of Safety 3%) 🛡️
-- เจ้าบ้าน: EV {ev_h*100:.2f}% | {"ลงทุน "+str(round(h_k_p,1))+"%" if h_k_p>0 else "งด"}
-- ทีมเยือน: EV {ev_a*100:.2f}% | {"ลงทุน "+str(round(a_k_p,1))+"%" if a_k_p>0 else "งด"}
-- สูง: EV {ev_over*100:.2f}% | {"ลงทุน "+str(round(o_k_p,1))+"%" if o_k_p>0 else "งด"}
-- ต่ำ: EV {ev_under*100:.2f}% | {"ลงทุน "+str(round(u_k_p,1))+"%" if u_k_p>0 else "งด"}
+วิเคราะห์ EV (รวมแต้มต่อ {hdp_line}) 🛡️
+- เจ้าบ้าน ({"ต่อ" if is_home_fav else "รอง"}): EV {ev_h*100:.2f}%
+- ทีมเยือน ({"รอง" if is_home_fav else "ต่อ"}): EV {ev_a*100:.2f}%
+- สูง/ต่ำ {ou_line}: สูง {ev_over*100:.2f}% | ต่ำ {ev_under*100:.2f}%
 
-💡 สรุป: {"🔥 INVEST" if best['ev']>=0.03 else "🚫 NO BET"}
+💡 บทสรุป: {"🔥 INVEST" if best['ev']>=0.03 else "🚫 NO BET"}
 🎯 เป้าหมาย: {best['n'] if best['ev']>=0.03 else "N/A"}
 💰 ยอดเงิน: {best['m'] if best['ev']>=0.03 else 0:,.2f} THB
 """
