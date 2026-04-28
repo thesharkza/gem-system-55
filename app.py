@@ -121,6 +121,10 @@ with col2:
     ou_over_w = st.number_input("น้ำหน้าสูง (Over)", value=0.81)
     ou_under_w = st.number_input("น้ำหน้าต่ำ (Under)", value=1.06)
     hdba_val = st.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
+    st.markdown("Remark HDBA")
+    st.markdown("-หากเป็นลีกมาตรฐานยุโรป (พรีเมียร์ลีก, ลาลีกา) การเดินทางสะดวก ให้ใส่ HDBA = 1.5 (Base 1.0 + กองเชียร์ 0.5)")
+    st.markdown("-หากเป็นบอลถ้วยละตินอเมริกาที่ต้องบินข้ามประเทศ ให้ยืนพื้น HDBA = 2.5 ถึง 3.0 ไว้ก่อนเลย")
+    st.markdown("-หากไปเยือน โบลิเวีย หรือ เอกวาดอร์ (ที่ราบสูง) ให้กด HDBA = 4.5 หรือ 5.0 ได้เลยครับ")
 
 if st.button("🚀 สแกนตลาดทั้งหมด", type="primary"):
     report = generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w, ou_line, ou_over_w, ou_under_w, hdba_val, total_bankroll)
