@@ -147,27 +147,39 @@ with tab1:
 with tab2:
     logs = load_logs()
     if logs is not None:
-        st.subheader("📌 สรุปภาพรวมสถิติ")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("จำนวนไม้ทั้งหมด", len(logs))
-        c2.metric("ยอดรวมการลงทุน", f"{logs['Investment'].sum():,.2f} บาท")
-        c3.metric("ค่าเฉลี่ย EV", f"{logs['EV_Pct'].mean():.2f}%")
-        c4.metric("เป้าหมายยอดนิยม", logs['Target'].mode()[0] if not logs.empty else "N/A")
+        # ตรวจสอบว่ามีคอลัมน์ที่ต้องการไหม ถ้าไม่มีให้สร้างหลอกๆ ไว้ป้องกัน Error
+        if 'EV_Pct' not in logs.columns and 'EV' in logs.columns:
+            logs['EV_Pct'] = logs['EV'] # Copy ค่าจากชื่อเก่ามาชื่อใหม่
+        
+        if 'EV_Pct' in logs.columns:
+            st.subheader("📌 สรุปภาพรวมสถิติ")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("จำนวนไม้ทั้งหมด", len(logs))
+            c2.metric("ยอดรวมการลงทุน", f"{logs['Investment'].sum():,.2f} บาท")
+            c3.metric("ค่าเฉลี่ย EV", f"{logs['EV_Pct'].mean():.2f}%")
+            
+            # ป้องกัน Error กรณีหา mode ไม่เจอ
+            popular_target = logs['Target'].mode()[0] if not logs['Target'].empty else "N/A"
+            c4.metric("เป้าหมายยอดนิยม", popular_target)
 
-        # กราฟแสดงการลงทุนย้อนหลัง
-        st.subheader("📈 กราฟแสดงยอดเงินลงทุนสะสม")
-        logs['Cumulative_Invest'] = logs['Investment'].cumsum()
-        fig = px.line(logs, x='Time', y='Cumulative_Invest', title="Cumulative Investment Over Time", markers=True)
-        st.plotly_chart(fig, use_container_width=True)
+            # กราฟแสดงการลงทุนย้อนหลัง
+            st.subheader("📈 กราฟแสดงยอดเงินลงทุนสะสม")
+            logs['Cumulative_Invest'] = logs['Investment'].cumsum()
+            
+            # ใช้ st.line_chart แทน plotly ชั่วคราวถ้ายังไม่แก้ requirements.txt
+            chart_data = logs.set_index('Time')['Cumulative_Invest']
+            st.line_chart(chart_data)
 
-        # ตาราง Log ย้อนหลัง
-        st.subheader("📂 ประวัติการวิเคราะห์ (Log History)")
-        st.dataframe(logs.sort_values(by='Time', ascending=False), use_container_width=True)
+            # ตาราง Log ย้อนหลัง
+            st.subheader("📂 ประวัติการวิเคราะห์ (Log History)")
+            st.dataframe(logs.sort_values(by='Time', ascending=False), use_container_width=True)
+        else:
+            st.error("❌ รูปแบบไฟล์ Log ไม่ถูกต้อง กรุณาลบไฟล์ gem_history_log.csv แล้วบันทึกใหม่")
         
         # ปุ่มล้างข้อมูล
         if st.button("🗑️ ล้างประวัติทั้งหมด (Clear Logs)"):
             if os.path.exists(LOG_FILE):
                 os.remove(LOG_FILE)
-                st.warning("ลบประวัติเรียบร้อยแล้ว กรุณา Refresh หน้าเว็บ")
+                st.rerun() # ใช้ st.rerun() แทนเพื่อให้แอปรีเฟรชตัวเอง
     else:
         st.info("ยังไม่มีข้อมูลใน Log กรุณาทำการวิเคราะห์และกดบันทึกก่อนครับ")
