@@ -57,7 +57,7 @@ def calc_universal_ev(hdp, p_win, p_draw, p_loss, odds, is_fav):
 # ==========================================
 # 3. ส่วน UI - TABS System
 # ==========================================
-st.title("📊 GEM System 5.6.8: Dashboard Edition")
+st.title("📊 GEM System Betting Soccer 5.6.8")
 
 tab1, tab2 = st.tabs(["🚀 Analysis Terminal", "📈 Dashboard & History"])
 
@@ -120,7 +120,7 @@ with tab1:
         best = max(res_list, key=lambda x: x['ev'])
         k_pct, k_money = get_k(best['ev'], best['odds'], total_bankroll)
 
-        report_text = f"""📊 GEM System 5.6.8
+        report_text = f"""📊 GEM System Betting Soccer
 คู่: {match_name}
 
 สถิติจริง 🚨
