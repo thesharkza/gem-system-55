@@ -6,7 +6,7 @@ import math
 from datetime import datetime
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 6.0.0 (Quant)", layout="wide")
+st.set_page_config(page_title="GEM System 6.0.1 (Pure Quant)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -28,32 +28,28 @@ def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
 def calc_poisson_matrix(p_h, p_d, p_a, total_goals):
-    """แปลง True Prob และเรต O/U เป็นตารางสกอร์ xG เพื่อหาโอกาสผลต่างประตู"""
-    # ประมาณการค่า xG (Expected Goals) เบื้องต้น
-    lam_h = total_goals * (p_h + (p_d * 0.5)) / (p_h + p_a + p_d)
-    lam_a = total_goals * (p_a + (p_d * 0.5)) / (p_h + p_a + p_d)
-    
-    # ถ้าทีมต่อจัด มีโอกาสยิงเยอะกว่า
-    if p_h > p_a: lam_h = lam_h * 1.1; lam_a = lam_a * 0.9
-    else: lam_a = lam_a * 1.1; lam_h = lam_h * 0.9
+    """แปลง True Prob และเรต O/U เป็นตารางสกอร์ xG เชิงบริสุทธิ์ (Pure Math)"""
+    # 1. กระจายจำนวนประตู (xG) ตามสัดส่วนโอกาสชนะ 
+    lam_h = total_goals * (p_h + (p_d * 0.5))
+    lam_a = total_goals * (p_a + (p_d * 0.5))
 
-    # สร้าง Matrix จำลองสกอร์ 0-5 ประตู
+    # 2. สร้าง Matrix จำลองสกอร์ 0-5 ประตู
     matrix = [[poisson(i, lam_h) * poisson(j, lam_a) for j in range(6)] for i in range(6)]
     
-    # คำนวณความน่าจะเป็นของผลต่างประตู
+    # 3. คำนวณความน่าจะเป็นของผลต่างประตู
     p_h_win_by_2plus = sum(matrix[i][j] for i in range(6) for j in range(6) if i - j >= 2)
     p_h_win_by_1 = sum(matrix[i][j] for i in range(6) for j in range(6) if i - j == 1)
     p_draw = sum(matrix[i][i] for i in range(6))
     p_a_win_by_1 = sum(matrix[i][j] for i in range(6) for j in range(6) if j - i == 1)
     p_a_win_by_2plus = sum(matrix[i][j] for i in range(6) for j in range(6) if j - i >= 2)
     
-    # Normalization ให้รวมกันได้ 1 (100%)
+    # 4. Normalization ให้สัดส่วนรวมกันได้ 1 (100%) เสมอ
     total_sum = p_h_win_by_2plus + p_h_win_by_1 + p_draw + p_a_win_by_1 + p_a_win_by_2plus
     return (p_h_win_by_2plus/total_sum, p_h_win_by_1/total_sum, p_draw/total_sum, 
             p_a_win_by_1/total_sum, p_a_win_by_2plus/total_sum)
 
 def calc_advanced_ah_ev(hdp, h_w2, h_w1, draw, a_w1, a_w2, odds, is_home):
-    """คำนวณ EV ตามโอกาสของผลต่างประตูที่แท้จริง (เลิกใช้ 50/50 เดาสุ่ม)"""
+    """คำนวณ EV ตามโอกาสของผลต่างประตูที่แท้จริงจากสมการ Poisson"""
     b = odds - 1
     if is_home:
         w2, w1, d, l1, l2 = h_w2, h_w1, draw, a_w1, a_w2
@@ -82,8 +78,8 @@ def calc_advanced_ah_ev(hdp, h_w2, h_w1, draw, a_w1, a_w2, odds, is_home):
         # ต่อ 1.25: ชนะ 2+=ได้เต็ม, ชนะ 1=เสียครึ่ง, เสมอ/แพ้=เสียเต็ม
         return (w2 * b) - (w1 * 0.5) - ((d + l1 + l2) * 1)
     
-    # Fallback สำหรับเรตแปลกๆ หรือเรตรอง (รับแต้มต่อ)
-    if not is_home: # มุมทีมรอง
+    # Fallback สำหรับมุมทีมรอง (รับแต้มต่อ)
+    if not is_home: 
         if hdp_abs == 0.25: return ((w2+w1)*b) + (d*(b/2)) - ((l1+l2)*1)
         elif hdp_abs == 0.5: return ((w2+w1+d)*b) - ((l1+l2)*1)
         elif hdp_abs == 0.75: return ((w2+w1+d)*b) - (l1*(1/2)) - (l2*1)
@@ -92,7 +88,7 @@ def calc_advanced_ah_ev(hdp, h_w2, h_w1, draw, a_w1, a_w2, odds, is_home):
     return 0.0 # Safety fallback
 
 # ==========================================
-# 2. ระบบฐานข้อมูลและ Backtest (เดิม)
+# 2. ระบบฐานข้อมูลและ Backtest
 # ==========================================
 def save_to_csv(data_dict):
     df_new = pd.DataFrame([data_dict])
@@ -140,7 +136,7 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("📊 GEM System 6.0: The Quant Revival (Poisson Edition)")
+st.title("📊 GEM System 6.0.1: Pure Quant Edition")
 
 tab1, tab2 = st.tabs(["🚀 Advanced Terminal", "📈 Performance Dashboard"])
 
@@ -165,9 +161,9 @@ with tab1:
         ou_over_w = st.number_input("น้ำหน้าสูง (Over)", value=0.0)
         ou_under_w = st.number_input("น้ำหน้าต่ำ (Under)", value=0.0)
         hdba_val = st.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
-        st.info("Remark: ลีกมาตรฐานยุโรป 1.5 | บอลถ้วยที่ต้องบินข้ามประเทศ 2.5-3.0 | โบลิเวีย/เอกวาดอร์ (ที่ราบสูง) 4.5+")
+        st.info("Remark: ลีกมาตรฐานยุโรป 1.5 | บอลถ้วยที่ต้องบินข้ามประเทศ 2.5-3.0 | โบลิเวีย ,เอกวาดอร์ (ที่ราบสูง) 4.5+")
 
-    if st.button("🚀 ANALYZE WITH POISSON ENGINE"):
+    if st.button("🚀 ANALYZE WITH PURE MATH"):
         def fix(o): return o + 1.0 if o < 1.1 else o
         h_o, d_o, a_o = fix(h1x2), fix(d1x2), fix(a1x2)
         hw_o, aw_o, ow_o, uw_o = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
@@ -178,7 +174,7 @@ with tab1:
         m_ou = (1/ow_o + 1/uw_o) - 1
         prob_over, prob_under = (1/ow_o)/(1+m_ou), (1/uw_o)/(1+m_ou)
         
-        # 2. คำนวณ Poisson Matrix หาโอกาสผลต่างประตู
+        # 2. คำนวณ Poisson Matrix หาโอกาสผลต่างประตู (ใช้สมการบริสุทธิ์)
         hw2, hw1, d_exact, aw1, aw2 = calc_poisson_matrix(prob_h, prob_d, prob_a, ou_line)
         
         # 3. คำนวณ EV ตามสูตร AH เชิงลึก
@@ -191,7 +187,7 @@ with tab1:
 
         # 4. Defensive Money Management (Quarter Kelly)
         def get_defensive_k(ev, odds, bank):
-            if ev < 0.05: return 0.0 # เปลี่ยนเป็น 5% Margin of Safety
+            if ev < 0.05: return 0.0 # ป้องกันด้วย Margin of Safety 5%
             b_k, p_k = odds - 1, (ev + 1) / odds
             k_pct = ((b_k * p_k) - (1 - p_k)) / b_k
             return min(k_pct * 0.25, 0.05) * bank # Quarter Kelly (Max 5%)
@@ -202,7 +198,7 @@ with tab1:
         k_money = get_defensive_k(best['ev'], best['odds'], total_bankroll)
 
         # แสดงค่าสถานะเชิงลึกเพื่อการศึกษา
-        st.session_state['report'] = f"""📊 GEM System 6.0: Poisson Engine
+        st.session_state['report'] = f"""📊 GEM System 6.0.1: Pure Quant
 คู่: {match_name}
 ✅ True Prob (Power Method): เหย้า {prob_h*100:.1f}% | เสมอ {prob_d*100:.1f}% | เยือน {prob_a*100:.1f}%
 🔬 Poisson Score Analysis:
@@ -216,7 +212,7 @@ with tab1:
         st.session_state['log_data'] = {"Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": hdp_line, "Target": best['n'], "EV_Pct": round(best['ev']*100, 2), "Investment": round(k_money, 2), "Odds": best['odds'], "Result": ""}
 
     if 'report' in st.session_state:
-        st.info("💡 ข้อสังเกต: ระบบปรับสู่ Defensive Mode (ต้องการ EV > 5% และเดินเงินแบบ Quarter-Kelly)")
+        st.info("💡 ข้อสังเกต: ระบบประมวลผลด้วย Pure Math ป้องกันบวกหลอก (EV > 5%)")
         st.text_area("Advanced Quant Report:", value=st.session_state['report'], height=250)
         if st.button("💾 บันทึกลง Log"):
             save_to_csv(st.session_state['log_data']); st.success("บันทึกสำเร็จ!"); st.rerun()
