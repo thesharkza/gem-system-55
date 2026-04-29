@@ -160,21 +160,39 @@ with tab1:
 with tab2:
     logs = load_logs()
     if logs is not None:
-        st.subheader("📌 ภาพรวมผลงาน")
+        st.subheader("📈 ระบบตรวจสอบและพัฒนาผลงาน (Backtesting)")
+        
+        # 1. ปุ่มดาวน์โหลดไฟล์ลงเครื่อง
+        csv_data = logs.to_csv(index=False).encode('utf-8-sig')
+        st.download_button(
+            label="📥 Download CSV for Excel (Backtest)",
+            data=csv_data,
+            file_name=f"gem_backtest_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv",
+        )
+        
+        st.markdown("---")
+        
+        # 2. สรุปภาพรวมสถิติ
         col_m1, col_m2, col_m3 = st.columns(3)
         col_m1.metric("จำนวนไม้", len(logs))
         col_m2.metric("ยอดลงทุนรวม", f"{logs['Investment'].sum():,.2f}")
         col_m3.metric("ค่าเฉลี่ย EV", f"{logs['EV_Pct'].mean():.2f}%")
         
-        st.subheader("📉 กราฟการลงทุน")
-        st.line_chart(logs.set_index('Time')['Investment'].cumsum())
-        
-        st.subheader("📂 ประวัติทั้งหมด")
+        # 3. แสดงตารางประวัติ (พร้อมช่องให้คุณไปเติมผลเองใน Excel)
+        st.subheader("📂 ประวัติการวิเคราะห์")
+        st.write("💡 *คำแนะนำ: ดาวน์โหลดไฟล์ไปเปิดใน Excel แล้วเพิ่มคอลัมน์ 'Actual Result' เพื่อคำนวณกำไรจริงครับ*")
         st.dataframe(logs.sort_values(by='Time', ascending=False), use_container_width=True)
         
+        # 4. กราฟแสดงทิศทางการลงทุน
+        st.subheader("📊 กราฟการลงทุนสะสม")
+        logs['Cumulative_Invest'] = logs['Investment'].cumsum()
+        st.line_chart(logs.set_index('Time')['Cumulative_Invest'])
+
+        # 5. ปุ่มล้างข้อมูล
         if st.button("🗑️ ล้างประวัติ (Clear Logs)"):
             if os.path.exists(LOG_FILE):
                 os.remove(LOG_FILE)
                 st.rerun()
     else:
-        st.info("ยังไม่มีข้อมูลบันทึก")
+        st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
