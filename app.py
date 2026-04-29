@@ -108,12 +108,23 @@ with tab1:
 
         # Kelly Money Management
         def get_k(ev, odds, bank):
-            if ev < 0.03: return 0, 0
-            b_k, p_k = odds - 1, (ev + 1) / odds
+            if ev < 0.03: 
+                return 0.0 # คืนค่าเป็น Float ตัวเดียวป้องกัน TypeError
+            
+            b_k = odds - 1
+            p_k = (ev + 1) / odds
             k_pct = ((b_k * p_k) - (1 - p_k)) / b_k
-            safe_k = min(k_pct * 0.5, 0.10) # Half Kelly
+            
+            # ปรับปรุงความปลอดภัย: Half-Kelly และจำกัดไม่เกิน 10% ของพอร์ต
+            safe_k = min(k_pct * 0.5, 0.10) 
+            
+            # ตรวจสอบเผื่อค่าติดลบ
+            if safe_k < 0:
+                return 0.0
+                
             return safe_k * bank
 
+        # หาเป้าหมายที่ดีที่สุด
         res_list = [
             {"n": "เจ้าบ้าน", "ev": ev_h, "odds": hw_o},
             {"n": "ทีมเยือน", "ev": ev_a, "odds": aw_o},
@@ -121,6 +132,8 @@ with tab1:
             {"n": "ต่ำ", "ev": ev_under, "odds": uw_o}
         ]
         best = max(res_list, key=lambda x: x['ev'])
+        
+        # เรียกใช้ฟังก์ชันที่แก้แล้ว
         k_money = get_k(best['ev'], best['odds'], total_bankroll)
 
         # เก็บผลลัพธ์ลง Session
