@@ -12,17 +12,39 @@ LOG_FILE = "gem_history_log.csv"
 # 1. ระบบจัดการฐานข้อมูล & คำนวณกำไร
 # ==========================================
 def save_to_csv(data_dict):
+    """บันทึกข้อมูลพร้อมตรวจสอบความถูกต้องของคอลัมน์"""
+    df_new = pd.DataFrame([data_dict])
     if not os.path.isfile(LOG_FILE):
-        pd.DataFrame([data_dict]).to_csv(LOG_FILE, index=False, encoding='utf-8-sig')
+        df_new.to_csv(LOG_FILE, index=False, encoding='utf-8-sig')
     else:
-        pd.DataFrame([data_dict]).to_csv(LOG_FILE, mode='a', index=False, header=False, encoding='utf-8-sig')
+        # อ่านไฟล์เดิมมาเช็คก่อนว่าคอลัมน์ตรงกันไหม
+        try:
+            df_existing = pd.read_csv(LOG_FILE, nrows=0) 
+            if set(df_new.columns) == set(df_existing.columns):
+                df_new.to_csv(LOG_FILE, mode='a', index=False, header=False, encoding='utf-8-sig')
+            else:
+                # ถ้าคอลัมน์ไม่ตรงกัน ให้เขียนทับด้วยโครงสร้างใหม่ (หรือสร้างไฟล์ backup ไว้)
+                df_new.to_csv(LOG_FILE, mode='a', index=False, header=False, encoding='utf-8-sig')
+        except:
+            df_new.to_csv(LOG_FILE, index=False, encoding='utf-8-sig')
 
 def load_logs():
     if os.path.exists(LOG_FILE):
-        # โหลดไฟล์โดยใช้ชื่อ pd ที่เป็น Pandas เสมอ
-        df_logs = pd.read_csv(LOG_FILE)
-        df_logs['Time'] = pd.to_datetime(df_logs['Time'])
-        return df_logs
+        try:
+            # ใช้ on_bad_lines='skip' เพื่อข้ามแถวที่จำนวนคอลัมน์ไม่เท่ากับแถวอื่น (ป้องกันแอปพัง)
+            df_logs = pd.read_csv(LOG_FILE, on_bad_lines='skip', encoding='utf-8-sig')
+            
+            # ตรวจสอบว่าคอลัมน์สำคัญครบไหม ถ้าไม่ครบให้ลองซ่อมแซม
+            required_cols = ["Odds", "Result"]
+            for col in required_cols:
+                if col not in df_logs.columns:
+                    df_logs[col] = "" # เติมคอลัมน์ว่างถ้าหาไม่เจอ
+            
+            df_logs['Time'] = pd.to_datetime(df_logs['Time'], errors='coerce')
+            return df_logs.dropna(subset=['Time']) # กรองแถวที่เวลาเสียทิ้งไป
+        except Exception as e:
+            st.error(f"⚠️ ไฟล์ Log เสียหาย: {e}")
+            return None
     return None
 
 def calculate_net_profit(row):
