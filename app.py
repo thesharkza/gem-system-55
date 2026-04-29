@@ -6,7 +6,7 @@ import math
 from datetime import datetime
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 6.0.3 (Pro Tool)", layout="wide")
+st.set_page_config(page_title="GEM System 6.0.4 (Master Fix)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -27,13 +27,14 @@ def init_session_state():
 init_session_state()
 
 def parse_line(line_str):
-    """ฟังก์ชันแปลงเรตราคา เช่น '0.5/1' -> 0.75, '2.5/3' -> 2.75"""
-    line_str = line_str.replace('+', '')
+    """ฟังก์ชันแปลงเรตราคาที่ทนทานต่อเว้นวรรค (แก้บั๊ก 0/-0.5)"""
+    line_str = str(line_str).replace(' ', '').replace('+', '')
     is_negative = '-' in line_str
     line_str = line_str.replace('-', '')
     try:
-        if '/' in line_str:
-            parts = line_str.split('/')
+        if '/' in line_str or ',' in line_str:
+            sep = '/' if '/' in line_str else ','
+            parts = line_str.split(sep)
             val = (float(parts[0]) + float(parts[1])) / 2.0
         else:
             val = float(line_str)
@@ -71,25 +72,29 @@ def calc_poisson_matrix(p_h, p_d, p_a, total_goals):
     return (p_h_win_by_2plus/total_sum, p_h_win_by_1/total_sum, p_draw/total_sum, 
             p_a_win_by_1/total_sum, p_a_win_by_2plus/total_sum)
 
-def calc_advanced_ah_ev(hdp, h_w2, h_w1, draw, a_w1, a_w2, odds, is_home):
+def calc_advanced_ah_ev(hdp_line, w2, w1, d, l1, l2, odds, is_fav_team):
+    """ฟังก์ชันคำนวณ EV ที่แยกทีมต่อ/ทีมรองอย่างเด็ดขาด (Master Fix)"""
     b = odds - 1
-    if is_home: w2, w1, d, l1, l2 = h_w2, h_w1, draw, a_w1, a_w2
-    else: w2, w1, d, l1, l2 = a_w2, a_w1, draw, h_w1, h_w2
-
-    hdp_abs = abs(hdp)
+    hdp_abs = abs(hdp_line)
     
-    if hdp_abs == 0: return ((w2 + w1) * b) - ((l1 + l2) * 1)
-    elif hdp_abs == 0.25: return ((w2 + w1) * b) - (d * 0.5) - ((l1 + l2) * 1)
-    elif hdp_abs == 0.5: return ((w2 + w1) * b) - ((d + l1 + l2) * 1)
-    elif hdp_abs == 0.75: return (w2 * b) + (w1 * (b/2)) - ((d + l1 + l2) * 1)
-    elif hdp_abs == 1.0: return (w2 * b) + (w1 * 0) - ((d + l1 + l2) * 1)
-    elif hdp_abs == 1.25: return (w2 * b) - (w1 * 0.5) - ((d + l1 + l2) * 1)
+    if hdp_abs == 0:
+        return ((w2 + w1) * b) - ((l1 + l2) * 1)
     
-    if not is_home: 
-        if hdp_abs == 0.25: return ((w2+w1)*b) + (d*(b/2)) - ((l1+l2)*1)
-        elif hdp_abs == 0.5: return ((w2+w1+d)*b) - ((l1+l2)*1)
-        elif hdp_abs == 0.75: return ((w2+w1+d)*b) - (l1*(1/2)) - (l2*1)
-        elif hdp_abs == 1.0: return ((w2+w1+d)*b) - (l2*1)
+    if is_fav_team: # 👑 ทีมต่อ (ให้แต้มต่อ)
+        if hdp_abs == 0.25: return ((w2 + w1) * b) - (d * 0.5) - ((l1 + l2) * 1)
+        elif hdp_abs == 0.5: return ((w2 + w1) * b) - ((d + l1 + l2) * 1)
+        elif hdp_abs == 0.75: return (w2 * b) + (w1 * (b/2)) - ((d + l1 + l2) * 1)
+        elif hdp_abs == 1.0: return (w2 * b) + (w1 * 0) - ((d + l1 + l2) * 1)
+        elif hdp_abs == 1.25: return (w2 * b) - (w1 * 0.5) - ((d + l1 + l2) * 1)
+        elif hdp_abs == 1.5: return (w2 * b) - ((w1 + d + l1 + l2) * 1)
+    else: # 🛡️ ทีมรอง (รับแต้มต่อ)
+        if hdp_abs == 0.25: return ((w2 + w1) * b) + (d * (b/2)) - ((l1 + l2) * 1)
+        elif hdp_abs == 0.5: return ((w2 + w1 + d) * b) - ((l1 + l2) * 1)
+        elif hdp_abs == 0.75: return ((w2 + w1 + d) * b) - (l1 * 0.5) - (l2 * 1)
+        elif hdp_abs == 1.0: return ((w2 + w1 + d) * b) + (l1 * 0) - (l2 * 1)
+        elif hdp_abs == 1.25: return ((w2 + w1 + d) * b) + (l1 * (b/2)) - (l2 * 1)
+        elif hdp_abs == 1.5: return ((w2 + w1 + d + l1) * b) - (l2 * 1)
+        
     return 0.0
 
 # ==========================================
@@ -141,7 +146,7 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("📊 GEM System 6.0.3: Pro Tool Edition")
+st.title("📊 GEM System 6.0.4: Master Fix Edition")
 
 tab1, tab2 = st.tabs(["🚀 Advanced Terminal", "📈 Performance Dashboard"])
 
@@ -149,21 +154,13 @@ with tab1:
     st.sidebar.header("💰 Portfolio Management")
     total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0)
     
-    # --- ฟังก์ชัน Callback สำหรับล้างข้อมูล (ต้องประกาศก่อนปุ่ม) ---
     def clear_form_data():
         st.session_state.raw_text = ""
         st.session_state.match_name = "ชื่อคู่แข่งขัน"
-        st.session_state.h1x2_val = 1.0
-        st.session_state.d1x2_val = 1.0
-        st.session_state.a1x2_val = 1.0
-        st.session_state.hdp_line_val = 0.0
-        st.session_state.hdp_h_w_val = 0.0
-        st.session_state.hdp_a_w_val = 0.0
-        st.session_state.ou_line_val = 2.5
-        st.session_state.ou_over_w_val = 0.0
-        st.session_state.ou_under_w_val = 0.0
+        st.session_state.h1x2_val = 1.0; st.session_state.d1x2_val = 1.0; st.session_state.a1x2_val = 1.0
+        st.session_state.hdp_line_val = 0.0; st.session_state.hdp_h_w_val = 0.0; st.session_state.hdp_a_w_val = 0.0
+        st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
 
-    # --- Smart Auto-Fill Section ---
     with st.expander("⚡ วางข้อความที่นี่เพื่อสกัดข้อมูลอัตโนมัติ (Smart Auto-Fill)", expanded=True):
         st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนมาวางตรงนี้...", height=150, key="raw_text")
         
@@ -172,52 +169,42 @@ with tab1:
             if st.button("🪄 สกัดข้อมูล (Extract)", use_container_width=True):
                 try:
                     raw = st.session_state.raw_text
-                    
-                    # 1. ชื่อคู่แข่งขัน
                     m_vs = re.search(r'(.*VS.*)', raw)
                     if m_vs: st.session_state.match_name = m_vs.group(1).strip()
                     
-                    # 2. เหย้า 1X2 & HDP น้ำ
                     h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
                     if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) 
                     if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) 
                     
-                    # 3. เสมอ 1X2
                     d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
                     if len(d_matches) >= 1: st.session_state.d1x2_val = float(d_matches[0])
                     
-                    # 4. เยือน 1X2 & HDP น้ำ
                     a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
                     if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) 
                     if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) 
                     
-                    # 5. AH เรตต่อรอง
-                    ah_match = re.search(r'^\s*AH\s+([+-]?[0-9./]+)', raw, re.MULTILINE)
+                    # Regex อัปเดตใหม่ให้รองรับ 0/-0.5 อย่างปลอดภัย
+                    ah_match = re.search(r'^\s*AH\s+([+-]?[0-9.,/\s]+)', raw, re.MULTILINE)
                     if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
                     
-                    # 6. สูง/ต่ำ เรต (O/U)
-                    ou_match = re.search(r'^\s*สูง/ต่ำ\s+([0-9./]+)', raw, re.MULTILINE)
+                    ou_match = re.search(r'^\s*สูง/ต่ำ\s+([0-9.,/\s]+)', raw, re.MULTILINE)
                     if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
                     
-                    # 7. สูง น้ำ
                     o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
                     if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
                     
-                    # 8. ต่ำ น้ำ
                     u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
                     if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
                     
-                    st.success("✅ สกัดข้อมูลสำเร็จ! ตัวเลขวิ่งเข้าช่องเรียบร้อย")
+                    st.success("✅ สกัดข้อมูลสำเร็จ!")
                 except Exception as e:
                     st.error(f"⚠️ รูปแบบข้อความมีปัญหา: {e}")
 
         with col_btn2:
-            # ใช้ on_click เรียกฟังก์ชันเพื่อเคลียร์ค่าก่อนที่หน้าจอจะถูกวาดใหม่
             st.button("🗑️ ล้างข้อมูล (Clear)", use_container_width=True, on_click=clear_form_data)
 
-    # --- ช่อง Input (เชื่อมกับ Auto-fill ผ่าน key) ---
+    # --- Analysis Inputs ---
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
-
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("1. ตลาดราคาพูล & AH")
@@ -227,14 +214,12 @@ with tab1:
         hdp_line = st.number_input("เรตต่อรอง (HDP)", format="%.2f", step=0.25, key="hdp_line_val")
         hdp_h_w = st.number_input("น้ำเจ้าบ้าน", format="%.2f", key="hdp_h_w_val")
         hdp_a_w = st.number_input("น้ำทีมเยือน", format="%.2f", key="hdp_a_w_val")
-
     with col2:
         st.subheader("2. ตลาด O/U & HDBA")
         ou_line = st.number_input("เรตสกอร์รวม (O/U)", format="%.2f", step=0.25, key="ou_line_val")
         ou_over_w = st.number_input("น้ำหน้าสูง (Over)", format="%.2f", key="ou_over_w_val")
         ou_under_w = st.number_input("น้ำหน้าต่ำ (Under)", format="%.2f", key="ou_under_w_val")
         hdba_val = st.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
-        st.info("Remark: ลีกมาตรฐานยุโรป 1.5 | บอลถ้วยที่ต้องบินข้ามประเทศ 2.5-3.0 | โบลิเวีย ,เอกวาดอร์ (ที่ราบสูง) 4.5+")
 
     if st.button("🚀 ANALYZE WITH PURE MATH"):
         def fix(o): return o + 1.0 if o < 1.1 else o
@@ -248,11 +233,12 @@ with tab1:
         hw2, hw1, d_exact, aw1, aw2 = calc_poisson_matrix(prob_h, prob_d, prob_a, ou_line)
         
         is_h_fav = prob_h >= prob_a
-        ev_h = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, hw_o, is_home=True)
-        ev_a = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, aw_o, is_home=False) - (hdba_val/100)
         
-        ev_over = (prob_over * (ow_o-1)) - (prob_under * 1)
-        ev_under = (prob_under * (uw_o-1)) - (prob_over * 1)
+        # คืนชีพการแมปปิ้งทีมต่อ/ทีมรอง (แก้บั๊กร้ายแรงเรียบร้อย)
+        ev_h = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, hw_o, is_fav_team=is_h_fav)
+        ev_a = calc_advanced_ah_ev(hdp_line, aw2, aw1, d_exact, hw1, hw2, aw_o, is_fav_team=not is_h_fav) - (hdba_val/100)
+        
+        ev_over, ev_under = (prob_over * (ow_o-1)) - (prob_under * 1), (prob_under * (uw_o-1)) - (prob_over * 1)
 
         def get_defensive_k(ev, odds, bank):
             if ev < 0.05: return 0.0
@@ -265,7 +251,7 @@ with tab1:
         best = max(res_list, key=lambda x: x['ev'])
         k_money = get_defensive_k(best['ev'], best['odds'], total_bankroll)
 
-        st.session_state['report'] = f"""📊 GEM System 6.0.3: Pro Tool
+        st.session_state['report'] = f"""📊 GEM System 6.0.4: Master Fix
 คู่: {match_name}
 ✅ True Prob: เหย้า {prob_h*100:.1f}% | เสมอ {prob_d*100:.1f}% | เยือน {prob_a*100:.1f}%
 🔬 Poisson Score Analysis:
@@ -290,7 +276,6 @@ with tab2:
         st.subheader("📝 บันทึกผลสกอร์ (พิมพ์สกอร์ในช่อง Result เช่น 2-1)")
         display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
         edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")}, use_container_width=True, num_rows="dynamic")
-        
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             if st.button("💾 Save Score & Calculate Profit"):
@@ -298,27 +283,16 @@ with tab2:
         with col_btn2:
             if st.button("🗑️ ล้างประวัติทั้งหมด (Clear Logs)"):
                 if os.path.exists(LOG_FILE): os.remove(LOG_FILE); st.warning("ลบประวัติเรียบร้อย"); st.rerun()
-
         logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
         inv_logs = logs[logs['Investment'] > 0]
-        
         st.markdown("---")
         st.subheader("🏆 Performance Statistics")
         m1, m2, m3, m4 = st.columns(4)
-        total_p = logs['Net_Profit'].sum()
-        total_i = inv_logs['Investment'].sum()
-        win_rate = (len(inv_logs[inv_logs['Net_Profit'] > 0]) / len(inv_logs) * 100) if not inv_logs.empty else 0
-        
-        m1.metric("กำไร/ขาดทุนสุทธิ", f"{total_p:,.2f} THB", delta=f"{total_p:,.2f}")
-        m2.metric("ยอดรวมลงทุน", f"{total_i:,.2f} THB")
-        m3.metric("Win Rate", f"{win_rate:.1f}%")
-        m4.metric("ROI", f"{(total_p/total_i*100 if total_i > 0 else 0):.2f}%")
-
+        m1.metric("กำไรสุทธิ", f"{logs['Net_Profit'].sum():,.2f} THB")
+        m2.metric("ยอดรวมลงทุน", f"{inv_logs['Investment'].sum():,.2f} THB")
+        m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
+        m4.metric("ROI", f"{(logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
         if not logs.empty:
-            st.subheader("📉 กราฟกำไรสะสม (Equity Curve)")
-            logs_sorted = logs.sort_values(by='Time')
-            logs_sorted['Cumulative_Profit'] = logs_sorted['Net_Profit'].cumsum()
-            st.line_chart(logs_sorted.set_index('Time')['Cumulative_Profit'])
-            st.download_button("📥 Download Full CSV Report", logs.to_csv(index=False).encode('utf-8-sig'), "gem_backtest_report.csv", "text/csv")
+            st.line_chart(logs.sort_values(by='Time').set_index('Time')['Net_Profit'].cumsum())
     else:
         st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
