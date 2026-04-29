@@ -15,19 +15,25 @@ def calc_universal_ev(hdp, p_win, p_draw, p_loss, odds, is_fav):
         if is_fav: return (p_win * b) - ((p_draw + p_loss) * 1)
         else: return ((p_win + p_draw) * b) - (p_loss * 1)
         
-    # 3. [FIXED] ราคาควบต่ำ (0.25, 1.25...) -> เสมอเสียครึ่ง/ได้ครึ่ง
+    # 3. ราคาควบต่ำ (0.25, 1.25...) -> เสมอเสียครึ่ง/ได้ครึ่ง
     elif hdp % 1 == 0.25:
         if is_fav: return (p_win * b) - (p_draw * 0.5) - (p_loss * 1)
         else: return (p_win * b) + (p_draw * b/2) - (p_loss * 1)
         
-    # 4. [FIXED] ราคาควบสูง (0.75, 1.75...) -> ชนะ 1 ลูกได้ครึ่ง / แพ้ 1 ลูกเสียครึ่ง
+    # 4. [FIXED] ราคาควบสูง (0.75, 1.75...) -> ใช้ตรรกะความน่าจะเป็นแบบแบ่งครึ่ง (Split Logic)
     elif hdp % 1 == 0.75:
         if is_fav:
-            # ราคาต่อ 0.75: เสมอ/แพ้ คือเสียเต็ม | ชนะ 1 ลูกได้ครึ่ง (เราใช้ค่าเฉลี่ยความปลอดภัย)
-            return (p_win * b * 0.65) - (p_draw * 1) - (p_loss * 1)
+            # ต่อ 0.75: ชนะ 1 ลูกได้ครึ่ง (b/2) | ชนะ 2 ลูกขึ้นไปได้เต็ม (b)
+            # เราจะสมมติว่าใน 100 ครั้งที่ทีมต่อชนะ จะมี 50 ครั้งที่ชนะแค่ลูกเดียว
+            p_win_by_1 = p_win * 0.5
+            p_win_by_2 = p_win * 0.5
+            return (p_win_by_2 * b) + (p_win_by_1 * b/2) - ((p_draw + p_loss) * 1)
         else:
-            # ราคารอง 0.75: ชนะ/เสมอ ได้เต็ม | แพ้ 1 ลูกเสียครึ่ง
-            return ((p_win + p_draw) * b) - (p_loss * 0.5)
+            # รอง 0.75: แพ้ 1 ลูกเสียครึ่ง (-0.5) | แพ้ 2 ลูกขึ้นไปเสียเต็ม (-1)
+            # ในกรณีที่เจ้าบ้านชนะ (p_loss ของเรา) เราแบ่งเป็นแพ้ลูกเดียวกับแพ้ขาด
+            p_loss_by_1 = p_loss * 0.5
+            p_loss_by_2 = p_loss * 0.5
+            return ((p_win + p_draw) * b) - (p_loss_by_1 * 0.5) - (p_loss_by_2 * 1)
             
     return (p_win * b) - ((p_draw + p_loss) * 1)
 
