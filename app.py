@@ -1,3 +1,4 @@
+import plotly.graph_objects as go
 import streamlit as st
 import pandas as pd
 import os
@@ -395,6 +396,40 @@ with tab2:
         m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
         m4.metric("ROI", f"{(logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
         if not logs.empty:
-            st.line_chart(logs.sort_values(by='Time').set_index('Time')['Net_Profit'].cumsum())
+            if not logs.empty:
+            st.markdown("---")
+            st.subheader("📉 กราฟกำไรสะสม (Equity Curve)")
+            
+            # เตรียมข้อมูลกราฟ
+            logs_sorted = logs.sort_values(by='Time')
+            logs_sorted['Cumulative_Profit'] = logs_sorted['Net_Profit'].cumsum()
+
+            # สร้างกราฟ Plotly สไตล์ Modern
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=logs_sorted['Time'],
+                y=logs_sorted['Cumulative_Profit'],
+                mode='lines',
+                line=dict(color='#00FF7F', width=3, shape='spline'), # เส้นโค้งสมูท สีเขียวสว่าง
+                fill='tozeroy', 
+                fillcolor='rgba(0, 255, 127, 0.15)', # แสงเงาใต้กราฟโปร่งแสง
+                name='กำไรสะสม',
+                hovertemplate='<b>วันที่/เวลา:</b> %{x}<br><b>กำไรสะสม:</b> %{y:,.2f} THB<extra></extra>'
+            ))
+
+            # ปรับแต่ง Layout ให้มินิมอล สบายตา
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showgrid=False, title="", showticklabels=True),
+                yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'),
+                hovermode="x unified",
+                margin=dict(l=0, r=0, t=30, b=0)
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # ปุ่มดาวน์โหลดรายงาน
+            st.download_button("📥 Download Full CSV Report", logs.to_csv(index=False).encode('utf-8-sig'), "gem_backtest_report.csv", "text/csv")
     else:
         st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
