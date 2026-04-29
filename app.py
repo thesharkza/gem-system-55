@@ -3,7 +3,7 @@ import pandas as pd
 import os
 import re
 import math
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 # --- CONFIG ---
 st.set_page_config(page_title="GEM System 7.0 (Syndicate Edition)", layout="wide")
@@ -348,13 +348,19 @@ with tab1:
 - เป้าหมาย: {best_ou['n']} (EV: {best_ou['ev']*100:.2f}%)
 - ยอดเงินลงทุน: {k_money_ou:,.2f} THB
 """
+        # กำหนด Timezone เป็นประเทศไทย (UTC+7)
+        tz_th = timezone(timedelta(hours=7))
+        current_time = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S")
+
         logs_to_save = []
         if best_ah['ev'] >= 0.05:
-            logs_to_save.append({"Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Result": ""})
+            logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Result": ""})
         if best_ou['ev'] >= 0.05:
-            logs_to_save.append({"Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
+            logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
+        
+        # กรณี NO BET ทั้งคู่
         if not logs_to_save:
-            logs_to_save.append({"Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": hdp_line, "Target": "NO BET", "EV_Pct": 0.0, "Investment": 0.0, "Odds": 0.0, "Result": ""})
+            logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": hdp_line, "Target": "NO BET", "EV_Pct": 0.0, "Investment": 0.0, "Odds": 0.0, "Result": ""})
 
         st.session_state['log_data'] = logs_to_save
 
