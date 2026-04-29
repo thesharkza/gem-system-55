@@ -377,4 +377,66 @@ with tab2:
     logs = load_logs()
     if logs is not None:
         st.subheader("📝 บันทึกผลสกอร์ (พิมพ์สกอร์ในช่อง Result เช่น 2-1)")
-        display_df = logs.sort_values(by='Time', ascending=
+        # --- บรรทัดที่ถูกตัดหายไปได้รับการแก้ไขแล้วด้านล่างนี้ ---
+        display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
+        edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")}, use_container_width=True, num_rows="dynamic")
+        
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("💾 Save Score & Calculate Profit"):
+                edited_df.to_csv(LOG_FILE, index=False, encoding='utf-8-sig')
+                st.rerun()
+        with col_btn2:
+            if st.button("🗑️ ล้างประวัติทั้งหมด (Clear Logs)"):
+                if os.path.exists(LOG_FILE): 
+                    os.remove(LOG_FILE)
+                    st.warning("ลบประวัติเรียบร้อย")
+                    st.rerun()
+        
+        logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
+        inv_logs = logs[logs['Investment'] > 0]
+        
+        st.markdown("---")
+        st.subheader("🏆 Performance Statistics")
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("กำไรสุทธิ", f"{logs['Net_Profit'].sum():,.2f} THB")
+        m2.metric("ยอดรวมลงทุน", f"{inv_logs['Investment'].sum():,.2f} THB")
+        m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
+        m4.metric("ROI", f"{(logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
+        
+        # ========================================================
+        # ระบบกราฟ Plotly สไตล์ Modern สบายตา
+        # ========================================================
+        if not logs.empty:
+            st.markdown("---")
+            st.subheader("📉 กราฟกำไรสะสม (Equity Curve)")
+            
+            logs_sorted = logs.sort_values(by='Time')
+            logs_sorted['Cumulative_Profit'] = logs_sorted['Net_Profit'].cumsum()
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=logs_sorted['Time'],
+                y=logs_sorted['Cumulative_Profit'],
+                mode='lines',
+                line=dict(color='#00FF7F', width=3, shape='spline'), 
+                fill='tozeroy', 
+                fillcolor='rgba(0, 255, 127, 0.15)',
+                name='กำไรสะสม',
+                hovertemplate='<b>วันที่/เวลา:</b> %{x}<br><b>กำไรสะสม:</b> %{y:,.2f} THB<extra></extra>'
+            ))
+
+            fig.update_layout(
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)',
+                xaxis=dict(showgrid=False, title="", showticklabels=True),
+                yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'),
+                hovermode="x unified",
+                margin=dict(l=0, r=0, t=30, b=0)
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.download_button("📥 Download Full CSV Report", logs.to_csv(index=False).encode('utf-8-sig'), "gem_backtest_report.csv", "text/csv")
+    else:
+        st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
