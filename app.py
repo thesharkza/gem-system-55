@@ -155,43 +155,44 @@ with tab1:
         if st.button("🪄 สกัดข้อมูลลงช่องด้านล่าง"):
             try:
                 raw = st.session_state.raw_text
-                # ชื่อคู่
+                
+                # 1. ชื่อคู่แข่งขัน
                 m_vs = re.search(r'(.*VS.*)', raw)
                 if m_vs: st.session_state.match_name = m_vs.group(1).strip()
                 
-                # เหย้า 1X2 & HDP น้ำ
-                h_matches = re.findall(r'เหย้า\s*([0-9.]+)', raw)
-                if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0])
-                if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1])
+                # 2. เหย้า 1X2 & HDP น้ำ (หาคำว่า "เหย้า" ที่ขึ้นต้นบรรทัด)
+                h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
+                if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) # เจอครั้งแรกคือ 1X2
+                if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) # เจอครั้งที่สองคือ HDP
                 
-                # เสมอ 1X2
-                d_matches = re.findall(r'เสมอ\s*([0-9.]+)', raw)
+                # 3. เสมอ 1X2
+                d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
                 if len(d_matches) >= 1: st.session_state.d1x2_val = float(d_matches[0])
                 
-                # เยือน 1X2 & HDP น้ำ
-                a_matches = re.findall(r'เยือน\s*([0-9.]+)', raw)
-                if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0])
-                if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1])
+                # 4. เยือน 1X2 & HDP น้ำ
+                a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
+                if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) # เจอครั้งแรกคือ 1X2
+                if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) # เจอครั้งที่สองคือ HDP
                 
-                # AH เรตต่อรอง
-                ah_match = re.search(r'AH\s*([+-]?[0-9./]+)', raw)
+                # 5. AH เรตต่อรอง
+                ah_match = re.search(r'^\s*AH\s+([+-]?[0-9./]+)', raw, re.MULTILINE)
                 if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
                 
-                # สูง/ต่ำ เรต (O/U)
-                ou_match = re.search(r'สูง/ต่ำ\s*([0-9./]+)', raw)
+                # 6. สูง/ต่ำ เรต (O/U)
+                ou_match = re.search(r'^\s*สูง/ต่ำ\s+([0-9./]+)', raw, re.MULTILINE)
                 if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
                 
-                # สูง น้ำ
-                o_match = re.search(r'สูง\s*([0-9.]+)', raw)
+                # 7. สูง น้ำ (ป้องกันไม่ให้ไปชนกับคำว่า สูง/ต่ำ)
+                o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
                 if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
                 
-                # ต่ำ น้ำ
-                u_match = re.search(r'ต่ำ\s*([0-9.]+)', raw)
+                # 8. ต่ำ น้ำ
+                u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
                 if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
                 
-                st.success("✅ สกัดข้อมูลสำเร็จ! ตรวจสอบตัวเลขในช่องด้านล่างแล้วกดวิเคราะห์ได้เลย")
+                st.success("✅ สกัดข้อมูลสำเร็จ! ตัวเลขวิ่งเข้าช่องเรียบร้อย")
             except Exception as e:
-                st.error(f"⚠️ รูปแบบข้อความไม่ถูกต้อง หรือมีข้อมูลขาดหาย: {e}")
+                st.error(f"⚠️ รูปแบบข้อความมีปัญหา: {e}")
 
     # --- ช่อง Input (เชื่อมกับ Auto-fill ผ่าน key) ---
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
