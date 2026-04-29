@@ -4,33 +4,32 @@ import streamlit as st
 # 1. ฟังก์ชันสมองกล (Patch 5.6.0: Universal AH Engine)
 # ==========================================
 def calc_universal_ev(hdp, p_win, p_draw, p_loss, odds, is_fav):
-    """
-    ฟังก์ชันคำนวณ EV แบบครอบจักรวาล รองรับทุกราคาแฮนดิแคป
-    """
-    b = odds - 1  # กำไรสุทธิ
+    b = odds - 1 
     
-    # 1. กลุ่มราคาเลขกลม (0, 1, 2, 3...)
+    # 1. ราคาเลขกลม (0, 1, 2...)
     if hdp % 1 == 0:
         return (p_win * b) - (p_loss * 1)
     
-    # 2. กลุ่มราคาเลขครึ่ง (0.5, 1.5, 2.5...)
+    # 2. ราคาเลขครึ่ง (0.5, 1.5, 2.5...)
     elif hdp % 1 == 0.5:
         if is_fav: return (p_win * b) - ((p_draw + p_loss) * 1)
         else: return ((p_win + p_draw) * b) - (p_loss * 1)
         
-    # 3. กลุ่มราคาควบ (0.25, 1.25, 2.25...) - เน้นผลเสมอ
-    elif hdp % 0.5 == 0.25:
-        # ถ้าราคาลงท้ายด้วย .25 (เช่น 0.25, 1.25)
-        if is_fav: return (p_win * b) - (p_draw * 0.5) - (p_loss * 1) # ต่อ: เสมอเสียครึ่ง
-        else: return (p_win * b) + (p_draw * b/2) - (p_loss * 1) # รอง: เสมอกินครึ่ง
+    # 3. [FIXED] ราคาควบต่ำ (0.25, 1.25...) -> เสมอเสียครึ่ง/ได้ครึ่ง
+    elif hdp % 1 == 0.25:
+        if is_fav: return (p_win * b) - (p_draw * 0.5) - (p_loss * 1)
+        else: return (p_win * b) + (p_draw * b/2) - (p_loss * 1)
         
-    # 4. กลุ่มราคาควบ (0.75, 1.75, 2.75...) - เน้นผลชนะห่าง 1 ลูก
-    # หมายเหตุ: ในระบบ 1X2 พื้นฐาน เราจะใช้ Conservative Logic (ปลอดภัยไว้ก่อน)
-    elif hdp % 0.5 == 0.75:
-        if is_fav: return (p_win * b * 0.7) - ((p_draw + p_loss) * 1) # ต่อ: ชนะลูกเดียวอาจได้ไม่เต็ม
-        else: return ((p_win + p_draw) * b) - (p_loss * 0.5) # รอง: แพ้ลูกเดียวเสียครึ่ง
-        
-    return (p_win * b) - ((p_draw + p_loss) * 1) # Default
+    # 4. [FIXED] ราคาควบสูง (0.75, 1.75...) -> ชนะ 1 ลูกได้ครึ่ง / แพ้ 1 ลูกเสียครึ่ง
+    elif hdp % 1 == 0.75:
+        if is_fav:
+            # ราคาต่อ 0.75: เสมอ/แพ้ คือเสียเต็ม | ชนะ 1 ลูกได้ครึ่ง (เราใช้ค่าเฉลี่ยความปลอดภัย)
+            return (p_win * b * 0.65) - (p_draw * 1) - (p_loss * 1)
+        else:
+            # ราคารอง 0.75: ชนะ/เสมอ ได้เต็ม | แพ้ 1 ลูกเสียครึ่ง
+            return ((p_win + p_draw) * b) - (p_loss * 0.5)
+            
+    return (p_win * b) - ((p_draw + p_loss) * 1)
 
 def generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w, ou_line, ou_o_w, ou_u_w, hdba_pct, total_bankroll):
     # Fix Odds System
