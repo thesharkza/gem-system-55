@@ -6,7 +6,7 @@ import math
 from datetime import datetime
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 6.1.0 (Dual Target)", layout="wide")
+st.set_page_config(page_title="GEM System 7.0 (Syndicate Edition)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -42,52 +42,75 @@ def parse_line(line_str):
         return 0.0
 
 # ==========================================
-# 1. ระบบคณิตศาสตร์ขั้นสูง (Pure Quant Engine)
+# 1. ระบบคณิตศาสตร์ขั้นสูง (Syndicate Quant Engine)
 # ==========================================
-def power_devig(o_h, o_d, o_a):
-    low, high = 0.0, 5.0
-    for _ in range(20):
-        k = (low + high) / 2
-        implied_sum = (1/o_h)**k + (1/o_d)**k + (1/o_a)**k
-        if implied_sum > 1: low = k
-        else: high = k
-    return (1/o_h)**k, (1/o_d)**k, (1/o_a)**k
+def shin_devig(o_h, o_d, o_a):
+    """🆕 อัลกอริทึม Shin's Method สำหรับหา True Prob (Industry Standard)"""
+    pi = [1/o_h, 1/o_d, 1/o_a]
+    sum_pi = sum(pi)
+    if sum_pi <= 1.0:
+        return pi[0]/sum_pi, pi[1]/sum_pi, pi[2]/sum_pi
+    
+    low, high = 0.0, 1.0
+    for _ in range(100): # วนลูปหาค่า z (Insider proportion)
+        z = (low + high) / 2
+        try:
+            p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
+            if sum(p) > 1: low = z
+            else: high = z
+        except:
+            break
+            
+    p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
+    sum_p = sum(p) # Normalize
+    return p[0]/sum_p, p[1]/sum_p, p[2]/sum_p
 
 def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
-def calc_poisson_matrix(p_h, p_d, p_a, total_goals):
+def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho):
+    """🆕 อัปเกรด Poisson เป็น Dixon-Coles ปรับแก้น้ำหนักสกอร์ต่ำ (0-0, 1-1)"""
     lam_h = total_goals * (p_h + (p_d * 0.5))
     lam_a = total_goals * (p_a + (p_d * 0.5))
-    matrix = [[poisson(i, lam_h) * poisson(j, lam_a) for j in range(6)] for i in range(6)]
+    matrix = [[0.0 for j in range(6)] for i in range(6)]
     
-    # คำนวณความน่าจะเป็นของ AH (ผลต่างประตู)
+    for i in range(6):
+        for j in range(6):
+            base_prob = poisson(i, lam_h) * poisson(j, lam_a)
+            # Dixon-Coles Adjustment (Tau)
+            if i == 0 and j == 0: tau = 1 - (lam_h * lam_a * rho)
+            elif i == 0 and j == 1: tau = 1 + (lam_h * rho)
+            elif i == 1 and j == 0: tau = 1 + (lam_a * rho)
+            elif i == 1 and j == 1: tau = 1 - rho
+            else: tau = 1.0
+            
+            matrix[i][j] = max(0, base_prob * tau) # ป้องกันค่าติดลบ
+            
+    # Normalize Matrix หลังจากการปรับแก้ด้วย Tau
+    total_prob = sum(matrix[i][j] for i in range(6) for j in range(6))
+    for i in range(6):
+        for j in range(6):
+            matrix[i][j] /= total_prob
+
+    # คำนวณ AH
     p_h_win_by_2plus = sum(matrix[i][j] for i in range(6) for j in range(6) if i - j >= 2)
     p_h_win_by_1 = sum(matrix[i][j] for i in range(6) for j in range(6) if i - j == 1)
     p_draw = sum(matrix[i][i] for i in range(6))
     p_a_win_by_1 = sum(matrix[i][j] for i in range(6) for j in range(6) if j - i == 1)
     p_a_win_by_2plus = sum(matrix[i][j] for i in range(6) for j in range(6) if j - i >= 2)
     
-    # 🆕 คำนวณความน่าจะเป็นของ O/U (ประตูรวมทั้งหมด) ลงใน Dictionary
+    # คำนวณ O/U
     p_total = {k: 0.0 for k in range(12)}
     for i in range(6):
         for j in range(6):
             p_total[i+j] += matrix[i][j]
-
-    # Normalization (ปรับฐานให้รวมได้ 100%)
-    total_sum_ah = sum([p_h_win_by_2plus, p_h_win_by_1, p_draw, p_a_win_by_1, p_a_win_by_2plus])
-    total_sum_ou = sum(p_total.values())
-    for k in p_total: p_total[k] /= total_sum_ou
-    
-    return (p_h_win_by_2plus/total_sum_ah, p_h_win_by_1/total_sum_ah, p_draw/total_sum_ah, 
-            p_a_win_by_1/total_sum_ah, p_a_win_by_2plus/total_sum_ah, p_total)
+            
+    return (p_h_win_by_2plus, p_h_win_by_1, p_draw, p_a_win_by_1, p_a_win_by_2plus, p_total)
 
 def calc_advanced_ah_ev(hdp_line, w2, w1, d, l1, l2, odds, is_fav_team):
-    """ฟังก์ชันคิดเงินตลาด AH"""
     b = odds - 1
     hdp_abs = abs(hdp_line)
     if hdp_abs == 0: return ((w2 + w1) * b) - ((l1 + l2) * 1)
-    
     if is_fav_team: 
         if hdp_abs == 0.25: return ((w2 + w1) * b) - (d * 0.5) - ((l1 + l2) * 1)
         elif hdp_abs == 0.5: return ((w2 + w1) * b) - ((d + l1 + l2) * 1)
@@ -105,7 +128,6 @@ def calc_advanced_ah_ev(hdp_line, w2, w1, d, l1, l2, odds, is_fav_team):
     return 0.0
 
 def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
-    """🆕 ฟังก์ชันคิดเงินตลาด O/U แบบ Quant บริสุทธิ์ (รองรับเรตควบ)"""
     b = odds - 1
     floor_line = math.floor(ou_line)
     remainder = ou_line - floor_line
@@ -129,7 +151,7 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
             p_half_win = p_total.get(floor_line + 1, 0.0)
             p_loss = sum(p_total.get(k, 0) for k in p_total if k <= floor_line)
             return (p_win * b) + (p_half_win * (b / 2)) - (p_loss * 1)
-    else: # ฝั่งต่ำ
+    else: 
         if remainder == 0.0:
             p_win = sum(p_total.get(k, 0) for k in p_total if k < floor_line)
             p_loss = sum(p_total.get(k, 0) for k in p_total if k > floor_line)
@@ -154,7 +176,6 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
 # 2. ระบบฐานข้อมูลและ Backtest
 # ==========================================
 def save_to_csv(data_list):
-    """รองรับการบันทึกทีละหลายรายการพร้อมกัน"""
     if not data_list: return
     df_new = pd.DataFrame(data_list)
     if not os.path.isfile(LOG_FILE): df_new.to_csv(LOG_FILE, index=False, encoding='utf-8-sig')
@@ -201,13 +222,19 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("📊 GEM System 6.1.0: Dual Target Edition")
+st.title("📊 GEM System 7.0: Syndicate Edition")
 
 tab1, tab2 = st.tabs(["🚀 Advanced Terminal", "📈 Performance Dashboard"])
 
 with tab1:
     st.sidebar.header("💰 Portfolio Management")
     total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0)
+    
+    st.sidebar.markdown("---")
+    st.sidebar.header("⚙️ Syndicate Parameters")
+    dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho (ความสัมพันธ์สกอร์)", -0.30, 0.0, -0.10, step=0.01, help="ค่าติดลบยิ่งมาก ยิ่งเพิ่มน้ำหนักให้สกอร์เสมอ (0-0, 1-1) มากขึ้น")
+    hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
+    st.info("Remark: ลีกมาตรฐานยุโรป 1.5 | บอลถ้วยที่ต้องบินข้ามประเทศ 2.5-3.0 | โบลิเวีย ,เอกวาดอร์ (ที่ราบสูง) 4.5+")
     
     def clear_form_data():
         st.session_state.raw_text = ""
@@ -254,7 +281,6 @@ with tab1:
         with col_btn2:
             st.button("🗑️ ล้างข้อมูล (Clear)", use_container_width=True, on_click=clear_form_data)
 
-    # --- Analysis Inputs ---
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
     col1, col2 = st.columns(2)
     with col1:
@@ -266,29 +292,26 @@ with tab1:
         hdp_h_w = st.number_input("น้ำเจ้าบ้าน", format="%.2f", key="hdp_h_w_val")
         hdp_a_w = st.number_input("น้ำทีมเยือน", format="%.2f", key="hdp_a_w_val")
     with col2:
-        st.subheader("2. ตลาด O/U & HDBA")
+        st.subheader("2. ตลาด O/U")
         ou_line = st.number_input("เรตสกอร์รวม (O/U)", format="%.2f", step=0.25, key="ou_line_val")
         ou_over_w = st.number_input("น้ำหน้าสูง (Over)", format="%.2f", key="ou_over_w_val")
         ou_under_w = st.number_input("น้ำหน้าต่ำ (Under)", format="%.2f", key="ou_under_w_val")
-        hdba_val = st.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
-        st.info("Remark: ลีกมาตรฐานยุโรป 1.5 | บอลถ้วยที่ต้องบินข้ามประเทศ 2.5-3.0 | โบลิเวีย ,เอกวาดอร์ (ที่ราบสูง) 4.5+")
 
-    if st.button("🚀 ANALYZE WITH DUAL ENGINE"):
+    if st.button("🚀 ANALYZE WITH SYNDICATE ENGINE"):
         def fix(o): return o + 1.0 if o < 1.1 else o
         h_o, d_o, a_o = fix(h1x2), fix(d1x2), fix(a1x2)
         hw_o, aw_o, ow_o, uw_o = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
         
-        prob_h, prob_d, prob_a = power_devig(h_o, d_o, a_o)
+        # ถอดต๋งด้วย Shin's Method
+        prob_h, prob_d, prob_a = shin_devig(h_o, d_o, a_o)
         
-        # คืนค่า p_total จาก Poisson Matrix เพื่อใช้คำนวณหน้าสูง/ต่ำ
-        hw2, hw1, d_exact, aw1, aw2, p_total = calc_poisson_matrix(prob_h, prob_d, prob_a, ou_line)
+        # แปลงเป็นตารางสกอร์ด้วย Dixon-Coles
+        hw2, hw1, d_exact, aw1, aw2, p_total = calc_dixon_coles_matrix(prob_h, prob_d, prob_a, ou_line, dc_rho)
         
-        # 1. การประเมินแกน AH (ตลาดผลแพ้ชนะ)
         is_h_fav = prob_h >= prob_a
         ev_h = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, hw_o, is_fav_team=is_h_fav)
         ev_a = calc_advanced_ah_ev(hdp_line, aw2, aw1, d_exact, hw1, hw2, aw_o, is_fav_team=not is_h_fav) - (hdba_val/100)
         
-        # 2. 🆕 การประเมินแกน O/U (ตลาดสกอร์รวม) โดยใช้ความน่าจะเป็นจาก Poisson
         ev_over = calc_advanced_ou_ev(ou_line, p_total, ow_o, is_over=True)
         ev_under = calc_advanced_ou_ev(ou_line, p_total, uw_o, is_over=False)
 
@@ -298,7 +321,6 @@ with tab1:
             k_pct = ((b_k * p_k) - (1 - p_k)) / b_k
             return min(k_pct * 0.25, 0.05) * bank
 
-        # ประมวลผลลัพธ์แยกกัน 2 แกน
         ah_list = [{"n": "เจ้าบ้าน", "ev": ev_h, "odds": hw_o, "hdp": hdp_line}, 
                    {"n": "ทีมเยือน", "ev": ev_a, "odds": aw_o, "hdp": hdp_line}]
         ou_list = [{"n": "สูง", "ev": ev_over, "odds": ow_o, "hdp": ou_line}, 
@@ -313,9 +335,10 @@ with tab1:
         ah_status = "🔥 INVEST" if best_ah['ev'] >= 0.05 else "🛡️ NO BET"
         ou_status = "🔥 INVEST" if best_ou['ev'] >= 0.05 else "🛡️ NO BET"
 
-        st.session_state['report'] = f"""📊 GEM System 6.1.0: Dual Target Edition
+        st.session_state['report'] = f"""📊 GEM System 7.0: Syndicate Edition
 คู่: {match_name}
-✅ True Prob: เหย้า {prob_h*100:.1f}% | เสมอ {prob_d*100:.1f}% | เยือน {prob_a*100:.1f}%
+✅ True Prob (Shin's Method): เหย้า {prob_h*100:.1f}% | เสมอ {prob_d*100:.1f}% | เยือน {prob_a*100:.1f}%
+🔬 Model: Dixon-Coles (Rho={dc_rho})
 
 🎯 สรุปผลการลงทุน (Dual Target Process):
 [ตลาด AH] {ah_status}
@@ -326,21 +349,18 @@ with tab1:
 - เป้าหมาย: {best_ou['n']} (EV: {best_ou['ev']*100:.2f}%)
 - ยอดเงินลงทุน: {k_money_ou:,.2f} THB
 """
-        # เตรียมแพ็กเกจข้อมูลสำหรับบันทึกลง Log (รองรับการแทงพร้อมกัน 2 บิล)
         logs_to_save = []
         if best_ah['ev'] >= 0.05:
             logs_to_save.append({"Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Result": ""})
         if best_ou['ev'] >= 0.05:
             logs_to_save.append({"Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
-        
-        # กรณี NO BET ทั้งคู่ ก็บันทึกเป็นสถิติเปล่าๆ ไว้ดูเล่นได้
         if not logs_to_save:
             logs_to_save.append({"Time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": hdp_line, "Target": "NO BET", "EV_Pct": 0.0, "Investment": 0.0, "Odds": 0.0, "Result": ""})
 
         st.session_state['log_data'] = logs_to_save
 
     if 'report' in st.session_state:
-        st.info("💡 ข้อสังเกต: ระบบทำการแยกสมองประมวลผล AH และ O/U ออกจากกันอย่างเด็ดขาดแล้ว")
+        st.info("💡 Powered by Shin's Method & Dixon-Coles Distribution")
         st.text_area("Advanced Quant Report:", value=st.session_state['report'], height=250)
         if st.button("💾 บันทึกลง Log"):
             save_to_csv(st.session_state['log_data'])
