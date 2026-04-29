@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 5.6.13", layout="wide")
+st.set_page_config(page_title="GEM System 5.6.14", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -19,41 +19,39 @@ def save_to_csv(data_dict):
 
 def load_logs():
     if os.path.exists(LOG_FILE):
-        df = pd.read_csv(LOG_FILE)
-        df['Time'] = pd.to_datetime(df['Time'])
-        return df
+        # โหลดไฟล์โดยใช้ชื่อ pd ที่เป็น Pandas เสมอ
+        df_logs = pd.read_csv(LOG_FILE)
+        df_logs['Time'] = pd.to_datetime(df_logs['Time'])
+        return df_logs
     return None
 
 def calculate_net_profit(row):
-    """ฟังก์ชันตัดสินผลแพ้ชนะตามเรต AH และคำนวณกำไรจริง"""
+    """ตัดสินผลแพ้ชนะตามเรต AH และคำนวณกำไรจริง"""
     try:
         if pd.isna(row['Result']) or row['Result'] == "" or row['Investment'] <= 0:
             return 0.0
         
-        # แกะสกอร์ (เช่น "2-1")
         scores = re.findall(r'\d+', str(row['Result']))
         if len(scores) < 2: return 0.0
         h_score, a_score = int(scores[0]), int(scores[1])
         
         hdp = float(row['HDP'])
         target = row['Target']
-        odds = float(row['Odds']) # ราคาจ่าย (เช่น 1.90)
+        odds = float(row['Odds'])
         invest = float(row['Investment'])
         diff = h_score - a_score
         
-        # คำนวณหา Net Margin (แต้มต่อที่เหลือหลังหักสกอร์)
         if target == "เจ้าบ้าน": net_margin = diff - hdp
         elif target == "ทีมเยือน": net_margin = (a_score - h_score) + hdp
         elif target == "สูง": net_margin = (h_score + a_score) - hdp
         elif target == "ต่ำ": net_margin = hdp - (h_score + a_score)
         else: return 0.0
 
-        # ตัดสินเงินรางวัล
-        if net_margin > 0.25: return invest * (odds - 1) # ชนะเต็ม
-        elif net_margin == 0.25: return (invest * (odds - 1)) / 2 # ชนะครึ่ง
-        elif net_margin == 0: return 0.0 # เสมอคืนทุน
-        elif net_margin == -0.25: return -(invest / 2) # เสียครึ่ง
-        else: return -invest # แพ้เต็ม
+        if net_margin > 0.25: return invest * (odds - 1)
+        elif net_margin == 0.25: return (invest * (odds - 1)) / 2
+        elif net_margin == 0: return 0.0
+        elif net_margin == -0.25: return -(invest / 2)
+        else: return -invest
     except:
         return 0.0
 
@@ -64,11 +62,9 @@ def calc_universal_ev(hdp, p_win, p_draw, p_loss, odds, is_fav):
     b = odds - 1 
     if hdp % 1 == 0 and hdp > 0:
         if is_fav:
-            p_win_clear = p_win * 0.55
-            return (p_win_clear * b) - ((p_draw + p_loss) * 1)
+            return (p_win * 0.55 * b) - ((p_draw + p_loss) * 1)
         else:
-            p_loss_clear = p_loss * 0.55
-            return ((p_win + p_draw) * b) - (p_loss_clear * 1)
+            return ((p_win + p_draw) * b) - (p_loss * 0.55 * 1)
     elif hdp == 0:
         return (p_win * b) - (p_loss * 1)
     elif hdp % 1 == 0.5:
@@ -78,16 +74,14 @@ def calc_universal_ev(hdp, p_win, p_draw, p_loss, odds, is_fav):
         if is_fav: return (p_win * b) - (p_draw * 0.5) - (p_loss * 1)
         else: return (p_win * b) + (p_draw * b/2) - (p_loss * 1)
     elif hdp % 1 == 0.75:
-        if is_fav:
-            return (p_win * 0.5 * b) + (p_win * 0.5 * b/2) - ((p_draw + p_loss) * 1)
-        else:
-            return ((p_win + p_draw) * b) - (p_loss * 0.5 * 0.5) - (p_loss * 0.5 * 1)
+        if is_fav: return (p_win * 0.5 * b) + (p_win * 0.5 * b/2) - ((p_draw + p_loss) * 1)
+        else: return ((p_win + p_draw) * b) - (p_loss * 0.5 * 0.5) - (p_loss * 0.5 * 1)
     return (p_win * b) - ((p_draw + p_loss) * 1)
 
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("📊 GEM System 5.6.13: Ultimate Backtest Suite")
+st.title("📊 GEM System 5.6.14: Stable Integrated Suite")
 
 tab1, tab2 = st.tabs(["🚀 Analysis Terminal", "📈 Performance Dashboard"])
 
@@ -113,7 +107,6 @@ with tab1:
         ou_over_w = st.number_input("น้ำหน้าสูง (Over)", value=0.0)
         ou_under_w = st.number_input("น้ำหน้าต่ำ (Under)", value=0.0)
         hdba_val = st.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
-        st.info("Remark: ยุโรป 1.5 | ลาติน 2.5-3.0 | ที่ราบสูง 4.5+")
 
     if st.button("🚀 ANALYZE & CALCULATE"):
         def fix(o): return o + 1.0 if o < 1.1 else o
@@ -121,17 +114,18 @@ with tab1:
         hw_o, aw_o = fix(hdp_h_w), fix(hdp_a_w)
         ow_o, uw_o = fix(ou_over_w), fix(ou_under_w)
         
+        # --- ใช้ชื่อตัวแปรใหม่ prob_h, prob_d, prob_a เพื่อไม่ให้ทับกับ pd ---
         m_1x2 = (1/h_o + 1/d_o + 1/a_o) - 1
-        ph, pd, pa = (1/h_o)/(1+m_1x2), (1/d_o)/(1+m_1x2), (1/a_o)/(1+margin_1x2 if 'margin_1x2' in locals() else 1+m_1x2)
+        prob_h, prob_d, prob_a = (1/h_o)/(1+m_1x2), (1/d_o)/(1+m_1x2), (1/a_o)/(1+m_1x2)
         
         m_ou = (1/ow_o + 1/uw_o) - 1
-        po, pu = (1/ow_o)/(1+m_ou), (1/uw_o)/(1+m_ou)
+        prob_over, prob_under = (1/ow_o)/(1+m_ou), (1/uw_o)/(1+m_ou)
         
-        is_h_fav = ph >= pa
-        ev_h = calc_universal_ev(hdp_line, ph, pd, pa, hw_o, is_h_fav)
-        ev_a = calc_universal_ev(hdp_line, pa, pd, ph, aw_o, not is_h_fav) - (hdba_val/100)
-        ev_over = (po * (ow_o-1)) - (pu * 1)
-        ev_under = (pu * (uw_o-1)) - (po * 1)
+        is_h_fav = prob_h >= prob_a
+        ev_h = calc_universal_ev(hdp_line, prob_h, prob_d, prob_a, hw_o, is_h_fav)
+        ev_a = calc_universal_ev(hdp_line, prob_a, prob_d, prob_h, aw_o, not is_h_fav) - (hdba_val/100)
+        ev_over = (prob_over * (ow_o-1)) - (prob_under * 1)
+        ev_under = (prob_under * (uw_o-1)) - (prob_over * 1)
 
         def get_k(ev, odds, bank):
             if ev < 0.03: return 0.0
@@ -144,8 +138,9 @@ with tab1:
         best = max(res_list, key=lambda x: x['ev'])
         k_money = get_k(best['ev'], best['odds'], total_bankroll)
 
-        st.session_state['report'] = f"""📊 GEM System 5.6.13
+        st.session_state['report'] = f"""📊 GEM System 5.6.14
 คู่: {match_name}
+True Prob: {prob_h*100:.1f}% | {prob_d*100:.1f}% | {prob_a*100:.1f}%
 สรุป: {"🔥 INVEST" if best['ev']>=0.03 else "🚫 NO BET"}
 เป้าหมาย: {best['n'] if best['ev']>=0.03 else "N/A"}
 ยอดเงิน: {k_money:,.2f} THB
@@ -167,9 +162,8 @@ with tab2:
     logs = load_logs()
     if logs is not None:
         st.subheader("📝 จัดการผลการแข่งขัน & คำนวณกำไร")
-        st.info("พิมพ์ผลการแข่งลงในช่อง 'Result' (เช่น 2-1) แล้วกด '💾 Save Changes' เพื่อคำนวณกำไร")
         
-        # ใช้ Data Editor เพื่อให้พิมพ์สกอร์ได้โดยตรง
+        # ใช้ Data Editor เพื่อกรอกสกอร์
         edited_df = st.data_editor(
             logs.sort_values(by='Time', ascending=False),
             column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")},
@@ -181,7 +175,7 @@ with tab2:
             edited_df.to_csv(LOG_FILE, index=False, encoding='utf-8-sig')
             st.rerun()
 
-        # คำนวณสถิติจากข้อมูลที่อัปเดตแล้ว
+        # คำนวณสถิติ
         logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
         invested_logs = logs[logs['Investment'] > 0]
         
@@ -192,16 +186,18 @@ with tab2:
         total_i = invested_logs['Investment'].sum()
         win_rate = (len(invested_logs[invested_logs['Net_Profit'] > 0]) / len(invested_logs) * 100) if not invested_logs.empty else 0
         
-        c1.metric("กำไร/ขาดทุนสุทธิ", f"{total_p:,.2f} THB", delta=f"{total_p:,.2f}")
+        c1.metric("กำไรสุทธิ", f"{total_p:,.2f} THB")
         c2.metric("ยอดรวมลงทุน", f"{total_i:,.2f} THB")
         c3.metric("Win Rate", f"{win_rate:.1f}%")
         c4.metric("ROI", f"{(total_p/total_i*100 if total_i > 0 else 0):.2f}%")
 
         st.subheader("📈 กราฟกำไรสะสม (Equity Curve)")
-        logs['Cumulative_Profit'] = logs['Net_Profit'].cumsum()
-        st.line_chart(logs.set_index('Time')['Cumulative_Profit'])
+        if not logs.empty:
+            logs = logs.sort_values(by='Time')
+            logs['Cumulative_Profit'] = logs['Net_Profit'].cumsum()
+            st.line_chart(logs.set_index('Time')['Cumulative_Profit'])
 
         csv_data = logs.to_csv(index=False).encode('utf-8-sig')
-        st.download_button("📥 Download Final Report", csv_data, "gem_final_report.csv", "text/csv")
+        st.download_button("📥 Download Backtest CSV", csv_data, "gem_final_report.csv", "text/csv")
     else:
         st.info("ยังไม่มีข้อมูลในระบบ")
