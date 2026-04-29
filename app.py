@@ -6,7 +6,7 @@ import math
 from datetime import datetime
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 6.0.4 (Master Fix)", layout="wide")
+st.set_page_config(page_title="GEM System 6.0.5 (Parser Fix)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -27,7 +27,7 @@ def init_session_state():
 init_session_state()
 
 def parse_line(line_str):
-    """ฟังก์ชันแปลงเรตราคาที่ทนทานต่อเว้นวรรค (แก้บั๊ก 0/-0.5)"""
+    """ฟังก์ชันแปลงเรตราคาที่ทนทานต่อ 0/-0.5 แน่นอน"""
     line_str = str(line_str).replace(' ', '').replace('+', '')
     is_negative = '-' in line_str
     line_str = line_str.replace('-', '')
@@ -73,21 +73,21 @@ def calc_poisson_matrix(p_h, p_d, p_a, total_goals):
             p_a_win_by_1/total_sum, p_a_win_by_2plus/total_sum)
 
 def calc_advanced_ah_ev(hdp_line, w2, w1, d, l1, l2, odds, is_fav_team):
-    """ฟังก์ชันคำนวณ EV ที่แยกทีมต่อ/ทีมรองอย่างเด็ดขาด (Master Fix)"""
+    """ฟังก์ชันคำนวณ EV ที่แยกทีมต่อ/ทีมรองอย่างเด็ดขาด"""
     b = odds - 1
     hdp_abs = abs(hdp_line)
     
     if hdp_abs == 0:
         return ((w2 + w1) * b) - ((l1 + l2) * 1)
     
-    if is_fav_team: # 👑 ทีมต่อ (ให้แต้มต่อ)
+    if is_fav_team: 
         if hdp_abs == 0.25: return ((w2 + w1) * b) - (d * 0.5) - ((l1 + l2) * 1)
         elif hdp_abs == 0.5: return ((w2 + w1) * b) - ((d + l1 + l2) * 1)
         elif hdp_abs == 0.75: return (w2 * b) + (w1 * (b/2)) - ((d + l1 + l2) * 1)
         elif hdp_abs == 1.0: return (w2 * b) + (w1 * 0) - ((d + l1 + l2) * 1)
         elif hdp_abs == 1.25: return (w2 * b) - (w1 * 0.5) - ((d + l1 + l2) * 1)
         elif hdp_abs == 1.5: return (w2 * b) - ((w1 + d + l1 + l2) * 1)
-    else: # 🛡️ ทีมรอง (รับแต้มต่อ)
+    else: 
         if hdp_abs == 0.25: return ((w2 + w1) * b) + (d * (b/2)) - ((l1 + l2) * 1)
         elif hdp_abs == 0.5: return ((w2 + w1 + d) * b) - ((l1 + l2) * 1)
         elif hdp_abs == 0.75: return ((w2 + w1 + d) * b) - (l1 * 0.5) - (l2 * 1)
@@ -146,7 +146,7 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("📊 GEM System 6.0.4: Master Fix Edition")
+st.title("📊 GEM System 6.0.5: Master Fix Edition")
 
 tab1, tab2 = st.tabs(["🚀 Advanced Terminal", "📈 Performance Dashboard"])
 
@@ -183,11 +183,11 @@ with tab1:
                     if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) 
                     if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) 
                     
-                    # Regex อัปเดตใหม่ให้รองรับ 0/-0.5 อย่างปลอดภัย
-                    ah_match = re.search(r'^\s*AH\s+([+-]?[0-9.,/\s]+)', raw, re.MULTILINE)
+                    # ⚠️ แก้ไข Regex ตรงนี้: ยอมให้มีเครื่องหมายลบ/บวก ตรงไหนก็ได้
+                    ah_match = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
                     if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
                     
-                    ou_match = re.search(r'^\s*สูง/ต่ำ\s+([0-9.,/\s]+)', raw, re.MULTILINE)
+                    ou_match = re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)', raw, re.MULTILINE)
                     if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
                     
                     o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
@@ -196,7 +196,7 @@ with tab1:
                     u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
                     if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
                     
-                    st.success("✅ สกัดข้อมูลสำเร็จ!")
+                    st.success("✅ สกัดข้อมูลสำเร็จ! ตรวจสอบตัวเลข AH ด้านล่างได้เลย")
                 except Exception as e:
                     st.error(f"⚠️ รูปแบบข้อความมีปัญหา: {e}")
 
@@ -220,6 +220,7 @@ with tab1:
         ou_over_w = st.number_input("น้ำหน้าสูง (Over)", format="%.2f", key="ou_over_w_val")
         ou_under_w = st.number_input("น้ำหน้าต่ำ (Under)", format="%.2f", key="ou_under_w_val")
         hdba_val = st.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
+        st.info("Remark: ลีกมาตรฐานยุโรป 1.5 | บอลถ้วยที่ต้องบินข้ามประเทศ 2.5-3.0 | โบลิเวีย ,เอกวาดอร์ (ที่ราบสูง) 4.5+")
 
     if st.button("🚀 ANALYZE WITH PURE MATH"):
         def fix(o): return o + 1.0 if o < 1.1 else o
@@ -234,7 +235,6 @@ with tab1:
         
         is_h_fav = prob_h >= prob_a
         
-        # คืนชีพการแมปปิ้งทีมต่อ/ทีมรอง (แก้บั๊กร้ายแรงเรียบร้อย)
         ev_h = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, hw_o, is_fav_team=is_h_fav)
         ev_a = calc_advanced_ah_ev(hdp_line, aw2, aw1, d_exact, hw1, hw2, aw_o, is_fav_team=not is_h_fav) - (hdba_val/100)
         
@@ -251,7 +251,7 @@ with tab1:
         best = max(res_list, key=lambda x: x['ev'])
         k_money = get_defensive_k(best['ev'], best['odds'], total_bankroll)
 
-        st.session_state['report'] = f"""📊 GEM System 6.0.4: Master Fix
+        st.session_state['report'] = f"""📊 GEM System 6.0.5: Master Fix
 คู่: {match_name}
 ✅ True Prob: เหย้า {prob_h*100:.1f}% | เสมอ {prob_d*100:.1f}% | เยือน {prob_a*100:.1f}%
 🔬 Poisson Score Analysis:
