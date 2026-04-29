@@ -57,7 +57,7 @@ def calc_universal_ev(hdp, p_win, p_draw, p_loss, odds, is_fav):
 # ==========================================
 # 3. ส่วน UI - TABS System
 # ==========================================
-st.title("📊 GEM System Betting Soccer 5.6.8")
+st.title("📊 GEM System Betting Soccer")
 
 tab1, tab2 = st.tabs(["🚀 Analysis Terminal", "📈 Dashboard & History"])
 
