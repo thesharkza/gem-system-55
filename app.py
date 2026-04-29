@@ -149,7 +149,21 @@ with tab1:
     st.sidebar.header("💰 Portfolio Management")
     total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0)
     
-    # --- ส่วนที่ปรับปรุงใหม่: Smart Auto-Fill แบบ 2 ปุ่ม ---
+    # --- ฟังก์ชัน Callback สำหรับล้างข้อมูล (ต้องประกาศก่อนปุ่ม) ---
+    def clear_form_data():
+        st.session_state.raw_text = ""
+        st.session_state.match_name = "ชื่อคู่แข่งขัน"
+        st.session_state.h1x2_val = 1.0
+        st.session_state.d1x2_val = 1.0
+        st.session_state.a1x2_val = 1.0
+        st.session_state.hdp_line_val = 0.0
+        st.session_state.hdp_h_w_val = 0.0
+        st.session_state.hdp_a_w_val = 0.0
+        st.session_state.ou_line_val = 2.5
+        st.session_state.ou_over_w_val = 0.0
+        st.session_state.ou_under_w_val = 0.0
+
+    # --- Smart Auto-Fill Section ---
     with st.expander("⚡ วางข้อความที่นี่เพื่อสกัดข้อมูลอัตโนมัติ (Smart Auto-Fill)", expanded=True):
         st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนมาวางตรงนี้...", height=150, key="raw_text")
         
@@ -163,7 +177,7 @@ with tab1:
                     m_vs = re.search(r'(.*VS.*)', raw)
                     if m_vs: st.session_state.match_name = m_vs.group(1).strip()
                     
-                    # 2. เหย้า 1X2 & HDP น้ำ (หาคำว่า "เหย้า" ที่ขึ้นต้นบรรทัด)
+                    # 2. เหย้า 1X2 & HDP น้ำ
                     h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
                     if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) 
                     if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) 
@@ -185,7 +199,7 @@ with tab1:
                     ou_match = re.search(r'^\s*สูง/ต่ำ\s+([0-9./]+)', raw, re.MULTILINE)
                     if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
                     
-                    # 7. สูง น้ำ (ป้องกันไม่ให้ไปชนกับคำว่า สูง/ต่ำ)
+                    # 7. สูง น้ำ
                     o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
                     if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
                     
@@ -198,19 +212,8 @@ with tab1:
                     st.error(f"⚠️ รูปแบบข้อความมีปัญหา: {e}")
 
         with col_btn2:
-            if st.button("🗑️ ล้างข้อมูล (Clear)", use_container_width=True):
-                st.session_state.raw_text = ""
-                st.session_state.match_name = "ชื่อคู่แข่งขัน"
-                st.session_state.h1x2_val = 1.0
-                st.session_state.d1x2_val = 1.0
-                st.session_state.a1x2_val = 1.0
-                st.session_state.hdp_line_val = 0.0
-                st.session_state.hdp_h_w_val = 0.0
-                st.session_state.hdp_a_w_val = 0.0
-                st.session_state.ou_line_val = 2.5
-                st.session_state.ou_over_w_val = 0.0
-                st.session_state.ou_under_w_val = 0.0
-                st.rerun()
+            # ใช้ on_click เรียกฟังก์ชันเพื่อเคลียร์ค่าก่อนที่หน้าจอจะถูกวาดใหม่
+            st.button("🗑️ ล้างข้อมูล (Clear)", use_container_width=True, on_click=clear_form_data)
 
     # --- ช่อง Input (เชื่อมกับ Auto-fill ผ่าน key) ---
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
