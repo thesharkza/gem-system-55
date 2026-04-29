@@ -235,7 +235,7 @@ with tab1:
     st.sidebar.header("⚙️ Syndicate Parameters")
     dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho (ความสัมพันธ์สกอร์)", -0.30, 0.0, -0.10, step=0.01, help="ค่าติดลบยิ่งมาก ยิ่งเพิ่มน้ำหนักให้สกอร์เสมอ (0-0, 1-1) มากขึ้น")
     hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
-    st.info("Remark: ลีกมาตรฐานยุโรป 1.5 | บอลถ้วยที่ต้องบินข้ามประเทศ 2.5-3.0 | โบลิเวีย ,เอกวาดอร์ (ที่ราบสูง) 4.5+")
+    dc_rho = st.info("Remark: ลีกมาตรฐานยุโรป 1.5 | บอลถ้วยที่ต้องบินข้ามประเทศ 2.5-3.0 | โบลิเวีย ,เอกวาดอร์ (ที่ราบสูง) 4.5+")
     
     def clear_form_data():
         st.session_state.raw_text = ""
