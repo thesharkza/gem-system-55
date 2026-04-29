@@ -28,22 +28,28 @@ def save_to_csv(data_dict):
         except:
             df_new.to_csv(LOG_FILE, index=False, encoding='utf-8-sig')
 
+# ==========================================
+# 1. ระบบจัดการฐานข้อมูล (Patch 5.6.16: Type-Safe)
+# ==========================================
 def load_logs():
     if os.path.exists(LOG_FILE):
         try:
-            # ใช้ on_bad_lines='skip' เพื่อข้ามแถวที่จำนวนคอลัมน์ไม่เท่ากับแถวอื่น (ป้องกันแอปพัง)
+            # โหลดไฟล์และจัดการแถวที่เสีย
             df_logs = pd.read_csv(LOG_FILE, on_bad_lines='skip', encoding='utf-8-sig')
             
-            # ตรวจสอบว่าคอลัมน์สำคัญครบไหม ถ้าไม่ครบให้ลองซ่อมแซม
-            required_cols = ["Odds", "Result"]
-            for col in required_cols:
-                if col not in df_logs.columns:
-                    df_logs[col] = "" # เติมคอลัมน์ว่างถ้าหาไม่เจอ
+            # บังคับประเภทคอลัมน์ให้ชัดเจน (Prevent Type Incompatibility)
+            df_logs['Match'] = df_logs['Match'].astype(str)
+            df_logs['Target'] = df_logs['Target'].astype(str)
+            df_logs['Result'] = df_logs['Result'].fillna("").astype(str) # บังคับเป็น String ทั้งหมด
+            df_logs['HDP'] = pd.to_numeric(df_logs['HDP'], errors='coerce').fillna(0.0)
+            df_logs['EV_Pct'] = pd.to_numeric(df_logs['EV_Pct'], errors='coerce').fillna(0.0)
+            df_logs['Investment'] = pd.to_numeric(df_logs['Investment'], errors='coerce').fillna(0.0)
+            df_logs['Odds'] = pd.to_numeric(df_logs.get('Odds', 1.90), errors='coerce').fillna(1.90)
             
             df_logs['Time'] = pd.to_datetime(df_logs['Time'], errors='coerce')
-            return df_logs.dropna(subset=['Time']) # กรองแถวที่เวลาเสียทิ้งไป
+            return df_logs.dropna(subset=['Time'])
         except Exception as e:
-            st.error(f"⚠️ ไฟล์ Log เสียหาย: {e}")
+            st.error(f"⚠️ ไม่สามารถโหลด Log ได้: {e}")
             return None
     return None
 
@@ -180,21 +186,33 @@ True Prob: {prob_h*100:.1f}% | {prob_d*100:.1f}% | {prob_a*100:.1f}%
             save_to_csv(st.session_state['log_data'])
             st.success("บันทึกสำเร็จ!")
 
+# ==========================================
+# 2. UI - ส่วน Dashboard (Tab 2)
+# ==========================================
 with tab2:
     logs = load_logs()
     if logs is not None:
-        st.subheader("📝 จัดการผลการแข่งขัน & คำนวณกำไร")
+        st.subheader("📝 จัดการผลการแข่งขัน")
         
-        # ใช้ Data Editor เพื่อกรอกสกอร์
+        # เตรียมข้อมูล: เรียงลำดับและ Reset Index เพื่อให้ data_editor ทำงานได้
+        display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
+        
+        # ใช้ Data Editor แบบระบุประเภทคอลัมน์ที่แน่นอน
         edited_df = st.data_editor(
-            logs.sort_values(by='Time', ascending=False),
-            column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")},
+            display_df,
+            column_config={
+                "Result": st.column_config.TextColumn("Result (e.g. 2-1)", help="กรอกสกอร์จริง"),
+                "Time": st.column_config.DatetimeColumn("Time", disabled=True),
+                "Investment": st.column_config.NumberColumn("Investment", format="%.2f", disabled=True),
+            },
             use_container_width=True,
-            num_rows="dynamic"
+            num_rows="dynamic" # เปิดให้เพิ่ม/ลบแถวได้
         )
         
-        if st.button("💾 Save Changes & Calculate Profit"):
+        if st.button("💾 Save Changes & Update Dashboard"):
+            # บันทึกกลับลง CSV
             edited_df.to_csv(LOG_FILE, index=False, encoding='utf-8-sig')
+            st.success("อัปเดตข้อมูลและคำนวณผลกำไรใหม่เรียบร้อย!")
             st.rerun()
 
         # คำนวณสถิติ
