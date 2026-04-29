@@ -1,10 +1,10 @@
-import plotly.graph_objects as go
 import streamlit as st
 import pandas as pd
 import os
 import re
 import math
 from datetime import datetime, timezone, timedelta
+import plotly.graph_objects as go
 
 # --- CONFIG ---
 st.set_page_config(page_title="GEM System 7.0 (Syndicate Edition)", layout="wide")
@@ -46,14 +46,14 @@ def parse_line(line_str):
 # 1. ระบบคณิตศาสตร์ขั้นสูง (Syndicate Quant Engine)
 # ==========================================
 def shin_devig(o_h, o_d, o_a):
-    """🆕 อัลกอริทึม Shin's Method สำหรับหา True Prob (Industry Standard)"""
+    """อัลกอริทึม Shin's Method สำหรับหา True Prob"""
     pi = [1/o_h, 1/o_d, 1/o_a]
     sum_pi = sum(pi)
     if sum_pi <= 1.0:
         return pi[0]/sum_pi, pi[1]/sum_pi, pi[2]/sum_pi
     
     low, high = 0.0, 1.0
-    for _ in range(100): # วนลูปหาค่า z (Insider proportion)
+    for _ in range(100): 
         z = (low + high) / 2
         try:
             p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
@@ -63,14 +63,14 @@ def shin_devig(o_h, o_d, o_a):
             break
             
     p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
-    sum_p = sum(p) # Normalize
+    sum_p = sum(p) 
     return p[0]/sum_p, p[1]/sum_p, p[2]/sum_p
 
 def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
 def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho):
-    """🆕 อัปเกรด Poisson เป็น Dixon-Coles ปรับแก้น้ำหนักสกอร์ต่ำ (0-0, 1-1)"""
+    """อัปเกรด Poisson เป็น Dixon-Coles ปรับแก้น้ำหนักสกอร์ต่ำ (0-0, 1-1)"""
     lam_h = total_goals * (p_h + (p_d * 0.5))
     lam_a = total_goals * (p_a + (p_d * 0.5))
     matrix = [[0.0 for j in range(6)] for i in range(6)]
@@ -78,16 +78,16 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho):
     for i in range(6):
         for j in range(6):
             base_prob = poisson(i, lam_h) * poisson(j, lam_a)
-            # Dixon-Coles Adjustment (Tau)
+            # Dixon-Coles Adjustment
             if i == 0 and j == 0: tau = 1 - (lam_h * lam_a * rho)
             elif i == 0 and j == 1: tau = 1 + (lam_h * rho)
             elif i == 1 and j == 0: tau = 1 + (lam_a * rho)
             elif i == 1 and j == 1: tau = 1 - rho
             else: tau = 1.0
             
-            matrix[i][j] = max(0, base_prob * tau) # ป้องกันค่าติดลบ
+            matrix[i][j] = max(0, base_prob * tau) 
             
-    # Normalize Matrix หลังจากการปรับแก้ด้วย Tau
+    # Normalize Matrix
     total_prob = sum(matrix[i][j] for i in range(6) for j in range(6))
     for i in range(6):
         for j in range(6):
@@ -349,7 +349,9 @@ with tab1:
 - เป้าหมาย: {best_ou['n']} (EV: {best_ou['ev']*100:.2f}%)
 - ยอดเงินลงทุน: {k_money_ou:,.2f} THB
 """
-        # กำหนด Timezone เป็นประเทศไทย (UTC+7)
+        # ========================================================
+        # อัปเดตเวลาให้เป็น Timezone ประเทศไทย (UTC+7)
+        # ========================================================
         tz_th = timezone(timedelta(hours=7))
         current_time = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -358,8 +360,6 @@ with tab1:
             logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Result": ""})
         if best_ou['ev'] >= 0.05:
             logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
-        
-        # กรณี NO BET ทั้งคู่
         if not logs_to_save:
             logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": hdp_line, "Target": "NO BET", "EV_Pct": 0.0, "Investment": 0.0, "Odds": 0.0, "Result": ""})
 
@@ -377,59 +377,4 @@ with tab2:
     logs = load_logs()
     if logs is not None:
         st.subheader("📝 บันทึกผลสกอร์ (พิมพ์สกอร์ในช่อง Result เช่น 2-1)")
-        display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
-        edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")}, use_container_width=True, num_rows="dynamic")
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("💾 Save Score & Calculate Profit"):
-                edited_df.to_csv(LOG_FILE, index=False, encoding='utf-8-sig'); st.rerun()
-        with col_btn2:
-            if st.button("🗑️ ล้างประวัติทั้งหมด (Clear Logs)"):
-                if os.path.exists(LOG_FILE): os.remove(LOG_FILE); st.warning("ลบประวัติเรียบร้อย"); st.rerun()
-        logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
-        inv_logs = logs[logs['Investment'] > 0]
-        st.markdown("---")
-        st.subheader("🏆 Performance Statistics")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("กำไรสุทธิ", f"{logs['Net_Profit'].sum():,.2f} THB")
-        m2.metric("ยอดรวมลงทุน", f"{inv_logs['Investment'].sum():,.2f} THB")
-        m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
-        m4.metric("ROI", f"{(logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
-        if not logs.empty:
-            if not logs.empty:
-            st.markdown("---")
-            st.subheader("📉 กราฟกำไรสะสม (Equity Curve)")
-            
-            # เตรียมข้อมูลกราฟ
-            logs_sorted = logs.sort_values(by='Time')
-            logs_sorted['Cumulative_Profit'] = logs_sorted['Net_Profit'].cumsum()
-
-            # สร้างกราฟ Plotly สไตล์ Modern
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=logs_sorted['Time'],
-                y=logs_sorted['Cumulative_Profit'],
-                mode='lines',
-                line=dict(color='#00FF7F', width=3, shape='spline'), # เส้นโค้งสมูท สีเขียวสว่าง
-                fill='tozeroy', 
-                fillcolor='rgba(0, 255, 127, 0.15)', # แสงเงาใต้กราฟโปร่งแสง
-                name='กำไรสะสม',
-                hovertemplate='<b>วันที่/เวลา:</b> %{x}<br><b>กำไรสะสม:</b> %{y:,.2f} THB<extra></extra>'
-            ))
-
-            # ปรับแต่ง Layout ให้มินิมอล สบายตา
-            fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(showgrid=False, title="", showticklabels=True),
-                yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'),
-                hovermode="x unified",
-                margin=dict(l=0, r=0, t=30, b=0)
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
-            
-            # ปุ่มดาวน์โหลดรายงาน
-            st.download_button("📥 Download Full CSV Report", logs.to_csv(index=False).encode('utf-8-sig'), "gem_backtest_report.csv", "text/csv")
-    else:
-        st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
+        display_df = logs.sort_values(by='Time', ascending=
