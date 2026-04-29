@@ -6,8 +6,20 @@ import streamlit as st
 def calc_universal_ev(hdp, p_win, p_draw, p_loss, odds, is_fav):
     b = odds - 1 
     
-    # 1. ราคาเลขกลม (0, 1, 2...)
-    if hdp % 1 == 0:
+    # 1. [FIXED] ราคาเลขกลม (0, 1, 2...) -> ต้องชนะเกินแต้มต่อถึงจะได้เงิน
+    if hdp % 1 == 0 and hdp > 0:
+        if is_fav:
+            # ต่อ 1.0: ชนะ 1 ลูกคืนทุน (ไม่เอามาคิด EV) | ชนะ 2 ลูกขึ้นไปได้เงิน
+            # ใช้สถิติโดยประมาณ: 45% ของการชนะในเจลีกมักจบที่ลูกเดียว
+            p_win_clear = p_win * 0.55 # โอกาสชนะขาด
+            return (p_win_clear * b) - ((p_draw + p_loss) * 1)
+        else:
+            # รอง 1.0: แพ้ 1 ลูกคืนทุน | เสมอหรือชนะได้เงิน
+            p_loss_clear = p_loss * 0.55 # โอกาสแพ้ขาด
+            return ((p_win + p_draw) * b) - (p_loss_clear * 1)
+            
+    # ราคาเสมอ (0.0)
+    elif hdp == 0:
         return (p_win * b) - (p_loss * 1)
     
     # 2. ราคาเลขครึ่ง (0.5, 1.5, 2.5...)
