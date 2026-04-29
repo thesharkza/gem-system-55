@@ -6,7 +6,7 @@ import math
 from datetime import datetime
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 6.0.2 (Auto-Fill)", layout="wide")
+st.set_page_config(page_title="GEM System 6.0.3 (Pro Tool)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -141,7 +141,7 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("📊 GEM System 6.0.2: Auto-Fill & Pure Quant")
+st.title("📊 GEM System 6.0.3: Pro Tool Edition")
 
 tab1, tab2 = st.tabs(["🚀 Advanced Terminal", "📈 Performance Dashboard"])
 
@@ -149,50 +149,68 @@ with tab1:
     st.sidebar.header("💰 Portfolio Management")
     total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0)
     
-    # --- ส่วนที่เพิ่มใหม่: Smart Auto-Fill ---
+    # --- ส่วนที่ปรับปรุงใหม่: Smart Auto-Fill แบบ 2 ปุ่ม ---
     with st.expander("⚡ วางข้อความที่นี่เพื่อสกัดข้อมูลอัตโนมัติ (Smart Auto-Fill)", expanded=True):
-        raw_text = st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนมาวางตรงนี้...", height=150, key="raw_text")
-        if st.button("🪄 สกัดข้อมูลลงช่องด้านล่าง"):
-            try:
-                raw = st.session_state.raw_text
-                
-                # 1. ชื่อคู่แข่งขัน
-                m_vs = re.search(r'(.*VS.*)', raw)
-                if m_vs: st.session_state.match_name = m_vs.group(1).strip()
-                
-                # 2. เหย้า 1X2 & HDP น้ำ (หาคำว่า "เหย้า" ที่ขึ้นต้นบรรทัด)
-                h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
-                if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) # เจอครั้งแรกคือ 1X2
-                if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) # เจอครั้งที่สองคือ HDP
-                
-                # 3. เสมอ 1X2
-                d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
-                if len(d_matches) >= 1: st.session_state.d1x2_val = float(d_matches[0])
-                
-                # 4. เยือน 1X2 & HDP น้ำ
-                a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
-                if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) # เจอครั้งแรกคือ 1X2
-                if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) # เจอครั้งที่สองคือ HDP
-                
-                # 5. AH เรตต่อรอง
-                ah_match = re.search(r'^\s*AH\s+([+-]?[0-9./]+)', raw, re.MULTILINE)
-                if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
-                
-                # 6. สูง/ต่ำ เรต (O/U)
-                ou_match = re.search(r'^\s*สูง/ต่ำ\s+([0-9./]+)', raw, re.MULTILINE)
-                if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
-                
-                # 7. สูง น้ำ (ป้องกันไม่ให้ไปชนกับคำว่า สูง/ต่ำ)
-                o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
-                if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
-                
-                # 8. ต่ำ น้ำ
-                u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
-                if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
-                
-                st.success("✅ สกัดข้อมูลสำเร็จ! ตัวเลขวิ่งเข้าช่องเรียบร้อย")
-            except Exception as e:
-                st.error(f"⚠️ รูปแบบข้อความมีปัญหา: {e}")
+        st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนมาวางตรงนี้...", height=150, key="raw_text")
+        
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("🪄 สกัดข้อมูล (Extract)", use_container_width=True):
+                try:
+                    raw = st.session_state.raw_text
+                    
+                    # 1. ชื่อคู่แข่งขัน
+                    m_vs = re.search(r'(.*VS.*)', raw)
+                    if m_vs: st.session_state.match_name = m_vs.group(1).strip()
+                    
+                    # 2. เหย้า 1X2 & HDP น้ำ (หาคำว่า "เหย้า" ที่ขึ้นต้นบรรทัด)
+                    h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
+                    if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) 
+                    if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) 
+                    
+                    # 3. เสมอ 1X2
+                    d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
+                    if len(d_matches) >= 1: st.session_state.d1x2_val = float(d_matches[0])
+                    
+                    # 4. เยือน 1X2 & HDP น้ำ
+                    a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
+                    if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) 
+                    if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) 
+                    
+                    # 5. AH เรตต่อรอง
+                    ah_match = re.search(r'^\s*AH\s+([+-]?[0-9./]+)', raw, re.MULTILINE)
+                    if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
+                    
+                    # 6. สูง/ต่ำ เรต (O/U)
+                    ou_match = re.search(r'^\s*สูง/ต่ำ\s+([0-9./]+)', raw, re.MULTILINE)
+                    if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
+                    
+                    # 7. สูง น้ำ (ป้องกันไม่ให้ไปชนกับคำว่า สูง/ต่ำ)
+                    o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
+                    if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
+                    
+                    # 8. ต่ำ น้ำ
+                    u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
+                    if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
+                    
+                    st.success("✅ สกัดข้อมูลสำเร็จ! ตัวเลขวิ่งเข้าช่องเรียบร้อย")
+                except Exception as e:
+                    st.error(f"⚠️ รูปแบบข้อความมีปัญหา: {e}")
+
+        with col_btn2:
+            if st.button("🗑️ ล้างข้อมูล (Clear)", use_container_width=True):
+                st.session_state.raw_text = ""
+                st.session_state.match_name = "ชื่อคู่แข่งขัน"
+                st.session_state.h1x2_val = 1.0
+                st.session_state.d1x2_val = 1.0
+                st.session_state.a1x2_val = 1.0
+                st.session_state.hdp_line_val = 0.0
+                st.session_state.hdp_h_w_val = 0.0
+                st.session_state.hdp_a_w_val = 0.0
+                st.session_state.ou_line_val = 2.5
+                st.session_state.ou_over_w_val = 0.0
+                st.session_state.ou_under_w_val = 0.0
+                st.rerun()
 
     # --- ช่อง Input (เชื่อมกับ Auto-fill ผ่าน key) ---
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
@@ -244,7 +262,7 @@ with tab1:
         best = max(res_list, key=lambda x: x['ev'])
         k_money = get_defensive_k(best['ev'], best['odds'], total_bankroll)
 
-        st.session_state['report'] = f"""📊 GEM System 6.0.2: Pure Quant
+        st.session_state['report'] = f"""📊 GEM System 6.0.3: Pro Tool
 คู่: {match_name}
 ✅ True Prob: เหย้า {prob_h*100:.1f}% | เสมอ {prob_d*100:.1f}% | เยือน {prob_a*100:.1f}%
 🔬 Poisson Score Analysis:
