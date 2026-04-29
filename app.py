@@ -147,3 +147,57 @@ with col2:
 if st.button("🚀 สแกนตลาดทั้งหมด", type="primary"):
     report = generate_gem_report(match_name, h1x2, d1x2, a1x2, hdp_line, hdp_h_w, hdp_a_w, ou_line, ou_over_w, ou_under_w, hdba_val, total_bankroll)
     st.code(report, language="text")
+
+import streamlit as st
+import pandas as pd
+import os
+from datetime import datetime
+
+# ==========================================
+# 1. ฟังก์ชันบันทึกข้อมูล (Logging Function)
+# ==========================================
+def save_to_csv(data_dict):
+    filename = "gem_history_log.csv"
+    df = pd.DataFrame([data_dict])
+    
+    # ตรวจสอบว่าไฟล์มีอยู่แล้วหรือไม่
+    if not os.path.isfile(filename):
+        df.to_csv(filename, index=False, encoding='utf-8-sig')
+    else:
+        # บันทึกต่อท้ายไฟล์เดิม
+        df.to_csv(filename, mode='a', index=False, header=False, encoding='utf-8-sig')
+    return filename
+
+# ==========================================
+# 2. ปรับปรุง UI ในส่วนการแสดงผล (เพิ่มปุ่ม Save)
+# ==========================================
+
+# ... (ส่วนการคำนวณ Patch 5.6.3 ด้านบนคงเดิม) ...
+
+# ภายในส่วนที่แสดงผลรายงาน (Report Display) ใน Streamlit:
+if st.button("💾 Save to History Log"):
+    # เตรียมข้อมูลสำหรับบันทึก
+    log_data = {
+        "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Match": match_name,
+        "True_Prob_H": round(p_h * 100, 2),
+        "True_Prob_D": round(p_d * 100, 2),
+        "True_Prob_A": round(p_a * 100, 2),
+        "HDP_Line": hdp_line,
+        "Best_Bet": best['n'] if best['ev'] >= 0.03 else "NO BET",
+        "EV_Pct": round(best['ev'] * 100, 2),
+        "Suggested_Investment": round(best['m'], 2),
+        "Status": "Pending" # เอาไว้ให้คุณมากรอกผล Win/Loss ทีหลัง
+    }
+    
+    # เรียกใช้ฟังก์ชันบันทึก
+    fname = save_to_csv(log_data)
+    st.success(f"บันทึกข้อมูลคู่ {match_name} ลงใน {fname} เรียบร้อยแล้ว!")
+
+# เพิ่มปุ่มสำหรับดูประวัติย้อนหลังในแอป
+if st.checkbox("📂 Show History Log"):
+    if os.path.exists("gem_history_log.csv"):
+        history_df = pd.read_csv("gem_history_log.csv")
+        st.dataframe(history_df.tail(10)) # โชว์ 10 รายการล่าสุด
+    else:
+        st.info("ยังไม่มีประวัติการบันทึก")
