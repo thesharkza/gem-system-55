@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 8.0 (Live Sniper Edition)", layout="wide")
+st.set_page_config(page_title="GEM System 8.1 (Sniper Alert)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -65,20 +65,13 @@ def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
 def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, current_a=0, minutes_left=90, red_card_h=False, red_card_a=False):
-    """
-    🔥 อัปเกรด: Inhomogeneous Poisson Process & Hazard Functions
-    คำนวณ Lambda ใหม่ตามทฤษฎี Birth Process ของ Dixon-Robinson (1998)
-    """
-    # ค่าความคาดหวังในการทำประตูตั้งต้น
     lam_h_base = total_goals * (p_h + (p_d * 0.5))
     lam_a_base = total_goals * (p_a + (p_d * 0.5))
 
-    # 1. Inhomogeneous Poisson (Time-Decay)
     time_factor = minutes_left / 90.0
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
 
-    # 2. Birth Process (Trailing Multiplier) - ทีมตามหลังมีโอกาสบุกยิงมากขึ้น
     if current_h < current_a:
         diff = current_a - current_h
         if diff == 1: lam_h *= 1.10
@@ -88,11 +81,9 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
         if diff == 1: lam_a *= 1.10
         elif diff >= 2: lam_a *= 1.20
 
-    # 3. Hazard Function (Red Card Penalty) - ทีมโดนใบแดงพลังลด 30%
     if red_card_h: lam_h *= 0.70
     if red_card_a: lam_a *= 0.70
 
-    # สร้าง Matrix
     matrix = [[0.0 for j in range(10)] for i in range(10)]
     for i in range(10): 
         for j in range(10): 
@@ -108,8 +99,6 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
     
     p_h_win_by_2plus = 0.0; p_h_win_by_1 = 0.0; p_draw = 0.0
     p_a_win_by_1 = 0.0; p_a_win_by_2plus = 0.0
-    
-    # ดิกชันนารีเก็บผลรวมสกอร์แบบ Dynamic ป้องกัน KeyError
     p_total_ou = {} 
 
     for i in range(10):
@@ -131,7 +120,6 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
     return (p_h_win_by_2plus, p_h_win_by_1, p_draw, p_a_win_by_1, p_a_win_by_2plus, p_total_ou)
 
 def calc_advanced_ah_ev(hdp_line, w2, w1, d, l1, l2, odds, is_fav_team):
-    """คำนวณ Expected Value (ซึ่งในบริบทนี้คือ Value ของการลงทุน)"""
     b = odds - 1
     hdp_abs = abs(hdp_line)
     if hdp_abs == 0: return ((w2 + w1) * b) - ((l1 + l2) * 1)
@@ -183,9 +171,6 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
             return (p_win * b) - (p_half_loss * 0.5) - (p_loss * 1)
     return 0.0
 
-# ==========================================
-# 2. ระบบฐานข้อมูลและ Backtest (ลดโค้ดลงเพื่อประหยัดพื้นที่ คงเดิมทั้งหมด)
-# ==========================================
 def save_to_csv(data_list):
     if not data_list: return
     df_new = pd.DataFrame(data_list)
@@ -224,18 +209,24 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("🎯 GEM System 8.0: Live Sniper Edition")
+st.title("🎯 GEM System 8.1: Sniper Alert System")
 
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
-# --- TAB 1: Pre-Match (Clean Edition) ---
+# --- TAB 1: Pre-Match ---
 with tab1:
     st.sidebar.header("💰 Portfolio Management")
     total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0)
+    
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Syndicate Parameters")
     dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho", -0.30, 0.0, -0.10, step=0.01)
     hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
+    
+    # 🆕 ตั้งค่าความอ่อนไหวของระบบแจ้งเตือน Sniper
+    st.sidebar.markdown("---")
+    st.sidebar.header("🚨 Live Sniper Settings")
+    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 10.0, 3.0, step=0.5, help="หากระบบพบความผิดปกติของราคาที่สูงกว่าค่านี้ จะทำการแจ้งเตือนตัวแดงทันที")
     
     def clear_form_data():
         st.session_state.raw_text = ""
@@ -254,27 +245,20 @@ with tab1:
                     raw = st.session_state.raw_text
                     m_vs = re.search(r'(.*VS.*)', raw)
                     if m_vs: st.session_state.match_name = m_vs.group(1).strip()
-                    
                     h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
                     if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) 
                     if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) 
-                    
                     d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
                     if len(d_matches) >= 1: st.session_state.d1x2_val = float(d_matches[0])
-                    
                     a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
                     if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) 
                     if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) 
-                    
                     ah_match = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
                     if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
-                    
                     ou_match = re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)', raw, re.MULTILINE)
                     if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
-                    
                     o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
                     if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
-                    
                     u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
                     if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
                     st.success("✅ สกัดข้อมูลสำเร็จ!")
@@ -303,14 +287,11 @@ with tab1:
         def fix(o): return o + 1.0 if o < 1.1 else o
         h_o, d_o, a_o = fix(h1x2), fix(d1x2), fix(a1x2)
         hw_o, aw_o, ow_o, uw_o = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
-        
         prob_h, prob_d, prob_a = shin_devig(h_o, d_o, a_o)
         hw2, hw1, d_exact, aw1, aw2, p_total = calc_dixon_coles_matrix(prob_h, prob_d, prob_a, ou_line, dc_rho)
-        
         is_h_fav = prob_h >= prob_a
         ev_h = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, hw_o, is_fav_team=is_h_fav)
         ev_a = calc_advanced_ah_ev(hdp_line, aw2, aw1, d_exact, hw1, hw2, aw_o, is_fav_team=not is_h_fav) - (hdba_val/100)
-        
         ev_over = calc_advanced_ou_ev(ou_line, p_total, ow_o, is_over=True)
         ev_under = calc_advanced_ou_ev(ou_line, p_total, uw_o, is_over=False)
 
@@ -322,10 +303,8 @@ with tab1:
 
         ah_list = [{"n": "เจ้าบ้าน", "ev": ev_h, "odds": hw_o, "hdp": hdp_line}, {"n": "ทีมเยือน", "ev": ev_a, "odds": aw_o, "hdp": hdp_line}]
         ou_list = [{"n": "สูง", "ev": ev_over, "odds": ow_o, "hdp": ou_line}, {"n": "ต่ำ", "ev": ev_under, "odds": uw_o, "hdp": ou_line}]
-        
         best_ah = max(ah_list, key=lambda x: x['ev'])
         best_ou = max(ou_list, key=lambda x: x['ev'])
-        
         k_money_ah = get_defensive_k(best_ah['ev'], best_ah['odds'], total_bankroll)
         k_money_ou = get_defensive_k(best_ou['ev'], best_ou['odds'], total_bankroll)
 
@@ -351,25 +330,21 @@ with tab1:
             save_to_csv(st.session_state['log_data'])
             st.success("บันทึกสำเร็จ!"); st.rerun()
 
-# --- TAB 2: Performance Dashboard (Clean Edition) ---
+# --- TAB 2: Performance Dashboard ---
 with tab2:
     logs = load_logs()
     if logs is not None:
         st.subheader("📝 บันทึกผลสกอร์")
         display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
         edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")}, use_container_width=True, num_rows="dynamic")
-        
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
-            if st.button("💾 Save Score & Calculate Profit"):
-                edited_df.to_csv(LOG_FILE, index=False, encoding='utf-8-sig'); st.rerun()
+            if st.button("💾 Save Score & Calculate Profit"): edited_df.to_csv(LOG_FILE, index=False, encoding='utf-8-sig'); st.rerun()
         with col_btn2:
             if st.button("🗑️ ล้างประวัติทั้งหมด (Clear Logs)"):
                 if os.path.exists(LOG_FILE): os.remove(LOG_FILE); st.rerun()
-        
         logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
         inv_logs = logs[logs['Investment'] > 0]
-        
         st.markdown("---")
         st.subheader("🏆 Performance Statistics")
         m1, m2, m3, m4 = st.columns(4)
@@ -377,13 +352,11 @@ with tab2:
         m2.metric("ยอดรวมลงทุน", f"{inv_logs['Investment'].sum():,.2f} THB")
         m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
         m4.metric("ROI", f"{(logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
-        
         if not logs.empty:
             st.markdown("---")
             st.subheader("📉 กราฟกำไรสะสม (Equity Curve)")
             logs_sorted = logs.sort_values(by='Time')
             logs_sorted['Cumulative_Profit'] = logs_sorted['Net_Profit'].cumsum()
-
             fig = go.Figure()
             fig.add_trace(go.Scatter(x=logs_sorted['Time'], y=logs_sorted['Cumulative_Profit'], mode='lines', line=dict(color='#00FF7F', width=3, shape='spline'), fill='tozeroy', fillcolor='rgba(0, 255, 127, 0.15)', name='กำไรสะสม', hovertemplate='<b>วันที่/เวลา:</b> %{x}<br><b>กำไรสะสม:</b> %{y:,.2f} THB<extra></extra>'))
             fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False, title="", showticklabels=True), yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'), hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
@@ -391,7 +364,7 @@ with tab2:
     else:
         st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
 
-# --- TAB 3: IN-PLAY LIVE (Sniper Overreaction Module) ---
+# --- TAB 3: IN-PLAY LIVE (Sniper Module + Alert) ---
 with tab3:
     st.header("📺 Live Sniper Engine (Market Overreaction)")
     
@@ -401,13 +374,10 @@ with tab3:
         c_h1, c_h2 = st.columns(2)
         current_score_h = c_h1.number_input("สกอร์เจ้าบ้าน", min_value=0, value=0, key="lh_s")
         red_card_h = c_h2.checkbox("🟥 เจ้าบ้านใบแดง", key="rc_h")
-        
         c_a1, c_a2 = st.columns(2)
         current_score_a = c_a1.number_input("สกอร์ทีมเยือน", min_value=0, value=0, key="la_s")
         red_card_a = c_a2.checkbox("🟥 ทีมเยือนใบแดง", key="rc_a")
-        
         current_min = st.slider("นาทีที่แข่งขัน", 0, 90, 45)
-    
     with col_l2:
         st.subheader("💡 อ้างอิงราคาเปิด (Pre-match)")
         pre_h = st.number_input("เหย้า (เปิด)", value=2.00, key="live_pre_h")
@@ -430,42 +400,52 @@ with tab3:
     if st.button("🎯 SCAN FOR OVERREACTION", use_container_width=True):
         def fix(o): return o + 1.0 if o < 1.1 else o
         p_h, p_d, p_a = shin_devig(fix(pre_h), fix(pre_d), fix(pre_a))
-        
         mins_left = 90 - current_min
-        # โยนตัวแปรใบแดง และ สกอร์ เข้าสู่ Inhomogeneous Poisson Process
         hw2, hw1, d_ex, aw1, aw2, p_total_ou = calc_dixon_coles_matrix(
             p_h, p_d, p_a, pre_ou, dc_rho, 
             current_h=current_score_h, current_a=current_score_a, minutes_left=mins_left,
             red_card_h=red_card_h, red_card_a=red_card_a
         )
-        
         is_h_fav = p_h >= p_a
-        # ฟังก์ชันนี้ทำการคำนวณ Value = (True Prob * Odds) - 1 สำหรับทุกเงื่อนไข (ชนะเต็ม, ได้ครึ่ง, เสียครึ่ง)
         ev_ah_h = calc_advanced_ah_ev(live_hdp, hw2, hw1, d_ex, aw1, aw2, fix(live_hdp_h), is_h_fav)
         ev_ah_a = calc_advanced_ah_ev(live_hdp, aw2, aw1, d_ex, hw1, hw2, fix(live_hdp_a), not is_h_fav) - (hdba_val/100)
-        
         ev_over = calc_advanced_ou_ev(live_ou, p_total_ou, fix(live_ou_over), True)
         ev_under = calc_advanced_ou_ev(live_ou, p_total_ou, fix(live_ou_under), False)
 
         st.success(f"วิเคราะห์หน้างานนาทีที่ {current_min} | สกอร์ {current_score_h}-{current_score_a}")
         
+        # 🆕 แปลงเปอร์เซ็นต์ที่ตั้งไว้ใน Sidebar เป็นทศนิยม
+        trigger_limit = sniper_threshold / 100.0
+
         c1, c2 = st.columns(2)
         best_ah_val = max(ev_ah_h, ev_ah_a)
         target_ah = "เจ้าบ้าน" if ev_ah_h > ev_ah_a else "ทีมเยือน"
-        
         best_ou_val = max(ev_over, ev_under)
         target_ou = "สูง" if ev_over > ev_under else "ต่ำ"
 
+        alert_triggered = False
+
         with c1:
             st.metric(f"Live AH Value ({target_ah})", f"{best_ah_val*100:.2f}%")
-            if best_ah_val > 0.05: 
-                st.warning(f"🔥 OVERREACTION DETECTED! ตลาดตื่นตระหนก แนะนำลงทุน '{target_ah}'")
+            if best_ah_val >= trigger_limit: 
+                st.error(f"🚨 SNIPER ALERT: {target_ah} คุ้มค่าแก่การลงทุน! (Value > {sniper_threshold}%)")
+                alert_triggered = True
+            elif best_ah_val > 0.0:
+                st.info(f"🟢 Marginal Edge: รอดูสถานการณ์ หรือน้ำไหลขึ้นอีกนิด")
             else:
-                st.info("🛡️ ตลาดปกติ (Negative Value) รอจังหวะต่อไป")
+                st.write("🛡️ ตลาดปกติ (Negative Value) รอจังหวะต่อไป")
 
         with c2:
             st.metric(f"Live O/U Value ({target_ou})", f"{best_ou_val*100:.2f}%")
-            if best_ou_val > 0.05: 
-                st.warning(f"🔥 OVERREACTION DETECTED! ตลาดตื่นตระหนก แนะนำลงทุน '{target_ou}'")
+            if best_ou_val >= trigger_limit: 
+                st.error(f"🚨 SNIPER ALERT: {target_ou} คุ้มค่าแก่การลงทุน! (Value > {sniper_threshold}%)")
+                alert_triggered = True
+            elif best_ou_val > 0.0:
+                st.info(f"🟢 Marginal Edge: รอดูสถานการณ์ หรือน้ำไหลขึ้นอีกนิด")
             else:
-                st.info("🛡️ ตลาดปกติ (Negative Value) รอจังหวะต่อไป")
+                st.write("🛡️ ตลาดปกติ (Negative Value) รอจังหวะต่อไป")
+                
+        # 🆕 แจ้งเตือนแบบ Popup มุมขวาบน หากเจอค่าที่สูงเกิน Threshold
+        if alert_triggered:
+            st.toast("🔥 พบช่องโหว่ความตื่นตระหนกของราคา! (Market Overreaction)", icon="🚨")
+            st.balloons() # ฉลองเล็กน้อยเวลาหาจังหวะสวยๆ เจอครับ!
