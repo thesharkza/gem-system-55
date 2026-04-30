@@ -68,10 +68,12 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
     lam_h_base = total_goals * (p_h + (p_d * 0.5))
     lam_a_base = total_goals * (p_a + (p_d * 0.5))
 
+    # Time-Decay Factor
     time_factor = minutes_left / 90.0
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
 
+    # Birth Process Factor
     if current_h < current_a:
         diff = current_a - current_h
         if diff == 1: lam_h *= 1.10
@@ -81,6 +83,7 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
         if diff == 1: lam_a *= 1.10
         elif diff >= 2: lam_a *= 1.20
 
+    # Hazard Function (Red Card)
     if red_card_h: lam_h *= 0.70
     if red_card_a: lam_a *= 0.70
 
@@ -373,6 +376,7 @@ with tab2:
         m2.metric("ยอดรวมลงทุน", f"{inv_logs['Investment'].sum():,.2f} THB")
         m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
         m4.metric("ROI", f"{(logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
+        
         if not logs.empty:
             st.markdown("---")
             st.subheader("📉 กราฟกำไรสะสม (Equity Curve)")
@@ -382,17 +386,8 @@ with tab2:
             fig.add_trace(go.Scatter(x=logs_sorted['Time'], y=logs_sorted['Cumulative_Profit'], mode='lines', line=dict(color='#00FF7F', width=3, shape='spline'), fill='tozeroy', fillcolor='rgba(0, 255, 127, 0.15)', name='กำไรสะสม', hovertemplate='<b>วันที่/เวลา:</b> %{x}<br><b>กำไรสะสม:</b> %{y:,.2f} THB<extra></extra>'))
             fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False, title="", showticklabels=True), yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'), hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig, use_container_width=True)
-            if not logs.empty:
-            st.markdown("---")
-            st.subheader("📉 กราฟกำไรสะสม (Equity Curve)")
-            logs_sorted = logs.sort_values(by='Time')
-            logs_sorted['Cumulative_Profit'] = logs_sorted['Net_Profit'].cumsum()
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=logs_sorted['Time'], y=logs_sorted['Cumulative_Profit'], mode='lines', line=dict(color='#00FF7F', width=3, shape='spline'), fill='tozeroy', fillcolor='rgba(0, 255, 127, 0.15)', name='กำไรสะสม', hovertemplate='<b>วันที่/เวลา:</b> %{x}<br><b>กำไรสะสม:</b> %{y:,.2f} THB<extra></extra>'))
-            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False, title="", showticklabels=True), yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'), hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
-            st.plotly_chart(fig, use_container_width=True)
             
-            # ⬇️ 🆕 เพิ่มบรรทัดนี้กลับเข้าไปครับ ⬇️
+            # ⬇️ เพิ่มปุ่มดาวน์โหลดไฟล์ CSV เข้ามาแล้ว ⬇️
             st.download_button("📥 Download Full CSV Report", logs.to_csv(index=False).encode('utf-8-sig'), "gem_backtest_report.csv", "text/csv")
     else:
         st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
