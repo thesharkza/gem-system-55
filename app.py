@@ -5,9 +5,12 @@ import re
 import math
 from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
+import requests
+from bs4 import BeautifulSoup
+import time
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 7.0 (Syndicate Edition)", layout="wide")
+st.set_page_config(page_title="GEM System 7.5 (Live Syndicate)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -43,15 +46,35 @@ def parse_line(line_str):
         return 0.0
 
 # ==========================================
+# 🤖 โมดูล THScore Auto-Fetch Bot
+# ==========================================
+@st.cache_data(ttl=30) # ป้องกันการยิง Request รัวเกินไป (Cache 30 วินาที)
+def fetch_thscore_live_data(search_team):
+    url = "https://www.thscore.mobi/"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+    }
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.encoding = 'utf-8'
+        soup = BeautifulSoup(response.text, 'html.parser')
+        page_text = soup.get_text(separator=' ')
+        
+        if search_team.lower() in page_text.lower():
+            return {"status": "success", "raw_data": page_text, "message": f"✅ พบข้อมูลทีม '{search_team}' ในระบบ!"}
+        else:
+            return {"status": "not_found", "raw_data": "", "message": f"⚠️ ไม่พบทีม '{search_team}' บนกระดานปัจจุบัน"}
+    except Exception as e:
+        return {"status": "error", "raw_data": "", "message": f"❌ การเชื่อมต่อล้มเหลว: {str(e)}"}
+
+# ==========================================
 # 1. ระบบคณิตศาสตร์ขั้นสูง (Syndicate Quant Engine)
 # ==========================================
 def shin_devig(o_h, o_d, o_a):
     """อัลกอริทึม Shin's Method สำหรับหา True Prob"""
     pi = [1/o_h, 1/o_d, 1/o_a]
     sum_pi = sum(pi)
-    if sum_pi <= 1.0:
-        return pi[0]/sum_pi, pi[1]/sum_pi, pi[2]/sum_pi
-    
+    if sum_pi <= 1.0: return pi[0]/sum_pi, pi[1]/sum_pi, pi[2]/sum_pi
     low, high = 0.0, 1.0
     for _ in range(100): 
         z = (low + high) / 2
@@ -59,9 +82,7 @@ def shin_devig(o_h, o_d, o_a):
             p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
             if sum(p) > 1: low = z
             else: high = z
-        except:
-            break
-            
+        except: break
     p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
     sum_p = sum(p) 
     return p[0]/sum_p, p[1]/sum_p, p[2]/sum_p
@@ -69,44 +90,45 @@ def shin_devig(o_h, o_d, o_a):
 def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
-def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho):
-    """อัปเกรด Poisson เป็น Dixon-Coles ปรับแก้น้ำหนักสกอร์ต่ำ (0-0, 1-1)"""
-    lam_h = total_goals * (p_h + (p_d * 0.5))
-    lam_a = total_goals * (p_a + (p_d * 0.5))
-    matrix = [[0.0 for j in range(6)] for i in range(6)]
+def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, current_a=0, minutes_left=90):
+    """Dixon-Coles รองรับทั้ง Pre-Match และ In-Play"""
+    time_factor = minutes_left / 90.0
+    lam_h = (total_goals * (p_h + (p_d * 0.5))) * time_factor
+    lam_a = (total_goals * (p_a + (p_d * 0.5))) * time_factor
     
-    for i in range(6):
-        for j in range(6):
+    matrix = [[0.0 for j in range(10)] for i in range(10)]
+    for i in range(10): 
+        for j in range(10): 
             base_prob = poisson(i, lam_h) * poisson(j, lam_a)
-            # Dixon-Coles Adjustment
             if i == 0 and j == 0: tau = 1 - (lam_h * lam_a * rho)
             elif i == 0 and j == 1: tau = 1 + (lam_h * rho)
             elif i == 1 and j == 0: tau = 1 + (lam_a * rho)
             elif i == 1 and j == 1: tau = 1 - rho
             else: tau = 1.0
-            
-            matrix[i][j] = max(0, base_prob * tau) 
-            
-    # Normalize Matrix
-    total_prob = sum(matrix[i][j] for i in range(6) for j in range(6))
-    for i in range(6):
-        for j in range(6):
-            matrix[i][j] /= total_prob
+            matrix[i][j] = max(0, base_prob * tau)
 
-    # คำนวณ AH
-    p_h_win_by_2plus = sum(matrix[i][j] for i in range(6) for j in range(6) if i - j >= 2)
-    p_h_win_by_1 = sum(matrix[i][j] for i in range(6) for j in range(6) if i - j == 1)
-    p_draw = sum(matrix[i][i] for i in range(6))
-    p_a_win_by_1 = sum(matrix[i][j] for i in range(6) for j in range(6) if j - i == 1)
-    p_a_win_by_2plus = sum(matrix[i][j] for i in range(6) for j in range(6) if j - i >= 2)
+    total_prob = sum(sum(row) for row in matrix)
     
-    # คำนวณ O/U
-    p_total = {k: 0.0 for k in range(12)}
-    for i in range(6):
-        for j in range(6):
-            p_total[i+j] += matrix[i][j]
+    p_h_win_by_2plus = 0.0; p_h_win_by_1 = 0.0; p_draw = 0.0
+    p_a_win_by_1 = 0.0; p_a_win_by_2plus = 0.0
+    p_total_ou = {k: 0.0 for k in range(20)}
+
+    for i in range(10):
+        for j in range(10):
+            prob = matrix[i][j] / total_prob
+            final_h = i + current_h
+            final_a = j + current_a
+            diff = final_h - final_a
             
-    return (p_h_win_by_2plus, p_h_win_by_1, p_draw, p_a_win_by_1, p_a_win_by_2plus, p_total)
+            if diff >= 2: p_h_win_by_2plus += prob
+            elif diff == 1: p_h_win_by_1 += prob
+            elif diff == 0: p_draw += prob
+            elif diff == -1: p_a_win_by_1 += prob
+            elif diff <= -2: p_a_win_by_2plus += prob
+            
+            p_total_ou[final_h + final_a] += prob
+            
+    return (p_h_win_by_2plus, p_h_win_by_1, p_draw, p_a_win_by_1, p_a_win_by_2plus, p_total_ou)
 
 def calc_advanced_ah_ev(hdp_line, w2, w1, d, l1, l2, odds, is_fav_team):
     b = odds - 1
@@ -132,44 +154,31 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
     b = odds - 1
     floor_line = math.floor(ou_line)
     remainder = ou_line - floor_line
-    
     if is_over:
         if remainder == 0.0:
-            p_win = sum(p_total.get(k, 0) for k in p_total if k > floor_line)
-            p_loss = sum(p_total.get(k, 0) for k in p_total if k < floor_line)
+            p_win = sum(p_total.get(k, 0) for k in p_total if k > floor_line); p_loss = sum(p_total.get(k, 0) for k in p_total if k < floor_line)
             return (p_win * b) - (p_loss * 1)
         elif remainder == 0.25:
-            p_win = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1)
-            p_half_loss = p_total.get(floor_line, 0.0)
-            p_loss = sum(p_total.get(k, 0) for k in p_total if k < floor_line)
+            p_win = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1); p_half_loss = p_total.get(floor_line, 0.0); p_loss = sum(p_total.get(k, 0) for k in p_total if k < floor_line)
             return (p_win * b) - (p_half_loss * 0.5) - (p_loss * 1)
         elif remainder == 0.5:
-            p_win = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1)
-            p_loss = sum(p_total.get(k, 0) for k in p_total if k <= floor_line)
+            p_win = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1); p_loss = sum(p_total.get(k, 0) for k in p_total if k <= floor_line)
             return (p_win * b) - (p_loss * 1)
         elif remainder == 0.75:
-            p_win = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 2)
-            p_half_win = p_total.get(floor_line + 1, 0.0)
-            p_loss = sum(p_total.get(k, 0) for k in p_total if k <= floor_line)
+            p_win = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 2); p_half_win = p_total.get(floor_line + 1, 0.0); p_loss = sum(p_total.get(k, 0) for k in p_total if k <= floor_line)
             return (p_win * b) + (p_half_win * (b / 2)) - (p_loss * 1)
     else: 
         if remainder == 0.0:
-            p_win = sum(p_total.get(k, 0) for k in p_total if k < floor_line)
-            p_loss = sum(p_total.get(k, 0) for k in p_total if k > floor_line)
+            p_win = sum(p_total.get(k, 0) for k in p_total if k < floor_line); p_loss = sum(p_total.get(k, 0) for k in p_total if k > floor_line)
             return (p_win * b) - (p_loss * 1)
         elif remainder == 0.25:
-            p_win = sum(p_total.get(k, 0) for k in p_total if k < floor_line)
-            p_half_win = p_total.get(floor_line, 0.0)
-            p_loss = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1)
+            p_win = sum(p_total.get(k, 0) for k in p_total if k < floor_line); p_half_win = p_total.get(floor_line, 0.0); p_loss = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1)
             return (p_win * b) + (p_half_win * (b / 2)) - (p_loss * 1)
         elif remainder == 0.5:
-            p_win = sum(p_total.get(k, 0) for k in p_total if k <= floor_line)
-            p_loss = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1)
+            p_win = sum(p_total.get(k, 0) for k in p_total if k <= floor_line); p_loss = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1)
             return (p_win * b) - (p_loss * 1)
         elif remainder == 0.75:
-            p_win = sum(p_total.get(k, 0) for k in p_total if k <= floor_line)
-            p_half_loss = p_total.get(floor_line + 1, 0.0)
-            p_loss = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 2)
+            p_win = sum(p_total.get(k, 0) for k in p_total if k <= floor_line); p_half_loss = p_total.get(floor_line + 1, 0.0); p_loss = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 2)
             return (p_win * b) - (p_half_loss * 0.5) - (p_loss * 1)
     return 0.0
 
@@ -223,9 +232,9 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("📊 GEM System 7.0: Syndicate Edition")
+st.title("📊 GEM System 7.5: Live Syndicate & Auto-Fetch")
 
-tab1, tab2 = st.tabs(["🚀 Advanced Terminal", "📈 Performance Dashboard"])
+tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
 with tab1:
     st.sidebar.header("💰 Portfolio Management")
@@ -233,9 +242,29 @@ with tab1:
     
     st.sidebar.markdown("---")
     st.sidebar.header("⚙️ Syndicate Parameters")
-    dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho (ความสัมพันธ์สกอร์)", -0.30, 0.0, -0.10, step=0.01, help="ค่าติดลบยิ่งมาก ยิ่งเพิ่มน้ำหนักให้สกอร์เสมอ (0-0, 1-1) มากขึ้น")
-    hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %  (Remark: ลีกมาตรฐานยุโรป 1.5 | บอลถ้วยที่ต้องบินข้ามประเทศ 2.5-3.0 | โบลิเวีย ,เอกวาดอร์ (ที่ราบสูง) 4.5+)", 0.0, 10.0, 1.5)
-
+    dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho", -0.30, 0.0, -0.10, step=0.01)
+    hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
+    
+    # --- ส่วน Bot อัตโนมัติ ---
+    st.markdown("---")
+    st.subheader("🤖 ระบบดึงข้อมูลอัตโนมัติ (THScore Auto-Fetch)")
+    auto_team = st.text_input("🔍 พิมพ์ชื่อทีมที่กำลังแข่ง (เช่น 'บุรีรัมย์' หรือ 'ลิเวอร์พูล')", key="auto_fetch_input")
+    if st.button("🔄 ดึงข้อมูลล่าสุด", use_container_width=True):
+        if auto_team:
+            with st.spinner('กำลังเจาะระบบ THScore...'):
+                fetch_result = fetch_thscore_live_data(auto_team)
+                if fetch_result["status"] == "success":
+                    st.success(fetch_result["message"])
+                    st.session_state.raw_text = fetch_result["raw_data"]
+                    st.session_state.match_name = auto_team
+                    time.sleep(1) # ให้เวลาระบบเซ็ตค่า
+                    st.rerun() 
+                elif fetch_result["status"] == "not_found":
+                    st.warning(fetch_result["message"])
+                else:
+                    st.error(fetch_result["message"])
+        else:
+            st.warning("กรุณาพิมพ์ชื่อทีมก่อนกดดึงข้อมูลครับ")
     
     def clear_form_data():
         st.session_state.raw_text = ""
@@ -245,7 +274,7 @@ with tab1:
         st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
 
     with st.expander("⚡ วางข้อความที่นี่เพื่อสกัดข้อมูลอัตโนมัติ (Smart Auto-Fill)", expanded=True):
-        st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนมาวางตรงนี้...", height=150, key="raw_text")
+        st.text_area("📋 ก๊อปปี้ราคาทั้งก้อน หรือดึงจากบอทมาวางตรงนี้...", height=150, key="raw_text")
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             if st.button("🪄 สกัดข้อมูล (Extract)", use_container_width=True):
@@ -298,15 +327,12 @@ with tab1:
         ou_over_w = st.number_input("น้ำหน้าสูง (Over)", format="%.2f", key="ou_over_w_val")
         ou_under_w = st.number_input("น้ำหน้าต่ำ (Under)", format="%.2f", key="ou_under_w_val")
 
-    if st.button("🚀 ANALYZE WITH SYNDICATE ENGINE"):
+    if st.button("🚀 ANALYZE PRE-MATCH"):
         def fix(o): return o + 1.0 if o < 1.1 else o
         h_o, d_o, a_o = fix(h1x2), fix(d1x2), fix(a1x2)
         hw_o, aw_o, ow_o, uw_o = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
         
-        # ถอดต๋งด้วย Shin's Method
         prob_h, prob_d, prob_a = shin_devig(h_o, d_o, a_o)
-        
-        # แปลงเป็นตารางสกอร์ด้วย Dixon-Coles
         hw2, hw1, d_exact, aw1, aw2, p_total = calc_dixon_coles_matrix(prob_h, prob_d, prob_a, ou_line, dc_rho)
         
         is_h_fav = prob_h >= prob_a
@@ -336,12 +362,12 @@ with tab1:
         ah_status = "🔥 INVEST" if best_ah['ev'] >= 0.05 else "🛡️ NO BET"
         ou_status = "🔥 INVEST" if best_ou['ev'] >= 0.05 else "🛡️ NO BET"
 
-        st.session_state['report'] = f"""📊 GEM System 7.0: Syndicate Edition
+        st.session_state['report'] = f"""📊 GEM System 7.5: Syndicate Edition
 คู่: {match_name}
 ✅ True Prob (Shin's Method): เหย้า {prob_h*100:.1f}% | เสมอ {prob_d*100:.1f}% | เยือน {prob_a*100:.1f}%
 🔬 Model: Dixon-Coles (Rho={dc_rho})
 
-🎯 สรุปผลการลงทุน (Dual Target Process):
+🎯 สรุปผลการลงทุน:
 [ตลาด AH] {ah_status}
 - เป้าหมาย: {best_ah['n']} (EV: {best_ah['ev']*100:.2f}%)
 - ยอดเงินลงทุน: {k_money_ah:,.2f} THB
@@ -350,19 +376,13 @@ with tab1:
 - เป้าหมาย: {best_ou['n']} (EV: {best_ou['ev']*100:.2f}%)
 - ยอดเงินลงทุน: {k_money_ou:,.2f} THB
 """
-        # ========================================================
-        # อัปเดตเวลาให้เป็น Timezone ประเทศไทย (UTC+7)
-        # ========================================================
         tz_th = timezone(timedelta(hours=7))
         current_time = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S")
 
         logs_to_save = []
-        if best_ah['ev'] >= 0.05:
-            logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Result": ""})
-        if best_ou['ev'] >= 0.05:
-            logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
-        if not logs_to_save:
-            logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": hdp_line, "Target": "NO BET", "EV_Pct": 0.0, "Investment": 0.0, "Odds": 0.0, "Result": ""})
+        if best_ah['ev'] >= 0.05: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Result": ""})
+        if best_ou['ev'] >= 0.05: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
+        if not logs_to_save: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": hdp_line, "Target": "NO BET", "EV_Pct": 0.0, "Investment": 0.0, "Odds": 0.0, "Result": ""})
 
         st.session_state['log_data'] = logs_to_save
 
@@ -378,7 +398,6 @@ with tab2:
     logs = load_logs()
     if logs is not None:
         st.subheader("📝 บันทึกผลสกอร์ (พิมพ์สกอร์ในช่อง Result เช่น 2-1)")
-        # --- บรรทัดที่ถูกตัดหายไปได้รับการแก้ไขแล้วด้านล่างนี้ ---
         display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
         edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")}, use_container_width=True, num_rows="dynamic")
         
@@ -391,8 +410,7 @@ with tab2:
             if st.button("🗑️ ล้างประวัติทั้งหมด (Clear Logs)"):
                 if os.path.exists(LOG_FILE): 
                     os.remove(LOG_FILE)
-                    st.warning("ลบประวัติเรียบร้อย")
-                    st.rerun()
+                    st.warning("ลบประวัติเรียบร้อย"); st.rerun()
         
         logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
         inv_logs = logs[logs['Investment'] > 0]
@@ -405,39 +423,76 @@ with tab2:
         m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
         m4.metric("ROI", f"{(logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
         
-        # ========================================================
-        # ระบบกราฟ Plotly สไตล์ Modern สบายตา
-        # ========================================================
         if not logs.empty:
             st.markdown("---")
             st.subheader("📉 กราฟกำไรสะสม (Equity Curve)")
-            
             logs_sorted = logs.sort_values(by='Time')
             logs_sorted['Cumulative_Profit'] = logs_sorted['Net_Profit'].cumsum()
 
             fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=logs_sorted['Time'],
-                y=logs_sorted['Cumulative_Profit'],
-                mode='lines',
-                line=dict(color='#00FF7F', width=3, shape='spline'), 
-                fill='tozeroy', 
-                fillcolor='rgba(0, 255, 127, 0.15)',
-                name='กำไรสะสม',
-                hovertemplate='<b>วันที่/เวลา:</b> %{x}<br><b>กำไรสะสม:</b> %{y:,.2f} THB<extra></extra>'
-            ))
-
-            fig.update_layout(
-                plot_bgcolor='rgba(0,0,0,0)',
-                paper_bgcolor='rgba(0,0,0,0)',
-                xaxis=dict(showgrid=False, title="", showticklabels=True),
-                yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'),
-                hovermode="x unified",
-                margin=dict(l=0, r=0, t=30, b=0)
-            )
+            fig.add_trace(go.Scatter(x=logs_sorted['Time'], y=logs_sorted['Cumulative_Profit'], mode='lines', line=dict(color='#00FF7F', width=3, shape='spline'), fill='tozeroy', fillcolor='rgba(0, 255, 127, 0.15)', name='กำไรสะสม', hovertemplate='<b>วันที่/เวลา:</b> %{x}<br><b>กำไรสะสม:</b> %{y:,.2f} THB<extra></extra>'))
+            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False, title="", showticklabels=True), yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'), hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
 
             st.plotly_chart(fig, use_container_width=True)
-            
             st.download_button("📥 Download Full CSV Report", logs.to_csv(index=False).encode('utf-8-sig'), "gem_backtest_report.csv", "text/csv")
     else:
         st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
+
+with tab3:
+    st.header("📺 Live Betting Engine (In-Play)")
+    
+    col_l1, col_l2 = st.columns(2)
+    with col_l1:
+        st.subheader("🏁 สถานะเกมปัจจุบัน")
+        current_score_h = st.number_input("สกอร์เจ้าบ้าน", min_value=0, value=0)
+        current_score_a = st.number_input("สกอร์ทีมเยือน", min_value=0, value=0)
+        current_min = st.slider("นาทีที่แข่งขัน", 0, 90, 45)
+    
+    with col_l2:
+        st.subheader("💡 อ้างอิงราคาเปิด (Pre-match)")
+        pre_h = st.number_input("เหย้า (เปิด)", value=2.00, key="live_pre_h")
+        pre_d = st.number_input("เสมอ (เปิด)", value=3.40, key="live_pre_d")
+        pre_a = st.number_input("เยือน (เปิด)", value=3.00, key="live_pre_a")
+        pre_ou = st.number_input("O/U (เปิด)", value=2.50, key="live_pre_ou")
+
+    st.markdown("---")
+    st.subheader("💰 ราคา Live ปัจจุบัน")
+    col_live1, col_live2 = st.columns(2)
+    with col_live1:
+        live_hdp = st.number_input("Live HDP", step=0.25, value=0.0)
+        live_hdp_h = st.number_input("น้ำ Live เจ้าบ้าน", value=0.90)
+        live_hdp_a = st.number_input("น้ำ Live ทีมเยือน", value=0.90)
+    with col_live2:
+        live_ou = st.number_input("Live O/U", step=0.25, value=2.50)
+        live_ou_over = st.number_input("น้ำ Live สูง", value=0.90)
+        live_ou_under = st.number_input("น้ำ Live ต่ำ", value=0.90)
+
+    if st.button("🔥 ANALYZE LIVE OPPORTUNITY", use_container_width=True):
+        def fix(o): return o + 1.0 if o < 1.1 else o
+        p_h, p_d, p_a = shin_devig(fix(pre_h), fix(pre_d), fix(pre_a))
+        
+        mins_left = 90 - current_min
+        hw2, hw1, d_ex, aw1, aw2, p_total_ou = calc_dixon_coles_matrix(
+            p_h, p_d, p_a, pre_ou, dc_rho, 
+            current_h=current_score_h, current_a=current_score_a, minutes_left=mins_left
+        )
+        
+        is_h_fav = p_h >= p_a
+        ev_ah_h = calc_advanced_ah_ev(live_hdp, hw2, hw1, d_ex, aw1, aw2, fix(live_hdp_h), is_h_fav)
+        ev_ah_a = calc_advanced_ah_ev(live_hdp, aw2, aw1, d_ex, hw1, hw2, fix(live_hdp_a), not is_h_fav) - (hdba_val/100)
+        
+        ev_over = calc_advanced_ou_ev(live_ou, p_total_ou, fix(live_ou_over), True)
+        ev_under = calc_advanced_ou_ev(live_ou, p_total_ou, fix(live_ou_under), False)
+
+        st.success(f"วิเคราะห์นาทีที่ {current_min} | สกอร์ {current_score_h}-{current_score_a}")
+        c1, c2 = st.columns(2)
+        with c1:
+            best_ah_val = max(ev_ah_h, ev_ah_a)
+            st.metric("Live AH EV (Best)", f"{best_ah_val*100:.2f}%")
+            if best_ah_val > 0.05: st.warning("🎯 แนะนำลงทุนฝั่งที่ EV เป็นบวก")
+        with c2:
+            best_ou_val = max(ev_over, ev_under)
+            st.metric("Live O/U EV (Best)", f"{best_ou_val*100:.2f}%")
+            if best_ou_val > 0.05: st.warning("🎯 แนะนำลงทุนฝั่งที่ EV เป็นบวก")
+
+        st.info("💡 หมายเหตุ: ระบบบอลสดใช้ทฤษฎี Time-Decay Poisson โดยอ้างอิงความแข็งแกร่งจากราคาเปิด (Pre-match Closing Odds)")
