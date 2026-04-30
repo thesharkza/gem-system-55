@@ -308,11 +308,30 @@ with tab1:
         k_money_ah = get_defensive_k(best_ah['ev'], best_ah['odds'], total_bankroll)
         k_money_ou = get_defensive_k(best_ou['ev'], best_ou['odds'], total_bankroll)
 
-        st.session_state['report'] = f"""📊 GEM System Pre-Match Report
-คู่: {match_name}
-✅ True Prob: เหย้า {prob_h*100:.1f}% | เสมอ {prob_d*100:.1f}% | เยือน {prob_a*100:.1f}%
-[ตลาด AH] เป้าหมาย: {best_ah['n']} (EV: {best_ah['ev']*100:.2f}%)
-[ตลาด O/U] เป้าหมาย: {best_ou['n']} (EV: {best_ou['ev']*100:.2f}%)
+        st.session_state['report'] = f"""📊 GEM System 8.1: Advanced Quant Report
+=======================================
+⚽ คู่แข่งขัน: {match_name}
+🔬 Model: Shin's Method & Dixon-Coles (Rho={dc_rho})
+
+1️⃣ ข้อมูลความน่าจะเป็นที่แท้จริง (True Probabilities)
+• โอกาสชนะเจ้าบ้าน : {prob_h*100:.2f}%
+• โอกาสเสมอ       : {prob_d*100:.2f}%
+• โอกาสชนะทีมเยือน : {prob_a*100:.2f}%
+
+2️⃣ ตลาดเอเชียนแฮนดิแคป (Asian Handicap)
+• ราคาต่อรอง: {hdp_line}
+• EV เจ้าบ้าน: {ev_h*100:.2f}%
+• EV ทีมเยือน: {ev_a*100:.2f}%
+✅ สรุป AH: [{ah_status}] เป้าหมาย -> {best_ah['n']}
+💰 แนะนำลงทุน: {k_money_ah:,.2f} THB
+
+3️⃣ ตลาดสกอร์รวม (Over/Under)
+• ราคา O/U: {ou_line}
+• EV หน้าสูง: {ev_over*100:.2f}%
+• EV หน้าต่ำ: {ev_under*100:.2f}%
+✅ สรุป O/U: [{ou_status}] เป้าหมาย -> {best_ou['n']}
+💰 แนะนำลงทุน: {k_money_ou:,.2f} THB
+=======================================
 """
         tz_th = timezone(timedelta(hours=7))
         current_time = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S")
