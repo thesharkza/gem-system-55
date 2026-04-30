@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 8.1 (Sniper Alert)", layout="wide")
+st.set_page_config(page_title="GEM System 8.2 (Data-Driven)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -68,12 +68,10 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
     lam_h_base = total_goals * (p_h + (p_d * 0.5))
     lam_a_base = total_goals * (p_a + (p_d * 0.5))
 
-    # Time-Decay Factor
     time_factor = minutes_left / 90.0
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
 
-    # Birth Process Factor
     if current_h < current_a:
         diff = current_a - current_h
         if diff == 1: lam_h *= 1.10
@@ -83,7 +81,6 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
         if diff == 1: lam_a *= 1.10
         elif diff >= 2: lam_a *= 1.20
 
-    # Hazard Function (Red Card)
     if red_card_h: lam_h *= 0.70
     if red_card_a: lam_a *= 0.70
 
@@ -212,7 +209,7 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("🎯 GEM System 8.1: Sniper Alert System")
+st.title("🎯 GEM System 8.2: Data-Driven Sniper")
 
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
@@ -228,7 +225,8 @@ with tab1:
     
     st.sidebar.markdown("---")
     st.sidebar.header("🚨 Live Sniper Settings")
-    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 10.0, 3.0, step=0.5, help="หากระบบพบความผิดปกติของราคาที่สูงกว่าค่านี้ จะทำการแจ้งเตือนทันที")
+    # 🆕 ปรับค่า Default เป็น 8.0% ตามผล Data Analysis
+    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 20.0, 8.0, step=0.5, help="แนะนำที่ 8% - 10% ขึ้นไป เพื่อกรองเฉพาะตลาดที่ Overreaction จริงๆ")
     
     def clear_form_data():
         st.session_state.raw_text = ""
@@ -313,7 +311,7 @@ with tab1:
         ah_status = "🔥 INVEST" if best_ah['ev'] >= 0.05 else "🛡️ NO BET"
         ou_status = "🔥 INVEST" if best_ou['ev'] >= 0.05 else "🛡️ NO BET"
 
-        st.session_state['report'] = f"""📊 GEM System 8.1: Advanced Quant Report
+        st.session_state['report'] = f"""📊 GEM System 8.2: Advanced Quant Report
 =======================================
 ⚽ คู่แข่งขัน: {match_name}
 🔬 Model: Shin's Method & Dixon-Coles (Rho={dc_rho})
@@ -387,7 +385,6 @@ with tab2:
             fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False, title="", showticklabels=True), yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'), hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig, use_container_width=True)
             
-            # ⬇️ เพิ่มปุ่มดาวน์โหลดไฟล์ CSV เข้ามาแล้ว ⬇️
             st.download_button("📥 Download Full CSV Report", logs.to_csv(index=False).encode('utf-8-sig'), "gem_backtest_report.csv", "text/csv")
     else:
         st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
@@ -472,6 +469,5 @@ with tab3:
             else:
                 st.write("🛡️ ตลาดปกติ (Negative Value) รอจังหวะต่อไป")
                 
-        # แจ้งเตือนแบบ Popup มุมขวาบน อย่างเดียว (แบบเงียบๆ กระชับๆ ไม่มีลูกโป่ง)
         if alert_triggered:
             st.toast("🔥 พบช่องโหว่ความตื่นตระหนกของราคา! (Market Overreaction)", icon="🚨")
