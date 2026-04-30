@@ -46,33 +46,47 @@ def parse_line(line_str):
         return 0.0
 
 # ==========================================
-# 🤖 โมดูล THScore Auto-Fetch Bot (Debug Mode)
+# 🤖 โมดูล THScore3 Auto-Fetch Bot (Debug Mode)
 # ==========================================
 @st.cache_data(ttl=30)
 def fetch_thscore_live_data(search_team):
-    url = "https://www.thscore.mobi/"
+    # 🆕 เปลี่ยน URL เป็นเป้าหมายใหม่
+    url = "https://www.thscore3.com/?from=m"
+    
+    # 🆕 ปรับแต่ง Headers ให้เหมือนเบราว์เซอร์มือถือทั่วไปมากขึ้น
     headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
-        "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7"
+        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://www.google.com/"
     }
+    
     try:
+        # ยิงคำขอไปที่เว็บ
         response = requests.get(url, headers=headers, timeout=10)
         response.encoding = 'utf-8'
         soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # สกัดข้อความทั้งหมด
         page_text = soup.get_text(separator=' ')
         
         if search_team.lower() in page_text.lower():
-            return {"status": "success", "raw_data": page_text, "message": f"✅ พบข้อมูลทีม '{search_team}' ในระบบ!"}
+            return {"status": "success", "raw_data": page_text, "message": f"✅ พบข้อมูลทีม '{search_team}' ในระบบ THScore3!"}
         else:
-            # 🆕 โหมด Debug: ถ้าหาไม่เจอ ให้มันแสดงให้ดูว่ามันเห็น Text อะไรบ้าง (โชว์แค่ 500 ตัวอักษรแรก)
+            # โหมด Debug: คายข้อมูลที่มองเห็นจริงๆ ออกมา
             debug_text = page_text.strip()[:500] 
             return {
                 "status": "not_found", 
                 "raw_data": "", 
-                "message": f"⚠️ ไม่พบทีม '{search_team}'\n\n🔎 ข้อมูลที่บอทมองเห็นจริงๆ คือ:\n{debug_text}..."
+                "message": f"⚠️ ไม่พบทีม '{search_team}' บนเว็บ THScore3\n\n🔎 ข้อมูลที่บอทมองเห็นคือ:\n{debug_text}..."
             }
+            
+    except requests.exceptions.Timeout:
+        return {"status": "error", "raw_data": "", "message": "❌ การเชื่อมต่อหมดเวลา (Timeout) เว็บอาจจะโหลดช้าหรือบล็อก IP ชั่วคราว"}
+    except requests.exceptions.RequestException as e:
+         return {"status": "error", "raw_data": "", "message": f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ: {str(e)}"}
     except Exception as e:
-        return {"status": "error", "raw_data": "", "message": f"❌ การเชื่อมต่อล้มเหลว: {str(e)}"}
+        return {"status": "error", "raw_data": "", "message": f"❌ ข้อผิดพลาดอื่นๆ: {str(e)}"}
 
 # ==========================================
 # 1. ระบบคณิตศาสตร์ขั้นสูง (Syndicate Quant Engine)
