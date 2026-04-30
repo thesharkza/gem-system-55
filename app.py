@@ -50,7 +50,7 @@ def parse_line(line_str):
 # ==========================================
 @st.cache_data(ttl=30) # ป้องกันการยิง Request รัวเกินไป (Cache 30 วินาที)
 def fetch_thscore_live_data(search_team):
-    url = "https://www.aiscore.com/th"
+    url = "https://www.thscore.mobi/"
     headers = {
         "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
     }
