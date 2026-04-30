@@ -448,4 +448,3 @@ with tab3:
         # 🆕 แจ้งเตือนแบบ Popup มุมขวาบน หากเจอค่าที่สูงเกิน Threshold
         if alert_triggered:
             st.toast("🔥 พบช่องโหว่ความตื่นตระหนกของราคา! (Market Overreaction)", icon="🚨")
-            st.balloons() # ฉลองเล็กน้อยเวลาหาจังหวะสวยๆ เจอครับ!
