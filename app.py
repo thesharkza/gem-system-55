@@ -46,13 +46,14 @@ def parse_line(line_str):
         return 0.0
 
 # ==========================================
-# 🤖 โมดูล THScore Auto-Fetch Bot
+# 🤖 โมดูล THScore Auto-Fetch Bot (Debug Mode)
 # ==========================================
-@st.cache_data(ttl=30) # ป้องกันการยิง Request รัวเกินไป (Cache 30 วินาที)
+@st.cache_data(ttl=30)
 def fetch_thscore_live_data(search_team):
     url = "https://www.thscore.mobi/"
     headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1",
+        "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7"
     }
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -63,7 +64,13 @@ def fetch_thscore_live_data(search_team):
         if search_team.lower() in page_text.lower():
             return {"status": "success", "raw_data": page_text, "message": f"✅ พบข้อมูลทีม '{search_team}' ในระบบ!"}
         else:
-            return {"status": "not_found", "raw_data": "", "message": f"⚠️ ไม่พบทีม '{search_team}' บนกระดานปัจจุบัน"}
+            # 🆕 โหมด Debug: ถ้าหาไม่เจอ ให้มันแสดงให้ดูว่ามันเห็น Text อะไรบ้าง (โชว์แค่ 500 ตัวอักษรแรก)
+            debug_text = page_text.strip()[:500] 
+            return {
+                "status": "not_found", 
+                "raw_data": "", 
+                "message": f"⚠️ ไม่พบทีม '{search_team}'\n\n🔎 ข้อมูลที่บอทมองเห็นจริงๆ คือ:\n{debug_text}..."
+            }
     except Exception as e:
         return {"status": "error", "raw_data": "", "message": f"❌ การเชื่อมต่อล้มเหลว: {str(e)}"}
 
