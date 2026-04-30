@@ -86,7 +86,9 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
     
     p_h_win_by_2plus = 0.0; p_h_win_by_1 = 0.0; p_draw = 0.0
     p_a_win_by_1 = 0.0; p_a_win_by_2plus = 0.0
-    p_total_ou = {k: 0.0 for k in range(20)}
+    
+    # 🛠️ แก้ไขบั๊ก KeyError: เปลี่ยนเป็น Dictionary ว่างที่ขยายตัวได้เรื่อยๆ
+    p_total_ou = {} 
 
     for i in range(10):
         for j in range(10):
@@ -101,7 +103,9 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
             elif diff == -1: p_a_win_by_1 += prob
             elif diff <= -2: p_a_win_by_2plus += prob
             
-            p_total_ou[final_h + final_a] += prob
+            # 🛠️ แก้ไขบั๊ก KeyError: เช็คก่อนว่ามีกล่องหรือยัง ถ้ายังไม่มีก็สร้างให้ใหม่
+            total_match_goals = final_h + final_a
+            p_total_ou[total_match_goals] = p_total_ou.get(total_match_goals, 0.0) + prob
             
     return (p_h_win_by_2plus, p_h_win_by_1, p_draw, p_a_win_by_1, p_a_win_by_2plus, p_total_ou)
 
