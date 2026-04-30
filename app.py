@@ -223,10 +223,9 @@ with tab1:
     dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho", -0.30, 0.0, -0.10, step=0.01)
     hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
     
-    # 🆕 ตั้งค่าความอ่อนไหวของระบบแจ้งเตือน Sniper
     st.sidebar.markdown("---")
     st.sidebar.header("🚨 Live Sniper Settings")
-    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 10.0, 3.0, step=0.5, help="หากระบบพบความผิดปกติของราคาที่สูงกว่าค่านี้ จะทำการแจ้งเตือนตัวแดงทันที")
+    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 10.0, 3.0, step=0.5, help="หากระบบพบความผิดปกติของราคาที่สูงกว่าค่านี้ จะทำการแจ้งเตือนทันที")
     
     def clear_form_data():
         st.session_state.raw_text = ""
@@ -308,6 +307,9 @@ with tab1:
         k_money_ah = get_defensive_k(best_ah['ev'], best_ah['odds'], total_bankroll)
         k_money_ou = get_defensive_k(best_ou['ev'], best_ou['odds'], total_bankroll)
 
+        ah_status = "🔥 INVEST" if best_ah['ev'] >= 0.05 else "🛡️ NO BET"
+        ou_status = "🔥 INVEST" if best_ou['ev'] >= 0.05 else "🛡️ NO BET"
+
         st.session_state['report'] = f"""📊 GEM System 8.1: Advanced Quant Report
 =======================================
 ⚽ คู่แข่งขัน: {match_name}
@@ -344,7 +346,7 @@ with tab1:
         st.session_state['log_data'] = logs_to_save
 
     if 'report' in st.session_state:
-        st.text_area("Pre-Match Report:", value=st.session_state['report'], height=150)
+        st.text_area("Pre-Match Report:", value=st.session_state['report'], height=400)
         if st.button("💾 บันทึกลง Log"):
             save_to_csv(st.session_state['log_data'])
             st.success("บันทึกสำเร็จ!"); st.rerun()
@@ -433,7 +435,6 @@ with tab3:
 
         st.success(f"วิเคราะห์หน้างานนาทีที่ {current_min} | สกอร์ {current_score_h}-{current_score_a}")
         
-        # 🆕 แปลงเปอร์เซ็นต์ที่ตั้งไว้ใน Sidebar เป็นทศนิยม
         trigger_limit = sniper_threshold / 100.0
 
         c1, c2 = st.columns(2)
@@ -464,6 +465,6 @@ with tab3:
             else:
                 st.write("🛡️ ตลาดปกติ (Negative Value) รอจังหวะต่อไป")
                 
-        # 🆕 แจ้งเตือนแบบ Popup มุมขวาบน หากเจอค่าที่สูงเกิน Threshold
+        # แจ้งเตือนแบบ Popup มุมขวาบน อย่างเดียว (แบบเงียบๆ กระชับๆ ไม่มีลูกโป่ง)
         if alert_triggered:
             st.toast("🔥 พบช่องโหว่ความตื่นตระหนกของราคา! (Market Overreaction)", icon="🚨")
