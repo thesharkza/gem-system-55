@@ -5,12 +5,9 @@ import re
 import math
 from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
-import requests
-from bs4 import BeautifulSoup
-import time
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 7.5 (Live Syndicate)", layout="wide")
+st.set_page_config(page_title="GEM System 7.5 (Clean Syndicate)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -44,49 +41,6 @@ def parse_line(line_str):
         return -val if is_negative else val
     except:
         return 0.0
-
-# ==========================================
-# 🤖 โมดูล THScore3 Auto-Fetch Bot (Debug Mode)
-# ==========================================
-@st.cache_data(ttl=30)
-def fetch_thscore_live_data(search_team):
-    # 🆕 เปลี่ยน URL เป็นเป้าหมายใหม่
-    url = "https://www.thscore3.com/?from=m"
-    
-    # 🆕 ปรับแต่ง Headers ให้เหมือนเบราว์เซอร์มือถือทั่วไปมากขึ้น
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://www.google.com/"
-    }
-    
-    try:
-        # ยิงคำขอไปที่เว็บ
-        response = requests.get(url, headers=headers, timeout=10)
-        response.encoding = 'utf-8'
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # สกัดข้อความทั้งหมด
-        page_text = soup.get_text(separator=' ')
-        
-        if search_team.lower() in page_text.lower():
-            return {"status": "success", "raw_data": page_text, "message": f"✅ พบข้อมูลทีม '{search_team}' ในระบบ THScore3!"}
-        else:
-            # โหมด Debug: คายข้อมูลที่มองเห็นจริงๆ ออกมา
-            debug_text = page_text.strip()[:500] 
-            return {
-                "status": "not_found", 
-                "raw_data": "", 
-                "message": f"⚠️ ไม่พบทีม '{search_team}' บนเว็บ THScore3\n\n🔎 ข้อมูลที่บอทมองเห็นคือ:\n{debug_text}..."
-            }
-            
-    except requests.exceptions.Timeout:
-        return {"status": "error", "raw_data": "", "message": "❌ การเชื่อมต่อหมดเวลา (Timeout) เว็บอาจจะโหลดช้าหรือบล็อก IP ชั่วคราว"}
-    except requests.exceptions.RequestException as e:
-         return {"status": "error", "raw_data": "", "message": f"❌ เกิดข้อผิดพลาดในการเชื่อมต่อ: {str(e)}"}
-    except Exception as e:
-        return {"status": "error", "raw_data": "", "message": f"❌ ข้อผิดพลาดอื่นๆ: {str(e)}"}
 
 # ==========================================
 # 1. ระบบคณิตศาสตร์ขั้นสูง (Syndicate Quant Engine)
@@ -253,7 +207,7 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("📊 GEM System 7.5: Live Syndicate & Auto-Fetch")
+st.title("📊 GEM System 7.5: Clean Syndicate Edition")
 
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
@@ -266,27 +220,6 @@ with tab1:
     dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho", -0.30, 0.0, -0.10, step=0.01)
     hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
     
-    # --- ส่วน Bot อัตโนมัติ ---
-    st.markdown("---")
-    st.subheader("🤖 ระบบดึงข้อมูลอัตโนมัติ (THScore Auto-Fetch)")
-    auto_team = st.text_input("🔍 พิมพ์ชื่อทีมที่กำลังแข่ง (เช่น 'บุรีรัมย์' หรือ 'ลิเวอร์พูล')", key="auto_fetch_input")
-    if st.button("🔄 ดึงข้อมูลล่าสุด", use_container_width=True):
-        if auto_team:
-            with st.spinner('กำลังเจาะระบบ THScore...'):
-                fetch_result = fetch_thscore_live_data(auto_team)
-                if fetch_result["status"] == "success":
-                    st.success(fetch_result["message"])
-                    st.session_state.raw_text = fetch_result["raw_data"]
-                    st.session_state.match_name = auto_team
-                    time.sleep(1) # ให้เวลาระบบเซ็ตค่า
-                    st.rerun() 
-                elif fetch_result["status"] == "not_found":
-                    st.warning(fetch_result["message"])
-                else:
-                    st.error(fetch_result["message"])
-        else:
-            st.warning("กรุณาพิมพ์ชื่อทีมก่อนกดดึงข้อมูลครับ")
-    
     def clear_form_data():
         st.session_state.raw_text = ""
         st.session_state.match_name = "ชื่อคู่แข่งขัน"
@@ -294,8 +227,9 @@ with tab1:
         st.session_state.hdp_line_val = 0.0; st.session_state.hdp_h_w_val = 0.0; st.session_state.hdp_a_w_val = 0.0
         st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
 
+    st.markdown("---")
     with st.expander("⚡ วางข้อความที่นี่เพื่อสกัดข้อมูลอัตโนมัติ (Smart Auto-Fill)", expanded=True):
-        st.text_area("📋 ก๊อปปี้ราคาทั้งก้อน หรือดึงจากบอทมาวางตรงนี้...", height=150, key="raw_text")
+        st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=150, key="raw_text")
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
             if st.button("🪄 สกัดข้อมูล (Extract)", use_container_width=True):
