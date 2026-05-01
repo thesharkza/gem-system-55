@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 8.2 (Data-Driven)", layout="wide")
+st.set_page_config(page_title="GEM System 8.2 (Auto-Save Sniper)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -209,7 +209,7 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("🎯 GEM System 8.2: Data-Driven Sniper")
+st.title("🎯 GEM System 8.2: Auto-Save Sniper")
 
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
@@ -225,7 +225,7 @@ with tab1:
     
     st.sidebar.markdown("---")
     st.sidebar.header("🚨 Live Sniper Settings")
-    # 🆕 ปรับค่า Default เป็น 8.0% ตามผล Data Analysis
+    # ปรับค่า Default เป็น 8.0%
     sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 20.0, 8.0, step=0.5, help="แนะนำที่ 8% - 10% ขึ้นไป เพื่อกรองเฉพาะตลาดที่ Overreaction จริงๆ")
     
     def clear_form_data():
@@ -296,7 +296,8 @@ with tab1:
         ev_under = calc_advanced_ou_ev(ou_line, p_total, uw_o, is_over=False)
 
         def get_defensive_k(ev, odds, bank):
-            if ev < 0.05: return 0.0
+            # ปรับเกณฑ์ขั้นต่ำเป็น 7% (0.07)
+            if ev < 0.07: return 0.0
             b_k, p_k = odds - 1, (ev + 1) / odds
             k_pct = ((b_k * p_k) - (1 - p_k)) / b_k
             return min(k_pct * 0.25, 0.05) * bank
@@ -308,8 +309,9 @@ with tab1:
         k_money_ah = get_defensive_k(best_ah['ev'], best_ah['odds'], total_bankroll)
         k_money_ou = get_defensive_k(best_ou['ev'], best_ou['odds'], total_bankroll)
 
-        ah_status = "🔥 INVEST" if best_ah['ev'] >= 0.05 else "🛡️ NO BET"
-        ou_status = "🔥 INVEST" if best_ou['ev'] >= 0.05 else "🛡️ NO BET"
+        # ปรับป้ายกำกับ INVEST ให้โชว์เมื่อ EV >= 7%
+        ah_status = "🔥 INVEST" if best_ah['ev'] >= 0.07 else "🛡️ NO BET"
+        ou_status = "🔥 INVEST" if best_ou['ev'] >= 0.07 else "🛡️ NO BET"
 
         st.session_state['report'] = f"""📊 GEM System 8.2: Advanced Quant Report
 =======================================
@@ -339,18 +341,21 @@ with tab1:
         tz_th = timezone(timedelta(hours=7))
         current_time = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S")
 
+        # บันทึกลง Log เฉพาะคู่ที่ EV >= 7% เท่านั้น
         logs_to_save = []
-        if best_ah['ev'] >= 0.05: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Result": ""})
-        if best_ou['ev'] >= 0.05: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
-        if not logs_to_save: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": hdp_line, "Target": "NO BET", "EV_Pct": 0.0, "Investment": 0.0, "Odds": 0.0, "Result": ""})
+        if best_ah['ev'] >= 0.07: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Result": ""})
+        if best_ou['ev'] >= 0.07: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
+        
+        # ระบบ Auto-Save อัจฉริยะ
+        if logs_to_save:
+            save_to_csv(logs_to_save)
+            st.success("✅ สแกนพบไม้ระดับ A+ (EV >= 7%) ระบบได้ทำการบันทึกลง Dashboard ให้เรียบร้อยแล้ว!")
+        else:
+            st.warning("🛡️ ไม่มีไม้ที่เข้าเกณฑ์ (EV < 7%) ระบบแนะนำให้ปล่อยผ่าน และข้ามการบันทึกประวัติ")
 
-        st.session_state['log_data'] = logs_to_save
-
+    # แสดงผล Report อย่างเดียว
     if 'report' in st.session_state:
         st.text_area("Pre-Match Report:", value=st.session_state['report'], height=400)
-        if st.button("💾 บันทึกลง Log"):
-            save_to_csv(st.session_state['log_data'])
-            st.success("บันทึกสำเร็จ!"); st.rerun()
 
 # --- TAB 2: Performance Dashboard ---
 with tab2:
