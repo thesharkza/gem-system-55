@@ -180,8 +180,14 @@ def save_to_csv(data_list):
 def load_logs():
     if os.path.exists(LOG_FILE):
         try:
-            df_logs = pd.read_csv(LOG_FILE, on_bad_lines='skip', encoding='utf-8-sig')
+            # 🛠️ บังคับให้ Pandas อ่านคอลัมน์ Result เป็น String ตั้งแต่แรก
+            df_logs = pd.read_csv(LOG_FILE, dtype={'Result': str}, on_bad_lines='skip', encoding='utf-8-sig')
             df_logs['Time'] = pd.to_datetime(df_logs['Time'], errors='coerce')
+            
+            # 🛠️ เติมช่องว่างแทนที่ค่า NaN ทันที
+            if 'Result' in df_logs.columns:
+                df_logs['Result'] = df_logs['Result'].fillna("")
+                
             return df_logs.dropna(subset=['Time'])
         except: return None
     return None
