@@ -369,6 +369,10 @@ with tab2:
     if logs is not None:
         st.subheader("📝 บันทึกผลสกอร์")
         display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
+        
+        # 🛠️ เพิ่มบรรทัดนี้: กวาดล้างคำว่า 'nan' ที่อาจจะหลงเหลืออยู่ให้กลายเป็นช่องว่าง
+        display_df['Result'] = display_df['Result'].astype(str).replace('nan', '')
+        
         edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")}, use_container_width=True, num_rows="dynamic")
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
