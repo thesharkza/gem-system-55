@@ -263,47 +263,6 @@ with tab1:
         st.session_state.fh_ou_line_val = 1.0; st.session_state.fh_ou_over_w_val = 0.0; st.session_state.fh_ou_under_w_val = 0.0
 
     st.markdown("---")
-    
-    # 🆕 โหมดที่ 1: ระบบ AI อัปโหลดรูปภาพ (Vision OCR) ใช้ Gemini 2.5 Flash
-    with st.expander("👁️ AI Vision: สกัดราคาจากรูปภาพสกรีนช็อต (ใหม่!)", expanded=False):
-        if not api_key:
-            st.warning("⚠️ กรุณาใส่ Gemini API Key ก่อนใช้งานโหมดนี้")
-        else:
-            uploaded_file = st.file_uploader("อัปโหลดรูปภาพตารางราคา (PNG, JPG)", type=['png', 'jpg', 'jpeg'])
-            if uploaded_file is not None:
-                st.image(uploaded_file, caption="ภาพที่อัปโหลด", use_container_width=True)
-                if st.button("🪄 ให้ AI สกัดข้อมูล (Extract from Image)", use_container_width=True):
-                    with st.spinner('กำลังให้ AI กวาดสายตาอ่านตัวเลข...'):
-                        try:
-                            img = Image.open(uploaded_file)
-                            
-                            # 🤖 เลือกรุ่นอ่านภาพที่เร็วและแม่นยำที่สุดจากลิสต์ของคุณ
-                            model = genai.GenerativeModel('models/gemini-2.5-flash')
-                            
-                            prompt = """
-                            คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอล สกัดข้อมูลจากภาพนี้แล้วแปลงเป็น JSON เท่านั้น
-                            ไม่ต้องมีคำอธิบายใดๆ หากข้อมูลไหนไม่มีให้ใส่ 0.0
-                            Format ที่ต้องการ:
-                            {
-                                "match_name": "ชื่อทีมเจ้าบ้าน VS ชื่อทีมเยือน",
-                                "h1x2_val": ราคาชนะเหย้าเต็มเวลา, "d1x2_val": ราคาเสมอเต็มเวลา, "a1x2_val": ราคาชนะเยือนเต็มเวลา,
-                                "hdp_line_val": เรตแฮนดิแคป (เช่น 0.5, 1.25), "hdp_h_w_val": ค่าน้ำต่อรองเจ้าบ้าน, "hdp_a_w_val": ค่าน้ำต่อรองเยือน,
-                                "ou_line_val": เรตสูงต่ำเต็มเวลา, "ou_over_w_val": ค่าน้ำสูงเต็มเวลา, "ou_under_w_val": ค่าน้ำต่ำเต็มเวลา,
-                                "fh_ou_line_val": เรตสูงต่ำครึ่งแรก, "fh_ou_over_w_val": ค่าน้ำสูงครึ่งแรก, "fh_ou_under_w_val": ค่าน้ำต่ำครึ่งแรก
-                            }
-                            """
-                            response = model.generate_content([prompt, img])
-                            
-                            json_str = response.text.replace('```json', '').replace('```', '').strip()
-                            extracted_data = json.loads(json_str)
-                            
-                            for k, v in extracted_data.items():
-                                st.session_state[k] = v
-                                
-                            st.success("✅ AI (Gemini 2.5 Flash) สกัดข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างได้เลย")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ: {e}")
 
     # โหมดที่ 2: วางข้อความแบบเดิม
     with st.expander("⚡ Text Parser: วางข้อความดิบ (โหมดคลาสสิก)", expanded=False):
@@ -519,6 +478,50 @@ with tab2:
 # --- TAB 3: IN-PLAY LIVE (Sniper Module) ---
 with tab3:
     st.header("📺 Live Sniper Engine (Market Overreaction)")
+
+    # 🆕 ย้ายมา Tab 3: ระบบ AI สแกนราคาบอลสด (Live Sniper Vision)
+    with st.expander("📸 AI Live Scanner: สกัดราคาและสกอร์จากรูปภาพ", expanded=True):
+        if not api_key:
+            st.warning("⚠️ กรุณาตรวจสอบ API Key ที่ระบบฝังไว้ก่อนใช้งาน")
+        else:
+            uploaded_file = st.file_uploader("อัปโหลดรูปภาพราคา Live (PNG, JPG)", type=['png', 'jpg', 'jpeg'], key="live_upload")
+            if uploaded_file is not None:
+                st.image(uploaded_file, caption="Live Screenshot", use_container_width=True)
+                if st.button("🪄 สกัดข้อมูลบอลสด (Extract Live Data)", use_container_width=True):
+                    with st.spinner('AI กำลังอ่านสกอร์และราคาไหล...'):
+                        try:
+                            img = Image.open(uploaded_file)
+                            # ใช้รุ่น Flash (Fast) เสมอตามที่คุณต้องการเพื่อความเร็ว
+                            model = genai.GenerativeModel('models/gemini-2.5-flash')
+                            
+                            prompt = """
+                            คุณคือผู้เชี่ยวชาญการอ่านราคาบอลสด สกัดข้อมูลจากภาพนี้แล้วแปลงเป็น JSON เท่านั้น
+                            หากข้อมูลไหนไม่มีให้ใส่ค่า default ตามที่กำหนด
+                            Format ที่ต้องการ:
+                            {
+                                "lh_s": สกอร์เจ้าบ้าน (ตัวเลข),
+                                "la_s": สกอร์ทีมเยือน (ตัวเลข),
+                                "live_min": นาทีที่แข่งขัน (ตัวเลข 0-90),
+                                "live_hdp": เรตต่อรองปัจจุบัน (HDP),
+                                "live_hdp_h": ค่าน้ำเจ้าบ้านปัจจุบัน,
+                                "live_hdp_a": ค่าน้ำทีมเยือนปัจจุบัน,
+                                "live_ou": เรตสูงต่ำปัจจุบัน (O/U),
+                                "live_ou_over": ค่าน้ำสูงปัจจุบัน,
+                                "live_ou_under": ค่าน้ำต่ำปัจจุบัน
+                            }
+                            """
+                            response = model.generate_content([prompt, img])
+                            json_str = response.text.replace('```json', '').replace('```', '').strip()
+                            extracted_data = json.loads(json_str)
+                            
+                            # อัปเดตข้อมูลเข้า Session State ตาม Key ของ Tab 3
+                            for k, v in extracted_data.items():
+                                st.session_state[k] = v
+                                
+                            st.success("✅ AI สกัดข้อมูลบอลสดสำเร็จ! ตรวจสอบราคาที่ช่องด้านล่าง")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ: {e}")
     
     col_l1, col_l2 = st.columns(2)
     with col_l1:
