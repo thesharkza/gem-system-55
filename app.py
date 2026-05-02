@@ -226,20 +226,17 @@ def calculate_net_profit(row):
 # ==========================================
 st.title("🎯 GEM System 8.4: AI-Powered Edition")
 
-# 🆕 ตั้งค่า AI แบบฝังออโต้ (Auto API Key)
+# 🆕 ตั้งค่า AI แบบฝังออโต้ (Auto API Key) พร้อมแก้ไข NameError
 st.sidebar.header("🔑 AI Integration (Gemini)")
-
-# 👇 นำ API Key ของคุณ มาวางในเครื่องหมายคำพูดด้านล่างนี้ได้เลยครับ!
 AUTO_API_KEY = "AIzaSyCbIMvDLtt00PVV21Qkdu1E1wFtaE2mJBI"
-
-# เชื่อมตัวแปรกลับเข้าไปให้ระบบด้านล่างทำงานได้ปกติ
-api_key = AUTO_API_KEY if AUTO_API_KEY != "AIzaSyCbIMvDLtt00PVV21Qkdu1E1wFtaE2mJBI" else None
+api_key = AUTO_API_KEY
 
 if api_key:
     genai.configure(api_key=api_key, transport="rest")
     st.sidebar.success("✅ AI Connected (Auto-Loaded)")
 else:
-    st.sidebar.warning("⚠️ กรุณาเอา API Key ไปใส่ในไฟล์ app.py บรรทัดที่เขียนว่า AUTO_API_KEY ครับ")
+    st.sidebar.warning("⚠️ กรุณาตรวจสอบ API Key อีกครั้ง")
+
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
 # --- TAB 1: Pre-Match ---
@@ -270,7 +267,7 @@ with tab1:
     # 🆕 โหมดที่ 1: ระบบ AI อัปโหลดรูปภาพ (Vision OCR) ใช้ Gemini 2.5 Flash
     with st.expander("👁️ AI Vision: สกัดราคาจากรูปภาพสกรีนช็อต (ใหม่!)", expanded=False):
         if not api_key:
-            st.warning("⚠️ กรุณาใส่ Gemini API Key ที่เมนูด้านซ้ายก่อนใช้งานโหมดนี้")
+            st.warning("⚠️ กรุณาใส่ Gemini API Key ก่อนใช้งานโหมดนี้")
         else:
             uploaded_file = st.file_uploader("อัปโหลดรูปภาพตารางราคา (PNG, JPG)", type=['png', 'jpg', 'jpeg'])
             if uploaded_file is not None:
