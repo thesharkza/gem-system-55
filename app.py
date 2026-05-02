@@ -272,7 +272,14 @@ with tab1:
                     with st.spinner('กำลังให้ AI กวาดสายตาอ่านตัวเลข...'):
                         try:
                             img = Image.open(uploaded_file)
-                            model = genai.GenerativeModel('gemini-1.5-flash-latest')
+                            # 🤖 ระบบ Auto-Detect ค้นหาโมเดลที่รองรับรูปภาพ
+                            valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                            vision_model_name = 'gemini-1.5-flash' # ค่าเริ่มต้น
+                            for name in ['models/gemini-1.5-flash', 'models/gemini-1.5-flash-001', 'models/gemini-pro-vision']:
+                                if name in valid_models:
+                                    vision_model_name = name.split('/')[-1]
+                                    break
+                            model = genai.GenerativeModel(vision_model_name)
                             prompt = """
                             คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอล สกัดข้อมูลจากภาพนี้แล้วแปลงเป็น JSON เท่านั้น
                             ไม่ต้องมีคำอธิบายใดๆ หากข้อมูลไหนไม่มีให้ใส่ 0.0
@@ -440,7 +447,14 @@ with tab1:
             if st.button("🤖 ให้ AI (Chief Risk Officer) ช่วยวิเคราะห์ความเสี่ยงด่านสุดท้าย", use_container_width=True):
                 with st.spinner('AI กำลังวิเคราะห์ตัวเลขและประเมินความเสี่ยง...'):
                     d = st.session_state['ai_analysis_data']
-                    model = genai.GenerativeModel('gemini-1.5-pro-latest')
+                    # 🤖 ระบบ Auto-Detect ค้นหาโมเดลวิเคราะห์ข้อความ
+                    valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                    text_model_name = 'gemini-1.5-pro' # ค่าเริ่มต้น
+                    for name in ['models/gemini-1.5-pro', 'models/gemini-1.5-pro-001', 'models/gemini-pro']:
+                        if name in valid_models:
+                            text_model_name = name.split('/')[-1]
+                            break
+                    model = genai.GenerativeModel(text_model_name)
                     prompt = f"""
                     คุณคือ Chief Risk Officer ประจำกองทุนเดิมพันกีฬา คุณมีหน้าที่ให้คำแนะนำสั้นๆ กระชับๆ ดุดันแบบมืออาชีพ (ไม่เกิน 4-5 บรรทัด)
                     ข้อมูลการคำนวณคณิตศาสตร์ของคู่ {d['match']}:
