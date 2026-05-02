@@ -72,6 +72,7 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
     lam_h_base = total_goals * (p_h + (p_d * 0.5))
     lam_a_base = total_goals * (p_a + (p_d * 0.5))
 
+    # 🆕 ผสานสมการจาก Paper วิจัย
     if is_fh:
         time_factor = 0.44 
     else:
@@ -188,6 +189,7 @@ def save_to_csv(data_list):
 def load_logs():
     if os.path.exists(LOG_FILE):
         try:
+            # 🛠️ ป้องกัน Error NaN ใน Streamlit 
             df_logs = pd.read_csv(LOG_FILE, dtype={'Result': str}, on_bad_lines='skip', encoding='utf-8-sig')
             df_logs['Time'] = pd.to_datetime(df_logs['Time'], errors='coerce')
             if 'Result' in df_logs.columns:
@@ -205,6 +207,7 @@ def calculate_net_profit(row):
         hdp, target, odds, invest = float(row['HDP']), row['Target'], float(row['Odds']), float(row['Investment'])
         diff = h_score - a_score
         
+        # 🆕 รองรับการตรวจสอบกำไรของครึ่งแรก (FH)
         if target == "เจ้าบ้าน": net_margin = diff - hdp
         elif target == "ทีมเยือน": net_margin = (a_score - h_score) + hdp
         elif target == "สูง" or target == "สูง (FH)": net_margin = (h_score + a_score) - hdp
@@ -223,22 +226,12 @@ def calculate_net_profit(row):
 # ==========================================
 st.title("🎯 GEM System 8.4: AI-Powered Edition")
 
-# 🆕 ตั้งค่า AI ใน Sidebar (แบบฝังรหัส Auto)
+# 🆕 ตั้งค่า AI ใน Sidebar (เปิดใช้งาน Transport REST แก้ปัญหา Timeout)
 st.sidebar.header("🔑 AI Integration (Gemini)")
-HARDCODED_API_KEY = "AIzaSyBInS3J_47hARegGOGhqWmFKk8gkHbN8Es"
-
-try:
-    if HARDCODED_API_KEY:
-        # 🛠️ ใช้ transport="rest" เพื่อแก้ปัญหา Timeout และ 503
-        genai.configure(api_key=HARDCODED_API_KEY, transport="rest")
-        st.sidebar.success("✅ AI Connected (Auto)")
-        api_key = HARDCODED_API_KEY
-    else:
-        st.sidebar.warning("⚠️ กรุณาใส่ API Key ในโค้ดก่อนใช้งาน")
-        api_key = None
-except Exception as e:
-    st.sidebar.error("❌ การเชื่อมต่อ AI ล้มเหลว")
-    api_key = None
+api_key = st.sidebar.text_input("Gemini API Key", type="password", help="รับ API Key ฟรีได้ที่ Google AI Studio")
+if api_key:
+    genai.configure(api_key=api_key, transport="rest")
+    st.sidebar.success("✅ AI Connected")
 
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
@@ -267,7 +260,7 @@ with tab1:
 
     st.markdown("---")
     
-    # 🆕 โหมดที่ 1: ระบบ AI อัปโหลดรูปภาพ (Vision OCR)
+    # 🆕 โหมดที่ 1: ระบบ AI อัปโหลดรูปภาพ (Vision OCR) ใช้ Gemini 2.5 Flash
     with st.expander("👁️ AI Vision: สกัดราคาจากรูปภาพสกรีนช็อต (ใหม่!)", expanded=False):
         if not api_key:
             st.warning("⚠️ กรุณาใส่ Gemini API Key ที่เมนูด้านซ้ายก่อนใช้งานโหมดนี้")
@@ -280,28 +273,8 @@ with tab1:
                         try:
                             img = Image.open(uploaded_file)
                             
-                            # 🤖 ขั้นสุดยอด: ให้ระบบดึงชื่อโมเดลจาก API Key ของคุณมาใช้ตรงๆ
-                            valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                            vision_model = None
-                            
-                            # ค้นหาโมเดลที่รองรับการอ่านภาพที่ดีที่สุดที่คุณมีสิทธิ์ใช้
-                            for m in valid_models:
-                                if '1.5-flash' in m:
-                                    vision_model = m
-                                    break
-                            if not vision_model:
-                                for m in valid_models:
-                                    if '1.5-pro' in m or 'vision' in m:
-                                        vision_model = m
-                                        break
-                                        
-                            # ดักจับ Error ถ้าบัญชีนี้ไม่มีสิทธิ์ใช้ AI รูปภาพเลย
-                            if not vision_model:
-                                st.error(f"⚠️ บัญชีของคุณไม่มีสิทธิ์ใช้โมเดลอ่านรูปภาพครับ (โมเดลที่คุณมี: {valid_models})")
-                                st.stop()
-
-                            # ใช้โมเดลที่ค้นพบเจาะจงเฉพาะบัญชีของคุณ
-                            model = genai.GenerativeModel(vision_model)
+                            # 🤖 เลือกรุ่นอ่านภาพที่เร็วและแม่นยำที่สุดจากลิสต์ของคุณ
+                            model = genai.GenerativeModel('models/gemini-2.5-flash')
                             
                             prompt = """
                             คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอล สกัดข้อมูลจากภาพนี้แล้วแปลงเป็น JSON เท่านั้น
@@ -323,7 +296,7 @@ with tab1:
                             for k, v in extracted_data.items():
                                 st.session_state[k] = v
                                 
-                            st.success(f"✅ AI ({vision_model}) สกัดข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างได้เลย")
+                            st.success("✅ AI (Gemini 2.5 Flash) สกัดข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างได้เลย")
                             st.rerun()
                         except Exception as e:
                             st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ: {e}")
@@ -456,6 +429,7 @@ with tab1:
         if best_ou['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
         if best_fh['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_fh['hdp'], "Target": best_fh['n'], "EV_Pct": round(best_fh['ev']*100, 2), "Investment": round(k_money_fh, 2), "Odds": best_fh['odds'], "Result": ""})
 
+        # ระบบ Auto-Save 
         if logs_to_save:
             save_to_csv(logs_to_save)
             st.success(f"✅ สแกนพบไม้ระดับ A+ ระบบได้ทำการบันทึกลง Dashboard อัตโนมัติเรียบร้อยแล้ว!")
@@ -465,13 +439,14 @@ with tab1:
     if 'report' in st.session_state:
         st.text_area("Pre-Match Report:", value=st.session_state['report'], height=350)
         
-        # 🆕 โหมดที่ 3: ให้ AI ช่วยวิเคราะห์และตัดสินใจด่านสุดท้าย (Chief Risk Officer)
+        # 🆕 โหมดที่ 3: ให้ AI ช่วยวิเคราะห์และตัดสินใจด่านสุดท้าย (Chief Risk Officer) ใช้ Gemini 2.5 Pro
         if api_key and 'ai_analysis_data' in st.session_state:
             if st.button("🤖 ให้ AI (Chief Risk Officer) ช่วยวิเคราะห์ความเสี่ยงด่านสุดท้าย", use_container_width=True):
                 with st.spinner('AI กำลังวิเคราะห์ตัวเลขและประเมินความเสี่ยง...'):
                     d = st.session_state['ai_analysis_data']
-                    # 🤖 ใช้โมเดลข้อความรุ่นเสถียรมาตรฐาน เพื่อป้องกัน Error 404
-                    model = genai.GenerativeModel('gemini-pro')
+                    
+                    # 🤖 เลือกรุ่นวิเคราะห์ข้อมูลที่ฉลาดล้ำลึกที่สุดจากลิสต์ของคุณ
+                    model = genai.GenerativeModel('models/gemini-2.5-pro')
                     prompt = f"""
                     คุณคือ Chief Risk Officer ประจำกองทุนเดิมพันกีฬา คุณมีหน้าที่ให้คำแนะนำสั้นๆ กระชับๆ ดุดันแบบมืออาชีพ (ไม่เกิน 4-5 บรรทัด)
                     ข้อมูลการคำนวณคณิตศาสตร์ของคู่ {d['match']}:
@@ -483,9 +458,9 @@ with tab1:
                     """
                     try:
                         ai_advice = model.generate_content(prompt)
-                        st.info(f"**🧠 AI Risk Analysis:**\n\n{ai_advice.text}")
+                        st.info(f"**🧠 AI Risk Analysis (Gemini 2.5 Pro):**\n\n{ai_advice.text}")
                     except Exception as e:
-                        st.error(f"⚠️ AI ประมวลผลล้มเหลว ตรวจสอบ API Key อีกครั้ง: {e}")
+                        st.error(f"⚠️ AI ประมวลผลล้มเหลว: {e}")
 
 # --- TAB 2: Performance Dashboard ---
 with tab2:
@@ -493,6 +468,7 @@ with tab2:
     if logs is not None:
         st.subheader("📝 บันทึกผลสกอร์")
         display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
+        # 🛠️ ป้องกัน Error เวลาช่อง Result ว่างเปล่า
         display_df['Result'] = display_df['Result'].astype(str).replace('nan', '')
         edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")}, use_container_width=True, num_rows="dynamic")
         col_btn1, col_btn2 = st.columns(2)
