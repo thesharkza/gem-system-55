@@ -268,9 +268,9 @@ with tab1:
     st.markdown("---")
     
     # 🆕 โหมดที่ 1: ระบบ AI อัปโหลดรูปภาพ (Vision OCR)
-    with st.expander("👁️ AI Vision: สกัดราคาจากรูปภาพสกรีนช็อต", expanded=False):
+    with st.expander("👁️ AI Vision: สกัดราคาจากรูปภาพสกรีนช็อต (ใหม่!)", expanded=False):
         if not api_key:
-            st.warning("⚠️ API Key ยังไม่เชื่อมต่อ")
+            st.warning("⚠️ กรุณาใส่ Gemini API Key ที่เมนูด้านซ้ายก่อนใช้งานโหมดนี้")
         else:
             uploaded_file = st.file_uploader("อัปโหลดรูปภาพตารางราคา (PNG, JPG)", type=['png', 'jpg', 'jpeg'])
             if uploaded_file is not None:
@@ -278,6 +278,9 @@ with tab1:
                 if st.button("🪄 ให้ AI สกัดข้อมูล (Extract from Image)", use_container_width=True):
                     with st.spinner('กำลังให้ AI กวาดสายตาอ่านตัวเลข...'):
                         try:
+                            # 🛠️ บรรทัดที่หายไป: ต้องสั่งให้เปิดไฟล์รูปภาพขึ้นมาก่อน!
+                            img = Image.open(uploaded_file)
+                            
                             # 🤖 ใช้โมเดลวิชันรุ่นเสถียรมาตรฐาน (รองรับทุกบัญชี 100%)
                             model = genai.GenerativeModel('gemini-pro-vision')
                             prompt = """
@@ -294,7 +297,6 @@ with tab1:
                             """
                             response = model.generate_content([prompt, img])
                             
-                            # 🛠️ โค้ดบรรทัดเต็มๆ ที่ถูกต้องคือบรรทัดนี้ครับ
                             json_str = response.text.replace('```json', '').replace('```', '').strip()
                             extracted_data = json.loads(json_str)
                             
