@@ -229,11 +229,12 @@ st.title("🎯 GEM System 8.4: AI-Powered Edition")
 # 🆕 ตั้งค่า AI แบบฝังออโต้ (Auto API Key) พร้อมแก้ไข NameError
 st.sidebar.header("🔑 AI Integration (Gemini)")
 AUTO_API_KEY = "AIzaSyCbIMvDLtt00PVV21Qkdu1E1wFtaE2mJBI"
-api_key = AUTO_API_KEY
+# ระบบจะไปดึงรหัสผ่านจากเซฟหลังบ้านของ Streamlit โดยอัตโนมัติ
+api_key = st.secrets["GEMINI_API_KEY"] 
 
 if api_key:
     genai.configure(api_key=api_key, transport="rest")
-    st.sidebar.success("✅ AI Connected (Auto-Loaded)")
+    st.sidebar.success("✅ AI Connected (Secured Mode)")
 else:
     st.sidebar.warning("⚠️ กรุณาตรวจสอบ API Key อีกครั้ง")
 
