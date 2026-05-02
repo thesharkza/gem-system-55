@@ -252,7 +252,7 @@ with tab1:
     
     st.sidebar.markdown("---")
     st.sidebar.header("🚨 Live Sniper Settings")
-    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 20.0, 8.0, step=0.5)
+    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 20.0, 10.0, step=0.5)
     trigger_limit = sniper_threshold / 100.0
 
     def clear_form_data():
