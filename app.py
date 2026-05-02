@@ -230,14 +230,16 @@ st.title("🎯 GEM System 8.4: AI-Powered Edition")
 st.sidebar.header("🔑 AI Integration (Gemini)")
 
 # 👇 นำ API Key ของคุณ มาวางในเครื่องหมายคำพูดด้านล่างนี้ได้เลยครับ!
-AUTO_API_KEY = "ใส่_API_KEY_ของคุณตรงนี้"
+AUTO_API_KEY = "AIzaSyBInS3J_47hARegGOGhqWmFKk8gkHbN8Es"
 
-if AUTO_API_KEY != "ใส่_API_KEY_ของคุณตรงนี้":
-    genai.configure(api_key=AIzaSyBInS3J_47hARegGOGhqWmFKk8gkHbN8Es, transport="rest")
+# เชื่อมตัวแปรกลับเข้าไปให้ระบบด้านล่างทำงานได้ปกติ
+api_key = AUTO_API_KEY if AUTO_API_KEY != "AIzaSyBInS3J_47hARegGOGhqWmFKk8gkHbN8Es" else None
+
+if api_key:
+    genai.configure(api_key=api_key, transport="rest")
     st.sidebar.success("✅ AI Connected (Auto-Loaded)")
 else:
     st.sidebar.warning("⚠️ กรุณาเอา API Key ไปใส่ในไฟล์ app.py บรรทัดที่เขียนว่า AUTO_API_KEY ครับ")
-
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
 # --- TAB 1: Pre-Match ---
