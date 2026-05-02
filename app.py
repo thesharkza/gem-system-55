@@ -3,11 +3,14 @@ import pandas as pd
 import os
 import re
 import math
+import json
 from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
+from PIL import Image
+import google.generativeai as genai
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 8.3 (Institutional Paper)", layout="wide")
+st.set_page_config(page_title="GEM System 8.4 (AI-Powered)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -19,7 +22,7 @@ def init_session_state():
         'h1x2_val': 1.0, 'd1x2_val': 1.0, 'a1x2_val': 1.0,
         'hdp_line_val': 0.0, 'hdp_h_w_val': 0.0, 'hdp_a_w_val': 0.0,
         'ou_line_val': 2.5, 'ou_over_w_val': 0.0, 'ou_under_w_val': 0.0,
-        'fh_ou_line_val': 1.0, 'fh_ou_over_w_val': 0.0, 'fh_ou_under_w_val': 0.0, # 🆕 ตัวแปรครึ่งแรก
+        'fh_ou_line_val': 1.0, 'fh_ou_over_w_val': 0.0, 'fh_ou_under_w_val': 0.0,
         'raw_text': ""
     }
     for k, v in defaults.items():
@@ -71,11 +74,9 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
 
     # 🆕 ผสานสมการจาก Paper วิจัย
     if is_fh:
-        # สัดส่วนประตูกระจุกตัวในครึ่งแรกเฉลี่ย 44% (0.44)
         time_factor = 0.44 
     else:
-        # ฟังก์ชันการเสื่อมสลายตามเวลาแบบไม่ใช่เส้นตรง (Non-Linear Time-Decay ^ 0.85)
-        time_factor = (minutes_left / 90.0) ** 0.85
+        time_factor = (minutes_left / 90.0) ** 0.85 # Non-Linear Time-Decay
 
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
@@ -188,6 +189,7 @@ def save_to_csv(data_list):
 def load_logs():
     if os.path.exists(LOG_FILE):
         try:
+            # 🛠️ ป้องกัน Error NaN ใน Streamlit 
             df_logs = pd.read_csv(LOG_FILE, dtype={'Result': str}, on_bad_lines='skip', encoding='utf-8-sig')
             df_logs['Time'] = pd.to_datetime(df_logs['Time'], errors='coerce')
             if 'Result' in df_logs.columns:
@@ -204,6 +206,8 @@ def calculate_net_profit(row):
         h_score, a_score = int(scores[0]), int(scores[1])
         hdp, target, odds, invest = float(row['HDP']), row['Target'], float(row['Odds']), float(row['Investment'])
         diff = h_score - a_score
+        
+        # 🆕 รองรับการตรวจสอบกำไรของครึ่งแรก (FH)
         if target == "เจ้าบ้าน": net_margin = diff - hdp
         elif target == "ทีมเยือน": net_margin = (a_score - h_score) + hdp
         elif target == "สูง" or target == "สูง (FH)": net_margin = (h_score + a_score) - hdp
@@ -220,7 +224,14 @@ def calculate_net_profit(row):
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("🎯 GEM System 8.3: Institutional Paper Edition")
+st.title("🎯 GEM System 8.4: AI-Powered Edition")
+
+# 🆕 ตั้งค่า AI ใน Sidebar
+st.sidebar.header("🔑 AI Integration (Gemini)")
+api_key = st.sidebar.text_input("Gemini API Key", type="password", help="รับ API Key ฟรีได้ที่ Google AI Studio")
+if api_key:
+    genai.configure(api_key=api_key)
+    st.sidebar.success("✅ AI Connected")
 
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
@@ -236,8 +247,8 @@ with tab1:
     
     st.sidebar.markdown("---")
     st.sidebar.header("🚨 Live Sniper Settings")
-    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 20.0, 8.0, step=0.5, help="ระบบจะแจ้งเตือนและบันทึกอัตโนมัติ เมื่อ EV ทะลุเกณฑ์นี้")
-    trigger_limit = sniper_threshold / 100.0 # คำนวณแบบ Dynamic
+    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 20.0, 8.0, step=0.5)
+    trigger_limit = sniper_threshold / 100.0
 
     def clear_form_data():
         st.session_state.raw_text = ""
@@ -248,11 +259,50 @@ with tab1:
         st.session_state.fh_ou_line_val = 1.0; st.session_state.fh_ou_over_w_val = 0.0; st.session_state.fh_ou_under_w_val = 0.0
 
     st.markdown("---")
-    with st.expander("⚡ วางข้อความที่นี่เพื่อสกัดข้อมูลอัตโนมัติ (Smart Auto-Fill)", expanded=True):
-        st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=150, key="raw_text")
+    
+    # 🆕 โหมดที่ 1: ระบบ AI อัปโหลดรูปภาพ (Vision OCR)
+    with st.expander("👁️ AI Vision: สกัดราคาจากรูปภาพสกรีนช็อต (ใหม่!)", expanded=False):
+        if not api_key:
+            st.warning("⚠️ กรุณาใส่ Gemini API Key ที่เมนูด้านซ้ายก่อนใช้งานโหมดนี้")
+        else:
+            uploaded_file = st.file_uploader("อัปโหลดรูปภาพตารางราคา (PNG, JPG)", type=['png', 'jpg', 'jpeg'])
+            if uploaded_file is not None:
+                st.image(uploaded_file, caption="ภาพที่อัปโหลด", use_container_width=True)
+                if st.button("🪄 ให้ AI สกัดข้อมูล (Extract from Image)", use_container_width=True):
+                    with st.spinner('กำลังให้ AI กวาดสายตาอ่านตัวเลข...'):
+                        try:
+                            img = Image.open(uploaded_file)
+                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            prompt = """
+                            คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอล สกัดข้อมูลจากภาพนี้แล้วแปลงเป็น JSON เท่านั้น
+                            ไม่ต้องมีคำอธิบายใดๆ หากข้อมูลไหนไม่มีให้ใส่ 0.0
+                            Format ที่ต้องการ:
+                            {
+                                "match_name": "ชื่อทีมเจ้าบ้าน VS ชื่อทีมเยือน",
+                                "h1x2_val": ราคาชนะเหย้าเต็มเวลา, "d1x2_val": ราคาเสมอเต็มเวลา, "a1x2_val": ราคาชนะเยือนเต็มเวลา,
+                                "hdp_line_val": เรตแฮนดิแคป (เช่น 0.5, 1.25), "hdp_h_w_val": ค่าน้ำต่อรองเจ้าบ้าน, "hdp_a_w_val": ค่าน้ำต่อรองเยือน,
+                                "ou_line_val": เรตสูงต่ำเต็มเวลา, "ou_over_w_val": ค่าน้ำสูงเต็มเวลา, "ou_under_w_val": ค่าน้ำต่ำเต็มเวลา,
+                                "fh_ou_line_val": เรตสูงต่ำครึ่งแรก, "fh_ou_over_w_val": ค่าน้ำสูงครึ่งแรก, "fh_ou_under_w_val": ค่าน้ำต่ำครึ่งแรก
+                            }
+                            """
+                            response = model.generate_content([prompt, img])
+                            json_str = response.text.replace('```json', '').replace('```', '').strip()
+                            extracted_data = json.loads(json_str)
+                            
+                            for k, v in extracted_data.items():
+                                st.session_state[k] = v
+                                
+                            st.success("✅ AI สกัดข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างได้เลย")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ กรุณาลองอัปโหลดรูปที่ชัดเจนกว่านี้: {e}")
+
+    # โหมดที่ 2: วางข้อความแบบเดิม
+    with st.expander("⚡ Text Parser: วางข้อความดิบ (โหมดคลาสสิก)", expanded=False):
+        st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=100, key="raw_text")
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
-            if st.button("🪄 สกัดข้อมูล (Extract)", use_container_width=True):
+            if st.button("🪄 สกัดข้อมูล (Extract from Text)", use_container_width=True):
                 try:
                     raw = st.session_state.raw_text
                     m_vs = re.search(r'(.*VS.*)', raw)
@@ -273,15 +323,14 @@ with tab1:
                     if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
                     u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
                     if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
-                    st.success("✅ สกัดข้อมูลสำเร็จ! (ส่วนของครึ่งแรกแนะนำให้กรอกมือเพื่อความแม่นยำครับ)")
+                    st.success("✅ สกัดข้อความสำเร็จ! (ส่วนของครึ่งแรกแนะนำให้กรอกมือเพื่อความแม่นยำครับ)")
                 except Exception as e:
-                    st.error(f"⚠️ รูปแบบข้อความมีปัญหา: {e}")
+                    st.error(f"⚠️ ข้อความมีปัญหา: {e}")
         with col_btn2:
-            st.button("🗑️ ล้างข้อมูล (Clear)", use_container_width=True, on_click=clear_form_data)
+            st.button("🗑️ ล้างข้อมูลทั้งหมด", use_container_width=True, on_click=clear_form_data)
 
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
     
-    # 🆕 ขยายเลย์เอาท์เป็น 3 คอลัมน์ เพื่อใส่ตลาดครึ่งแรก
     col1, col2, col3 = st.columns(3)
     with col1:
         st.subheader("1. พูล & AH (เต็มเวลา)")
@@ -306,11 +355,10 @@ with tab1:
         def fix(o): return o + 1.0 if o < 1.1 else o
         h_o, d_o, a_o = fix(h1x2), fix(d1x2), fix(a1x2)
         hw_o, aw_o, ow_o, uw_o = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
-        fhow_o, fhuw_o = fix(fh_ou_over_w), fix(fh_ou_under_w) # ของครึ่งแรก
+        fhow_o, fhuw_o = fix(fh_ou_over_w), fix(fh_ou_under_w)
 
         prob_h, prob_d, prob_a = shin_devig(h_o, d_o, a_o)
         
-        # คำนวณเต็มเวลา (Full-Time)
         hw2, hw1, d_exact, aw1, aw2, p_total = calc_dixon_coles_matrix(prob_h, prob_d, prob_a, ou_line, dc_rho)
         is_h_fav = prob_h >= prob_a
         ev_h = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, hw_o, is_fav_team=is_h_fav)
@@ -318,12 +366,10 @@ with tab1:
         ev_over = calc_advanced_ou_ev(ou_line, p_total, ow_o, is_over=True)
         ev_under = calc_advanced_ou_ev(ou_line, p_total, uw_o, is_over=False)
 
-        # 🆕 คำนวณครึ่งแรก (First-Half) โดยโยนธง is_fh=True ไปที่เมทริกซ์
         _, _, _, _, _, p_total_fh = calc_dixon_coles_matrix(prob_h, prob_d, prob_a, ou_line, dc_rho, is_fh=True)
         ev_fh_over = calc_advanced_ou_ev(fh_ou_line, p_total_fh, fhow_o, is_over=True)
         ev_fh_under = calc_advanced_ou_ev(fh_ou_line, p_total_fh, fhuw_o, is_over=False)
 
-        # ฟังก์ชันเดินเงิน ป้องกันตัวด้วย Threshold ที่ผู้ใช้ตั้งไว้
         def get_defensive_k(ev, odds, bank):
             if ev < trigger_limit: return 0.0
             b_k, p_k = odds - 1, (ev + 1) / odds
@@ -346,33 +392,29 @@ with tab1:
         ou_status = "🔥 INVEST" if best_ou['ev'] >= trigger_limit else "🛡️ NO BET"
         fh_status = "🔥 INVEST" if best_fh['ev'] >= trigger_limit else "🛡️ NO BET"
 
-        st.session_state['report'] = f"""📊 GEM System 8.3: Institutional Paper Edition
+        st.session_state['ai_analysis_data'] = {
+            "match": match_name, "prob_h": prob_h, "prob_d": prob_d, "prob_a": prob_a,
+            "best_ah": best_ah, "best_ou": best_ou, "best_fh": best_fh
+        }
+
+        st.session_state['report'] = f"""📊 GEM System 8.4: AI-Powered Quant Report
 =======================================
 ⚽ คู่แข่งขัน: {match_name}
-🔬 Model: Shin's Method & Dixon-Coles (Rho={dc_rho}, Decay^0.85)
 
 1️⃣ ข้อมูลความน่าจะเป็นที่แท้จริง (True Probabilities)
-• โอกาสชนะเจ้าบ้าน : {prob_h*100:.2f}%
-• โอกาสเสมอ       : {prob_d*100:.2f}%
-• โอกาสชนะทีมเยือน : {prob_a*100:.2f}%
+• โอกาสชนะเจ้าบ้าน : {prob_h*100:.2f}% | เสมอ: {prob_d*100:.2f}% | เยือน: {prob_a*100:.2f}%
 
 2️⃣ ตลาดเอเชียนแฮนดิแคป (Asian Handicap)
-• ราคาต่อรอง: {hdp_line}
 • EV เจ้าบ้าน: {ev_h*100:.2f}% | EV ทีมเยือน: {ev_a*100:.2f}%
-✅ สรุป AH: [{ah_status}] เป้าหมาย -> {best_ah['n']}
-💰 แนะนำลงทุน: {k_money_ah:,.2f} THB
+✅ สรุป AH: [{ah_status}] เป้าหมาย -> {best_ah['n']} (แนะนำลงทุน: {k_money_ah:,.2f} THB)
 
 3️⃣ ตลาดสกอร์รวม (Over/Under เต็มเวลา)
-• ราคา O/U: {ou_line}
 • EV หน้าสูง: {ev_over*100:.2f}% | EV หน้าต่ำ: {ev_under*100:.2f}%
-✅ สรุป O/U: [{ou_status}] เป้าหมาย -> {best_ou['n']}
-💰 แนะนำลงทุน: {k_money_ou:,.2f} THB
+✅ สรุป O/U: [{ou_status}] เป้าหมาย -> {best_ou['n']} (แนะนำลงทุน: {k_money_ou:,.2f} THB)
 
 4️⃣ ตลาดสกอร์รวม ครึ่งแรก (First-Half O/U)
-• ราคา FH O/U: {fh_ou_line}
 • EV หน้าสูง: {ev_fh_over*100:.2f}% | EV หน้าต่ำ: {ev_fh_under*100:.2f}%
-✅ สรุป FH O/U: [{fh_status}] เป้าหมาย -> {best_fh['n']}
-💰 แนะนำลงทุน: {k_money_fh:,.2f} THB
+✅ สรุป FH: [{fh_status}] เป้าหมาย -> {best_fh['n']} (แนะนำลงทุน: {k_money_fh:,.2f} THB)
 =======================================
 """
         tz_th = timezone(timedelta(hours=7))
@@ -383,15 +425,36 @@ with tab1:
         if best_ou['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
         if best_fh['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_fh['hdp'], "Target": best_fh['n'], "EV_Pct": round(best_fh['ev']*100, 2), "Investment": round(k_money_fh, 2), "Odds": best_fh['odds'], "Result": ""})
 
-        # ระบบ Auto-Save อัจฉริยะ
+        # ระบบ Auto-Save 
         if logs_to_save:
             save_to_csv(logs_to_save)
-            st.success(f"✅ สแกนพบไม้ระดับ A+ (EV >= {sniper_threshold}%) ระบบได้ทำการบันทึกลง Dashboard อัตโนมัติเรียบร้อยแล้ว!")
+            st.success(f"✅ สแกนพบไม้ระดับ A+ ระบบได้ทำการบันทึกลง Dashboard อัตโนมัติเรียบร้อยแล้ว!")
         else:
-            st.warning(f"🛡️ ไม่มีไม้ที่เข้าเกณฑ์ (EV < {sniper_threshold}%) ระบบแนะนำให้ปล่อยผ่าน และข้ามการบันทึกประวัติ")
+            st.warning(f"🛡️ ไม่มีไม้ที่เข้าเกณฑ์ ระบบแนะนำให้ปล่อยผ่านและข้ามการบันทึกประวัติ")
 
     if 'report' in st.session_state:
-        st.text_area("Pre-Match Report:", value=st.session_state['report'], height=500)
+        st.text_area("Pre-Match Report:", value=st.session_state['report'], height=350)
+        
+        # 🆕 โหมดที่ 3: ให้ AI ช่วยวิเคราะห์และตัดสินใจด่านสุดท้าย (Chief Risk Officer)
+        if api_key and 'ai_analysis_data' in st.session_state:
+            if st.button("🤖 ให้ AI (Chief Risk Officer) ช่วยวิเคราะห์ความเสี่ยงด่านสุดท้าย", use_container_width=True):
+                with st.spinner('AI กำลังวิเคราะห์ตัวเลขและประเมินความเสี่ยง...'):
+                    d = st.session_state['ai_analysis_data']
+                    model = genai.GenerativeModel('gemini-1.5-pro')
+                    prompt = f"""
+                    คุณคือ Chief Risk Officer ประจำกองทุนเดิมพันกีฬา คุณมีหน้าที่ให้คำแนะนำสั้นๆ กระชับๆ ดุดันแบบมืออาชีพ (ไม่เกิน 4-5 บรรทัด)
+                    ข้อมูลการคำนวณคณิตศาสตร์ของคู่ {d['match']}:
+                    - โอกาสชนะจริง: เหย้า {d['prob_h']*100:.1f}%, เสมอ {d['prob_d']*100:.1f}%, เยือน {d['prob_a']*100:.1f}%
+                    - เป้าที่ดีที่สุด AH: {d['best_ah']['n']} (EV: {d['best_ah']['ev']*100:.2f}%)
+                    - เป้าที่ดีที่สุด O/U: {d['best_ou']['n']} (EV: {d['best_ou']['ev']*100:.2f}%)
+                    - เป้าที่ดีที่สุด FH: {d['best_fh']['n']} (EV: {d['best_fh']['ev']*100:.2f}%)
+                    คำถาม: สรุปว่าคู่นี้มีความเสี่ยงแอบแฝงอะไรไหม? และควรลงทุนหนักหรือเบา? ตอบเป็นภาษาไทย
+                    """
+                    try:
+                        ai_advice = model.generate_content(prompt)
+                        st.info(f"**🧠 AI Risk Analysis:**\n\n{ai_advice.text}")
+                    except Exception as e:
+                        st.error("⚠️ AI ประมวลผลล้มเหลว ตรวจสอบ API Key อีกครั้ง")
 
 # --- TAB 2: Performance Dashboard ---
 with tab2:
@@ -399,8 +462,8 @@ with tab2:
     if logs is not None:
         st.subheader("📝 บันทึกผลสกอร์")
         display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
+        # 🛠️ ป้องกัน Error เวลาช่อง Result ว่างเปล่า
         display_df['Result'] = display_df['Result'].astype(str).replace('nan', '')
-        
         edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")}, use_container_width=True, num_rows="dynamic")
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
@@ -427,7 +490,6 @@ with tab2:
             fig.add_trace(go.Scatter(x=logs_sorted['Time'], y=logs_sorted['Cumulative_Profit'], mode='lines', line=dict(color='#00FF7F', width=3, shape='spline'), fill='tozeroy', fillcolor='rgba(0, 255, 127, 0.15)', name='กำไรสะสม', hovertemplate='<b>วันที่/เวลา:</b> %{x}<br><b>กำไรสะสม:</b> %{y:,.2f} THB<extra></extra>'))
             fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False, title="", showticklabels=True), yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'), hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
             st.plotly_chart(fig, use_container_width=True)
-            
             st.download_button("📥 Download Full CSV Report", logs.to_csv(index=False).encode('utf-8-sig'), "gem_backtest_report.csv", "text/csv")
     else:
         st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
@@ -470,7 +532,6 @@ with tab3:
         p_h, p_d, p_a = shin_devig(fix(pre_h), fix(pre_d), fix(pre_a))
         mins_left = 90 - current_min
         
-        # 🆕 ตอนนี้ Time-Decay ใน Live Sniper จะถูกคำนวณแบบยกกำลัง 0.85 อัตโนมัติแล้ว!
         hw2, hw1, d_ex, aw1, aw2, p_total_ou = calc_dixon_coles_matrix(
             p_h, p_d, p_a, pre_ou, dc_rho, 
             current_h=current_score_h, current_a=current_score_a, minutes_left=mins_left,
