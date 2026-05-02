@@ -226,12 +226,17 @@ def calculate_net_profit(row):
 # ==========================================
 st.title("🎯 GEM System 8.4: AI-Powered Edition")
 
-# 🆕 ตั้งค่า AI ใน Sidebar (เปิดใช้งาน Transport REST แก้ปัญหา Timeout)
+# 🆕 ตั้งค่า AI แบบฝังออโต้ (Auto API Key)
 st.sidebar.header("🔑 AI Integration (Gemini)")
-api_key = st.sidebar.text_input("Gemini API Key", type="password", help="รับ API Key ฟรีได้ที่ Google AI Studio")
-if api_key:
-    genai.configure(api_key=api_key, transport="rest")
-    st.sidebar.success("✅ AI Connected")
+
+# 👇 นำ API Key ของคุณ มาวางในเครื่องหมายคำพูดด้านล่างนี้ได้เลยครับ!
+AUTO_API_KEY = "ใส่_API_KEY_ของคุณตรงนี้"
+
+if AUTO_API_KEY != "ใส่_API_KEY_ของคุณตรงนี้":
+    genai.configure(api_key=AIzaSyBInS3J_47hARegGOGhqWmFKk8gkHbN8Es, transport="rest")
+    st.sidebar.success("✅ AI Connected (Auto-Loaded)")
+else:
+    st.sidebar.warning("⚠️ กรุณาเอา API Key ไปใส่ในไฟล์ app.py บรรทัดที่เขียนว่า AUTO_API_KEY ครับ")
 
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
