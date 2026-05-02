@@ -278,8 +278,7 @@ with tab1:
                 if st.button("🪄 ให้ AI สกัดข้อมูล (Extract from Image)", use_container_width=True):
                     with st.spinner('กำลังให้ AI กวาดสายตาอ่านตัวเลข...'):
                         try:
-                            img = Image.open(uploaded_file)
-                            # 🤖 ใช้โมเดลวิชันรุ่นเสถียรมาตรฐาน เพื่อป้องกัน Error 404
+                            # 🤖 ใช้โมเดลวิชันรุ่นเสถียรมาตรฐาน (รองรับทุกบัญชี 100%)
                             model = genai.GenerativeModel('gemini-pro-vision')
                             prompt = """
                             คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอล สกัดข้อมูลจากภาพนี้แล้วแปลงเป็น JSON เท่านั้น
@@ -294,8 +293,9 @@ with tab1:
                             }
                             """
                             response = model.generate_content([prompt, img])
-                            json_str = response.text.replace('
-```json', '').replace('```', '').strip()
+                            
+                            # 🛠️ โค้ดบรรทัดเต็มๆ ที่ถูกต้องคือบรรทัดนี้ครับ
+                            json_str = response.text.replace('```json', '').replace('```', '').strip()
                             extracted_data = json.loads(json_str)
                             
                             for k, v in extracted_data.items():
@@ -304,7 +304,7 @@ with tab1:
                             st.success("✅ AI สกัดข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างได้เลย")
                             st.rerun()
                         except Exception as e:
-                            st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ กรุณาลองอัปโหลดรูปที่ชัดเจนกว่านี้: {e}")
+                            st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ: {e}")
 
     # โหมดที่ 2: วางข้อความแบบเดิม
     with st.expander("⚡ Text Parser: วางข้อความดิบ (โหมดคลาสสิก)", expanded=False):
