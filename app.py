@@ -278,8 +278,8 @@ with tab1:
                                 elif 'vision' in m:
                                     vision_model = m
                             
-                            model = genai.GenerativeModel(vision_model)
-                            img = Image.open(uploaded_file)
+                            # 🤖 ใช้โมเดลวิชันรุ่นเสถียรมาตรฐาน (รองรับทุกบัญชี 100%)
+                            model = genai.GenerativeModel('gemini-pro-vision')
                             prompt = """
                             คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอล สกัดข้อมูลจากภาพนี้แล้วแปลงเป็น JSON เท่านั้น
                             ไม่ต้องมีคำอธิบายใดๆ หากข้อมูลไหนไม่มีให้ใส่ 0.0
@@ -457,8 +457,8 @@ with tab1:
                         elif 'gemini-pro' in m:
                             text_model = m
                     
-                    model = genai.GenerativeModel(text_model)
-                    
+                    # 🤖 ใช้โมเดลข้อความรุ่นเสถียรมาตรฐาน (รองรับทุกบัญชี 100%)
+                    model = genai.GenerativeModel('gemini-pro')
                     prompt = f"""
                     คุณคือ Chief Risk Officer ประจำกองทุนเดิมพันกีฬา คุณมีหน้าที่ให้คำแนะนำสั้นๆ กระชับๆ ดุดันแบบมืออาชีพ (ไม่เกิน 4-5 บรรทัด)
                     ข้อมูลการคำนวณคณิตศาสตร์ของคู่ {d['match']}:
@@ -470,7 +470,7 @@ with tab1:
                     """
                     try:
                         ai_advice = model.generate_content(prompt)
-                        st.info(f"**🧠 AI Risk Analysis ({text_model}):**\n\n{ai_advice.text}")
+                        st.info(f"**🧠 AI Risk Analysis:**\n\n{ai_advice.text}")
                     except Exception as e:
                         st.error(f"⚠️ AI ประมวลผลล้มเหลว ตรวจสอบ API Key อีกครั้ง: {e}")
 
