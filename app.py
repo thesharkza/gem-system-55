@@ -230,7 +230,7 @@ st.title("🎯 GEM System 8.4: AI-Powered Edition")
 st.sidebar.header("🔑 AI Integration (Gemini)")
 api_key = st.sidebar.text_input("Gemini API Key", type="password", help="รับ API Key ฟรีได้ที่ Google AI Studio")
 if api_key:
-    genai.configure(api_key=api_key)
+    genai.configure(api_key=api_key, transport="rest")
     st.sidebar.success("✅ AI Connected")
 
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
