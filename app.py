@@ -75,7 +75,7 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
     if is_fh:
         time_factor = 0.44 
     else:
-        time_factor = (minutes_left / 90.0) ** 0.85
+        time_factor = (minutes_left / 90.0) ** 0.85 # Non-Linear Time-Decay
 
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
@@ -223,12 +223,22 @@ def calculate_net_profit(row):
 # ==========================================
 st.title("🎯 GEM System 8.4: AI-Powered Edition")
 
-# 🆕 ตั้งค่า AI ใน Sidebar (เปิดใช้ REST เพื่อกัน Timeout ใน Streamlit Cloud)
+# 🆕 ตั้งค่า AI ใน Sidebar (แบบฝังรหัส Auto)
 st.sidebar.header("🔑 AI Integration (Gemini)")
-api_key = st.sidebar.text_input("Gemini API Key", type="password", help="รับ API Key ฟรีได้ที่ Google AI Studio")
-if api_key:
-    genai.configure(api_key=api_key, transport="rest")
-    st.sidebar.success("✅ AI Connected")
+HARDCODED_API_KEY = "AIzaSyBInS3J_47hARegGOGhqWmFKk8gkHbN8Es"
+
+try:
+    if HARDCODED_API_KEY:
+        # 🛠️ ใช้ transport="rest" เพื่อแก้ปัญหา Timeout และ 503
+        genai.configure(api_key=HARDCODED_API_KEY, transport="rest")
+        st.sidebar.success("✅ AI Connected (Auto)")
+        api_key = HARDCODED_API_KEY
+    else:
+        st.sidebar.warning("⚠️ กรุณาใส่ API Key ในโค้ดก่อนใช้งาน")
+        api_key = None
+except Exception as e:
+    st.sidebar.error("❌ การเชื่อมต่อ AI ล้มเหลว")
+    api_key = None
 
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
@@ -257,10 +267,10 @@ with tab1:
 
     st.markdown("---")
     
-    # 🆕 โหมดที่ 1: ระบบ AI อัปโหลดรูปภาพ (Vision OCR) + ระบบค้นหาโมเดลอัตโนมัติ (กัน 404)
-    with st.expander("👁️ AI Vision: สกัดราคาจากรูปภาพสกรีนช็อต (ใหม่!)", expanded=False):
+    # 🆕 โหมดที่ 1: ระบบ AI อัปโหลดรูปภาพ (Vision OCR)
+    with st.expander("👁️ AI Vision: สกัดราคาจากรูปภาพสกรีนช็อต", expanded=False):
         if not api_key:
-            st.warning("⚠️ กรุณาใส่ Gemini API Key ที่เมนูด้านซ้ายก่อนใช้งานโหมดนี้")
+            st.warning("⚠️ API Key ยังไม่เชื่อมต่อ")
         else:
             uploaded_file = st.file_uploader("อัปโหลดรูปภาพตารางราคา (PNG, JPG)", type=['png', 'jpg', 'jpeg'])
             if uploaded_file is not None:
@@ -268,17 +278,8 @@ with tab1:
                 if st.button("🪄 ให้ AI สกัดข้อมูล (Extract from Image)", use_container_width=True):
                     with st.spinner('กำลังให้ AI กวาดสายตาอ่านตัวเลข...'):
                         try:
-                            # 🤖 ค้นหาชื่อโมเดลแบบเจาะจงจาก API Key ของคุณ
-                            available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                            vision_model = 'models/gemini-1.5-flash' # ชื่อเต็มสำรองกันเหนียว
-                            for m in available_models:
-                                if '1.5-flash' in m:
-                                    vision_model = m
-                                    break
-                                elif 'vision' in m:
-                                    vision_model = m
-                            
-                            # 🤖 ใช้โมเดลวิชันรุ่นเสถียรมาตรฐาน (รองรับทุกบัญชี 100%)
+                            img = Image.open(uploaded_file)
+                            # 🤖 ใช้โมเดลวิชันรุ่นเสถียรมาตรฐาน เพื่อป้องกัน Error 404
                             model = genai.GenerativeModel('gemini-pro-vision')
                             prompt = """
                             คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอล สกัดข้อมูลจากภาพนี้แล้วแปลงเป็น JSON เท่านั้น
@@ -293,13 +294,14 @@ with tab1:
                             }
                             """
                             response = model.generate_content([prompt, img])
-                            json_str = response.text.replace('```json', '').replace('```', '').strip()
+                            json_str = response.text.replace('
+```json', '').replace('```', '').strip()
                             extracted_data = json.loads(json_str)
                             
                             for k, v in extracted_data.items():
                                 st.session_state[k] = v
                                 
-                            st.success(f"✅ AI ({vision_model}) สกัดข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างได้เลย")
+                            st.success("✅ AI สกัดข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างได้เลย")
                             st.rerun()
                         except Exception as e:
                             st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ กรุณาลองอัปโหลดรูปที่ชัดเจนกว่านี้: {e}")
@@ -441,23 +443,12 @@ with tab1:
     if 'report' in st.session_state:
         st.text_area("Pre-Match Report:", value=st.session_state['report'], height=350)
         
-        # 🆕 โหมดที่ 3: ให้ AI ช่วยวิเคราะห์และตัดสินใจด่านสุดท้าย (Chief Risk Officer) + กัน 404
+        # 🆕 โหมดที่ 3: ให้ AI ช่วยวิเคราะห์และตัดสินใจด่านสุดท้าย (Chief Risk Officer)
         if api_key and 'ai_analysis_data' in st.session_state:
             if st.button("🤖 ให้ AI (Chief Risk Officer) ช่วยวิเคราะห์ความเสี่ยงด่านสุดท้าย", use_container_width=True):
                 with st.spinner('AI กำลังวิเคราะห์ตัวเลขและประเมินความเสี่ยง...'):
                     d = st.session_state['ai_analysis_data']
-                    
-                    # 🤖 ค้นหาชื่อโมเดลสำหรับวิเคราะห์ข้อความที่ดีที่สุด
-                    available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-                    text_model = 'models/gemini-1.5-pro' # ชื่อเต็มสำรองกันเหนียว
-                    for m in available_models:
-                        if '1.5-pro' in m:
-                            text_model = m
-                            break
-                        elif 'gemini-pro' in m:
-                            text_model = m
-                    
-                    # 🤖 ใช้โมเดลข้อความรุ่นเสถียรมาตรฐาน (รองรับทุกบัญชี 100%)
+                    # 🤖 ใช้โมเดลข้อความรุ่นเสถียรมาตรฐาน เพื่อป้องกัน Error 404
                     model = genai.GenerativeModel('gemini-pro')
                     prompt = f"""
                     คุณคือ Chief Risk Officer ประจำกองทุนเดิมพันกีฬา คุณมีหน้าที่ให้คำแนะนำสั้นๆ กระชับๆ ดุดันแบบมืออาชีพ (ไม่เกิน 4-5 บรรทัด)
