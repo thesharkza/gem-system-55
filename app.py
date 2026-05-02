@@ -461,10 +461,22 @@ with tab1:
                     คำถาม: สรุปว่าคู่นี้มีความเสี่ยงแอบแฝงอะไรไหม? และควรลงทุนหนักหรือเบา? ตอบเป็นภาษาไทย
                     """
                     try:
+                        # 🤖 พยายามใช้รุ่น Pro ก่อน (Thinking/Deep Analysis)
+                        model = genai.GenerativeModel('models/gemini-2.5-pro')
                         ai_advice = model.generate_content(prompt)
                         st.info(f"**🧠 AI Risk Analysis (Gemini 2.5 Pro):**\n\n{ai_advice.text}")
                     except Exception as e:
-                        st.error(f"⚠️ AI ประมวลผลล้มเหลว: {e}")
+                        # 🔄 ถ้า Pro เต็ม (Error 429) ให้สลับมาใช้ Flash (Fast) ทันที
+                        if "429" in str(e) or "quota" in str(e).lower():
+                            st.warning("⚠️ โควต้ารุ่น Pro เต็ม ระบบสลับมาใช้รุ่น Flash (Fast) แทนชั่วคราวครับ")
+                            try:
+                                model_fast = genai.GenerativeModel('models/gemini-2.5-flash')
+                                ai_advice = model_fast.generate_content(prompt)
+                                st.info(f"**🧠 AI Risk Analysis (Gemini 2.5 Flash):**\n\n{ai_advice.text}")
+                            except Exception as e_fast:
+                                st.error(f"⚠️ AI ประมวลผลล้มเหลวทั้งสองระบบ: {e_fast}")
+                        else:
+                            st.error(f"⚠️ AI เกิดข้อผิดพลาด: {e}")
 
 # --- TAB 2: Performance Dashboard ---
 with tab2:
