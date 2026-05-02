@@ -278,11 +278,31 @@ with tab1:
                 if st.button("🪄 ให้ AI สกัดข้อมูล (Extract from Image)", use_container_width=True):
                     with st.spinner('กำลังให้ AI กวาดสายตาอ่านตัวเลข...'):
                         try:
-                            # 🛠️ บรรทัดที่หายไป: ต้องสั่งให้เปิดไฟล์รูปภาพขึ้นมาก่อน!
                             img = Image.open(uploaded_file)
                             
-                            # 🤖 ใช้โมเดลวิชันรุ่นเสถียรมาตรฐาน (รองรับทุกบัญชี 100%)
-                            model = genai.GenerativeModel('gemini-pro-vision')
+                            # 🤖 ขั้นสุดยอด: ให้ระบบดึงชื่อโมเดลจาก API Key ของคุณมาใช้ตรงๆ
+                            valid_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+                            vision_model = None
+                            
+                            # ค้นหาโมเดลที่รองรับการอ่านภาพที่ดีที่สุดที่คุณมีสิทธิ์ใช้
+                            for m in valid_models:
+                                if '1.5-flash' in m:
+                                    vision_model = m
+                                    break
+                            if not vision_model:
+                                for m in valid_models:
+                                    if '1.5-pro' in m or 'vision' in m:
+                                        vision_model = m
+                                        break
+                                        
+                            # ดักจับ Error ถ้าบัญชีนี้ไม่มีสิทธิ์ใช้ AI รูปภาพเลย
+                            if not vision_model:
+                                st.error(f"⚠️ บัญชีของคุณไม่มีสิทธิ์ใช้โมเดลอ่านรูปภาพครับ (โมเดลที่คุณมี: {valid_models})")
+                                st.stop()
+
+                            # ใช้โมเดลที่ค้นพบเจาะจงเฉพาะบัญชีของคุณ
+                            model = genai.GenerativeModel(vision_model)
+                            
                             prompt = """
                             คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอล สกัดข้อมูลจากภาพนี้แล้วแปลงเป็น JSON เท่านั้น
                             ไม่ต้องมีคำอธิบายใดๆ หากข้อมูลไหนไม่มีให้ใส่ 0.0
@@ -303,7 +323,7 @@ with tab1:
                             for k, v in extracted_data.items():
                                 st.session_state[k] = v
                                 
-                            st.success("✅ AI สกัดข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างได้เลย")
+                            st.success(f"✅ AI ({vision_model}) สกัดข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างได้เลย")
                             st.rerun()
                         except Exception as e:
                             st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ: {e}")
