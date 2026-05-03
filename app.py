@@ -196,8 +196,7 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     
     prompt = f"""
     คุณคือ Chief Risk Officer ประจำกองทุน Quant Sports Betting 
-    พิจารณาการลงทุนนี้โดยใช้ "คัมภีร์ GEM RULES (The Oracle)" ด้านล่างนี้อย่างเคร่งครัด
-    คุณต้องดึงเฉพาะข้อที่ตรงกับสถานการณ์มาวิเคราะห์ ห้ามคิดไปเองเด็ดขาด!
+    หน้าที่ของคุณคือการนำ "คัมภีร์ GEM RULES" มาวิเคราะห์ร่วมกับ "ความคุ้มค่าทางคณิตศาสตร์ (Base EV)" แบบชั่งน้ำหนักองค์รวม (Holistic Risk-Reward Balancing)
     
     [ข้อมูลหน้างานปัจจุบัน]
     - คู่แข่งขัน: {match_name}
@@ -208,15 +207,18 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     [คัมภีร์ THE ORACLE DATABASE]
     {oracle_database}
     
-    คำสั่ง: 
-    1. สแกนฐานข้อมูลเพื่อหากฎที่ตรงกับชื่อทีม, สถานการณ์ Live, ใบแดง หรือเรตราคา
-    2. ถ้ามีกฎบังคับให้ Pass หรือหักคะแนน EV ให้ระบุมา
-    3. ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่น:
+    คำสั่งการวิเคราะห์แบบองค์รวม (Holistic Weights):
+    1. อย่าสั่ง PASS ทันทีที่เจอกฎข้อเดียว! ให้สแกนหากฎ GEM "ทั้งหมด" ที่เกี่ยวข้อง (ทั้งข้อที่สนับสนุนให้แทง และข้อที่เตือนให้ระวัง)
+    2. นำกฎที่พบมาชั่งน้ำหนักกับค่า Base EV ({base_ev * 100:.2f}%) ดังนี้:
+       - 🟢 หาก Base EV สูงมาก (เช่น >8%) และกฎ GEM ที่เจอเป็นเพียง "คำเตือนระดับกลาง" ให้หัก impact_score ลงเล็กน้อย (เช่น -0.02 ถึง -0.04) แต่ยังคงอนุมัติ (final_decision: true)
+       - 🔴 หากเจอกฎ GEM ระดับ "Fatal/สั่งตาย" หรือมีกฎเตือนภัยซ้อนกันหลายข้อ ให้ปรับ impact_score ติดลบหนักๆ (เช่น -0.10 ถึง -0.20) และสั่ง PASS ทันที (final_decision: false)
+       - 🌟 หากเจอกฎ GEM ระดับ "Value/สนับสนุน" (เช่น True Value, Reverse Cyanide) ให้บวก impact_score เพิ่ม (เช่น +0.02 ถึง +0.08)
+    3. ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่นรอบนอก:
     {{
-        "rule_triggered": "อ้างอิงชื่อ Gem ที่ตรงที่สุด (ถ้าไม่มีให้ระบุ No Rule)",
-        "impact_score": ตัวเลขปรับลดหรือเพิ่ม EV (ระหว่าง -0.15 ถึง 0.05),
-        "final_decision": true (อนุมัติ) หรือ false (สั่ง Pass),
-        "final_comment": "อธิบายสั้นๆ ดุดันแบบเซียนว่าทำไมถึงรอด/ทำไมถึงสั่งทับมือ"
+        "rule_triggered": "สรุปชื่อกฎ GEM ทั้งหมดที่นำมาชั่งน้ำหนัก (เช่น Gem 15 + Gem 42)",
+        "impact_score": ตัวเลขทศนิยมประเมินความเสี่ยงสุทธิ (ลบเมื่อเสี่ยง, บวกเมื่อสนับสนุน),
+        "final_decision": true (คุ้มค่าที่จะลงทุน) หรือ false (อันตรายเกินไป สั่ง PASS),
+        "final_comment": "อธิบายเหตุผลการชั่งน้ำหนักระหว่าง Base EV ที่ได้ กับกฎ GEM ที่พบ แบบดุดันและเฉียบขาด"
     }}
     """
     try:
@@ -231,7 +233,6 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     except Exception as e:
         error_str = str(e).replace('"', "'")
         return {"rule_triggered": f"System Error", "impact_score": 0.0, "final_decision": True if base_ev >= 0.08 else False, "final_comment": f"AI Parsing Failed: {error_str}"}
-
 # ==========================================
 # UI / UX Components (ระบบวาดหน้าปัดและปุ่ม)
 # ==========================================
