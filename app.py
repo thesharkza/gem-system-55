@@ -221,18 +221,37 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
         "final_comment": "อธิบายเหตุผลการชั่งน้ำหนักระหว่าง Base EV ที่ได้ กับกฎ GEM ที่พบ แบบดุดันและเฉียบขาด"
     }}
     """
-    try:
-        model = genai.GenerativeModel('models/gemini-2.5-flash')
-        response = model.generate_content(prompt)
-        
-        # ป้องกันโค้ดแหว่งจาก Backtick (```)
-        bt = chr(96) * 3
-        res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
-        
-        return json.loads(res_text)
-    except Exception as e:
-        error_str = str(e).replace('"', "'")
-        return {"rule_triggered": f"System Error", "impact_score": 0.0, "final_decision": True if base_ev >= 0.08 else False, "final_comment": f"AI Parsing Failed: {error_str}"}
+    # (โค้ดส่วน prompt ด้านบนเหมือนเดิม) ...
+    
+    import time # อย่าลืม import time ไว้บนสุดของไฟล์ด้วยนะครับ (ถ้ายังไม่มี)
+
+    # 🔄 ระบบ Auto-Retry เจาะเกราะ API
+    for attempt in range(3): # ลองพยายามสูงสุด 3 ครั้ง
+        try:
+            model = genai.GenerativeModel('models/gemini-2.5-flash')
+            response = model.generate_content(prompt)
+            
+            bt = chr(96) * 3
+            res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
+            
+            return json.loads(res_text)
+            
+        except Exception as e:
+            error_str = str(e).replace('"', "'")
+            
+            # ถ้าติด Error 429 (โควต้าเต็ม/ยิงรัวไป) ให้รอ 2 วินาทีแล้วยิงใหม่
+            if "429" in error_str and attempt < 2:
+                time.sleep(2)
+                continue # วนลูปกลับไปลองใหม่
+                
+            # ถ้าพยายามครบ 3 ครั้งแล้วยังไม่ได้ ค่อยคาย Error ออกมา
+            if attempt == 2:
+                return {
+                    "rule_triggered": "System Error 429", 
+                    "impact_score": 0.0, 
+                    "final_decision": True if base_ev >= 0.08 else False, 
+                    "final_comment": f"API โควต้าเต็มแบบถาวร: {error_str}"
+                }
 # ==========================================
 # UI / UX Components (ระบบวาดหน้าปัดและปุ่ม)
 # ==========================================
