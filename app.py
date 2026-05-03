@@ -10,7 +10,7 @@ from PIL import Image
 import google.generativeai as genai
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 8.4 (AI-Powered)", layout="wide")
+st.set_page_config(page_title="GEM System 8.5 (Quant & CLV)", layout="wide")
 LOG_FILE = "gem_history_log.csv"
 
 # ==========================================
@@ -22,7 +22,6 @@ def init_session_state():
         'h1x2_val': 1.0, 'd1x2_val': 1.0, 'a1x2_val': 1.0,
         'hdp_line_val': 0.0, 'hdp_h_w_val': 0.0, 'hdp_a_w_val': 0.0,
         'ou_line_val': 2.5, 'ou_over_w_val': 0.0, 'ou_under_w_val': 0.0,
-        'fh_ou_line_val': 1.0, 'fh_ou_over_w_val': 0.0, 'fh_ou_under_w_val': 0.0,
         'raw_text': ""
     }
     for k, v in defaults.items():
@@ -68,15 +67,11 @@ def shin_devig(o_h, o_d, o_a):
 def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
-def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, current_a=0, minutes_left=90, red_card_h=False, red_card_a=False, is_fh=False):
+def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, current_a=0, minutes_left=90, red_card_h=False, red_card_a=False):
     lam_h_base = total_goals * (p_h + (p_d * 0.5))
     lam_a_base = total_goals * (p_a + (p_d * 0.5))
 
-    # 🆕 ผสานสมการจาก Paper วิจัย
-    if is_fh:
-        time_factor = 0.44 
-    else:
-        time_factor = (minutes_left / 90.0) ** 0.85 # Non-Linear Time-Decay
+    time_factor = (minutes_left / 90.0) ** 0.85 
 
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
@@ -189,11 +184,14 @@ def save_to_csv(data_list):
 def load_logs():
     if os.path.exists(LOG_FILE):
         try:
-            # 🛠️ ป้องกัน Error NaN ใน Streamlit 
             df_logs = pd.read_csv(LOG_FILE, dtype={'Result': str}, on_bad_lines='skip', encoding='utf-8-sig')
             df_logs['Time'] = pd.to_datetime(df_logs['Time'], errors='coerce')
             if 'Result' in df_logs.columns:
                 df_logs['Result'] = df_logs['Result'].fillna("")
+            
+            if 'Closing_Odds' not in df_logs.columns:
+                df_logs['Closing_Odds'] = 0.0
+                
             return df_logs.dropna(subset=['Time'])
         except: return None
     return None
@@ -207,11 +205,10 @@ def calculate_net_profit(row):
         hdp, target, odds, invest = float(row['HDP']), row['Target'], float(row['Odds']), float(row['Investment'])
         diff = h_score - a_score
         
-        # 🆕 รองรับการตรวจสอบกำไรของครึ่งแรก (FH)
         if target == "เจ้าบ้าน": net_margin = diff - hdp
         elif target == "ทีมเยือน": net_margin = (a_score - h_score) + hdp
-        elif target == "สูง" or target == "สูง (FH)": net_margin = (h_score + a_score) - hdp
-        elif target == "ต่ำ" or target == "ต่ำ (FH)": net_margin = hdp - (h_score + a_score)
+        elif target == "สูง": net_margin = (h_score + a_score) - hdp
+        elif target == "ต่ำ": net_margin = hdp - (h_score + a_score)
         else: return 0.0
         
         if net_margin > 0.25: return invest * (odds - 1)
@@ -221,24 +218,33 @@ def calculate_net_profit(row):
         else: return -invest
     except: return 0.0
 
+def calculate_clv(row):
+    try:
+        if pd.isna(row['Closing_Odds']) or float(row['Closing_Odds']) <= 1.0: 
+            return 0.0
+        odds_taken = float(row['Odds'])
+        closing_odds = float(row['Closing_Odds'])
+        return ((odds_taken / closing_odds) - 1.0) * 100.0
+    except: 
+        return 0.0
+
 # ==========================================
 # 3. UI - Main Layout
 # ==========================================
-st.title("🎯 GEM System 8.4: AI-Powered Edition")
+st.title("🎯 GEM System 8.5: Ultimate Quant & CLV")
 
-# 🆕 ตั้งค่า AI แบบฝังออโต้ (Auto API Key) พร้อมแก้ไข NameError
+# ตั้งค่า AI แบบฝังออโต้ (Auto API Key)
 st.sidebar.header("🔑 AI Integration (Gemini)")
 AUTO_API_KEY = "AIzaSyCbIMvDLtt00PVV21Qkdu1E1wFtaE2mJBI"
-# ระบบจะไปดึงรหัสผ่านจากเซฟหลังบ้านของ Streamlit โดยอัตโนมัติ
-api_key = st.secrets["GEMINI_API_KEY"] 
+api_key = AUTO_API_KEY
 
 if api_key:
     genai.configure(api_key=api_key, transport="rest")
-    st.sidebar.success("✅ AI Connected (Secured Mode)")
+    st.sidebar.success("✅ AI Connected (Auto-Loaded)")
 else:
     st.sidebar.warning("⚠️ กรุณาตรวจสอบ API Key อีกครั้ง")
 
-tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
+tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance & CLV", "📺 In-Play Live"])
 
 # --- TAB 1: Pre-Match ---
 with tab1:
@@ -252,7 +258,7 @@ with tab1:
     
     st.sidebar.markdown("---")
     st.sidebar.header("🚨 Live Sniper Settings")
-    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 20.0, 10.0, step=0.5)
+    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 20.0, 8.0, step=0.5)
     trigger_limit = sniper_threshold / 100.0
 
     def clear_form_data():
@@ -261,11 +267,45 @@ with tab1:
         st.session_state.h1x2_val = 1.0; st.session_state.d1x2_val = 1.0; st.session_state.a1x2_val = 1.0
         st.session_state.hdp_line_val = 0.0; st.session_state.hdp_h_w_val = 0.0; st.session_state.hdp_a_w_val = 0.0
         st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
-        st.session_state.fh_ou_line_val = 1.0; st.session_state.fh_ou_over_w_val = 0.0; st.session_state.fh_ou_under_w_val = 0.0
 
     st.markdown("---")
+    
+    with st.expander("👁️ AI Vision: สกัดราคาจากรูปภาพสกรีนช็อต", expanded=False):
+        if not api_key:
+            st.warning("⚠️ กรุณาใส่ Gemini API Key ก่อนใช้งานโหมดนี้")
+        else:
+            uploaded_file = st.file_uploader("อัปโหลดรูปภาพตารางราคา (PNG, JPG)", type=['png', 'jpg', 'jpeg'])
+            if uploaded_file is not None:
+                st.image(uploaded_file, caption="ภาพที่อัปโหลด", use_container_width=True)
+                if st.button("🪄 ให้ AI สกัดข้อมูล (Extract from Image)", use_container_width=True):
+                    with st.spinner('กำลังให้ AI กวาดสายตาอ่านตัวเลข...'):
+                        try:
+                            img = Image.open(uploaded_file)
+                            model = genai.GenerativeModel('models/gemini-2.5-flash')
+                            prompt = """
+                            คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอล สกัดข้อมูลจากภาพนี้แล้วแปลงเป็น JSON เท่านั้น
+                            ไม่ต้องมีคำอธิบายใดๆ หากข้อมูลไหนไม่มีให้ใส่ 0.0
+                            Format ที่ต้องการ:
+                            {
+                                "match_name": "ชื่อทีมเจ้าบ้าน VS ชื่อทีมเยือน",
+                                "h1x2_val": ราคาชนะเหย้าเต็มเวลา, "d1x2_val": ราคาเสมอเต็มเวลา, "a1x2_val": ราคาชนะเยือนเต็มเวลา,
+                                "hdp_line_val": เรตแฮนดิแคป (เช่น 0.5, 1.25), "hdp_h_w_val": ค่าน้ำต่อรองเจ้าบ้าน, "hdp_a_w_val": ค่าน้ำต่อรองเยือน,
+                                "ou_line_val": เรตสูงต่ำเต็มเวลา, "ou_over_w_val": ค่าน้ำสูงเต็มเวลา, "ou_under_w_val": ค่าน้ำต่ำเต็มเวลา
+                            }
+                            """
+                            response = model.generate_content([prompt, img])
+                            json_str = response.text.replace('
+```json', '').replace('```', '').strip()
+                            extracted_data = json.loads(json_str)
+                            
+                            for k, v in extracted_data.items():
+                                st.session_state[k] = v
+                                
+                            st.success("✅ AI (Gemini 2.5 Flash) สกัดข้อมูลสำเร็จ! ตรวจสอบความถูกต้องด้านล่างได้เลย")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ: {e}")
 
-    # โหมดที่ 2: วางข้อความแบบเดิม
     with st.expander("⚡ Text Parser: วางข้อความดิบ (โหมดคลาสสิก)", expanded=False):
         st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=100, key="raw_text")
         col_btn1, col_btn2 = st.columns(2)
@@ -291,15 +331,14 @@ with tab1:
                     if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
                     u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
                     if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
-                    st.success("✅ สกัดข้อความสำเร็จ! (ส่วนของครึ่งแรกแนะนำให้กรอกมือเพื่อความแม่นยำครับ)")
+                    st.success("✅ สกัดข้อความสำเร็จ!")
                 except Exception as e:
                     st.error(f"⚠️ ข้อความมีปัญหา: {e}")
         with col_btn2:
             st.button("🗑️ ล้างข้อมูลทั้งหมด", use_container_width=True, on_click=clear_form_data)
 
-        match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
+    match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
     
-    # 🛠️ ปรับเหลือแค่ 2 คอลัมน์ (ตัดครึ่งแรกทิ้ง)
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("1. พูล & AH (เต็มเวลา)")
@@ -352,8 +391,7 @@ with tab1:
             "best_ah": best_ah, "best_ou": best_ou
         }
 
-        # 🛠️ ตัด Report ส่วนของครึ่งแรกออก
-        st.session_state['report'] = f"""📊 GEM System 8.4: AI-Powered Quant Report
+        st.session_state['report'] = f"""📊 GEM System 8.5: AI-Powered Quant Report
 =======================================
 ⚽ คู่แข่งขัน: {match_name}
 
@@ -373,8 +411,8 @@ with tab1:
         current_time = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S")
 
         logs_to_save = []
-        if best_ah['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Result": ""})
-        if best_ou['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
+        if best_ah['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Closing_Odds": 0.0, "Result": ""})
+        if best_ou['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Closing_Odds": 0.0, "Result": ""})
 
         if logs_to_save:
             save_to_csv(logs_to_save)
@@ -389,8 +427,6 @@ with tab1:
             if st.button("🤖 ให้ AI (Chief Risk Officer) ช่วยวิเคราะห์ความเสี่ยงด่านสุดท้าย", use_container_width=True):
                 with st.spinner('AI กำลังวิเคราะห์ตัวเลขและประเมินความเสี่ยง...'):
                     d = st.session_state['ai_analysis_data']
-                    
-                    # 🛠️ ตัดข้อมูล FH ออกจากสมองของ Chief Risk Officer
                     prompt = f"""
                     คุณคือ Chief Risk Officer ประจำกองทุนเดิมพันกีฬา คุณมีหน้าที่ให้คำแนะนำสั้นๆ กระชับๆ ดุดันแบบมืออาชีพ (ไม่เกิน 4-5 บรรทัด)
                     ข้อมูลการคำนวณคณิตศาสตร์ของคู่ {d['match']}:
@@ -415,31 +451,48 @@ with tab1:
                         else:
                             st.error(f"⚠️ AI เกิดข้อผิดพลาด: {e}")
 
-
-# --- TAB 2: Performance Dashboard ---
+# --- TAB 2: Performance & CLV Dashboard ---
 with tab2:
     logs = load_logs()
     if logs is not None:
-        st.subheader("📝 บันทึกผลสกอร์")
+        st.subheader("📝 บันทึกผลสกอร์ และราคาปิด (Closing Odds)")
         display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
-        # 🛠️ ป้องกัน Error เวลาช่อง Result ว่างเปล่า
         display_df['Result'] = display_df['Result'].astype(str).replace('nan', '')
-        edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result (e.g. 2-1)")}, use_container_width=True, num_rows="dynamic")
+        
+        edited_df = st.data_editor(
+            display_df, 
+            column_config={
+                "Result": st.column_config.TextColumn("Result (e.g. 2-1)"),
+                "Closing_Odds": st.column_config.NumberColumn("ราคาปิด (Closing Odds)", min_value=0.0, format="%.2f", help="กรอกราคาน้ำล่าสุดก่อนนกหวีดเป่าเริ่มเกม")
+            }, 
+            use_container_width=True, 
+            num_rows="dynamic"
+        )
         col_btn1, col_btn2 = st.columns(2)
         with col_btn1:
-            if st.button("💾 Save Score & Calculate Profit"): edited_df.to_csv(LOG_FILE, index=False, encoding='utf-8-sig'); st.rerun()
+            if st.button("💾 Save Score & Calculate Profit"): 
+                edited_df.to_csv(LOG_FILE, index=False, encoding='utf-8-sig')
+                st.rerun()
         with col_btn2:
             if st.button("🗑️ ล้างประวัติทั้งหมด (Clear Logs)"):
                 if os.path.exists(LOG_FILE): os.remove(LOG_FILE); st.rerun()
+                
         logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
+        logs['CLV_Pct'] = logs.apply(calculate_clv, axis=1)
         inv_logs = logs[logs['Investment'] > 0]
+        
         st.markdown("---")
-        st.subheader("🏆 Performance Statistics")
-        m1, m2, m3, m4 = st.columns(4)
+        st.subheader("🏆 Performance & CLV Statistics")
+        m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("กำไรสุทธิ", f"{logs['Net_Profit'].sum():,.2f} THB")
         m2.metric("ยอดรวมลงทุน", f"{inv_logs['Investment'].sum():,.2f} THB")
         m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
         m4.metric("ROI", f"{(logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
+        
+        valid_clv = inv_logs[inv_logs['Closing_Odds'] > 1.0]
+        avg_clv = valid_clv['CLV_Pct'].mean()
+        avg_clv_str = f"{avg_clv:.2f}%" if pd.notna(avg_clv) else "0.00%"
+        m5.metric("🎯 Average CLV", avg_clv_str, help="ถ้าค่านี้เป็นบวกในระยะยาว หมายความว่าโมเดลคุณชนะตลาดอย่างเป็นทางการ")
         
         if not logs.empty:
             st.markdown("---")
@@ -458,12 +511,10 @@ with tab2:
 with tab3:
     st.header("📺 Live Sniper Engine (Market Overreaction)")
     
-    # 🆕 โหมด AI Vision สำหรับ Live Sniper (รองรับรูปหลายใบ)
     with st.expander("👁️ AI Live Vision: สแกนราคาจากรูปภาพ (ใหม่!)", expanded=False):
         if not api_key:
             st.warning("⚠️ กรุณาตั้งค่า API Key ด้านซ้ายก่อน")
         else:
-            # 💡 เปิด accept_multiple_files=True ให้เลือกได้ 3 รูปพร้อมกัน
             live_images = st.file_uploader("อัปโหลดรูป AH, O/U, 1x2 (สูงสุด 3 รูป)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
             
             if live_images:
@@ -477,9 +528,7 @@ with tab3:
                 if st.button("🪄 สกัดข้อมูล Live ลงระบบ", use_container_width=True):
                     with st.spinner("AI กำลังกวาดสายตาทั้ง 3 ตาราง..."):
                         try:
-                            # ใช้รุ่น Flash (Fast) เสมอเพื่อความไวระดับเสี้ยววินาที
                             model = genai.GenerativeModel('models/gemini-2.5-flash')
-                            
                             prompt = """
                             คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอลสด (In-Play) ฉันให้รูปภาพมา 1-3 รูป ซึ่งอาจมีทั้งตาราง AH, สูง/ต่ำ และ 1x2
                             จงวิเคราะห์ข้อมูลจาก "ทุกรูปภาพ" รวมกัน แล้วสกัดข้อมูลตาม JSON format นี้เท่านั้น:
@@ -508,13 +557,10 @@ with tab3:
                                 "live_ou_under": ค่าน้ำ O/U ต่ำ (แถวล่างสุด)
                             }
                             """
-                            # ส่งคำสั่งพร้อมกับลิสต์รูปภาพทั้งหมดไปให้ AI ทีเดียว
                             response = model.generate_content([prompt] + imgs)
-                            
                             json_str = response.text.replace('```json', '').replace('```', '').strip()
                             data = json.loads(json_str)
                             
-                            # อัปเดตข้อมูลลงระบบ
                             st.session_state.current_min = int(data.get("current_min", 45))
                             st.session_state.lh_s = int(data.get("current_score_h", 0))
                             st.session_state.la_s = int(data.get("current_score_a", 0))
