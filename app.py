@@ -191,9 +191,30 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
 # 2. ระบบ AI Decision Engine (Chief Risk Officer) + The Oracle DB
 # ==========================================
 def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
+    import time
     # โหลดคัมภีร์จากไฟล์ .txt
     oracle_database = load_gem_rules()
     
+    # 🌟 กำหนด Prompt แยกโหมดชัดเจนระหว่าง Pre-Match และ Live
+    if not is_live:
+        mode_instruction = """
+        [โหมดการวิเคราะห์: PRE-MATCH (บอลก่อนเตะ)]
+        คำสั่ง: ในโหมดนี้ ให้ความสำคัญกับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' เป็นหลัก!
+        - กฎ GEM Rules ให้ใช้เป็นแค่ 'ข้อควรระวัง (Warning)' เท่านั้น ไม่ต้องเคร่งครัดมาก
+        - หาก Base EV เป็นบวก และไม่ได้ละเมิดกฎ GEM ระดับ 'ร้ายแรง/สั่งตาย' ให้ทำการอนุมัติ (final_decision: true) เสมอ
+        """
+    else:
+        mode_instruction = f"""
+        [โหมดการวิเคราะห์: IN-PLAY LIVE (บอลสด)]
+        คำสั่ง: ในโหมดนี้ ให้เปิดใช้งาน 'คัมภีร์ GEM RULES' อย่างเต็มรูปแบบ! แต่อย่าตึงเกินไป ให้ประเมินตามเงื่อนไขต่อไปนี้:
+        1. หาก Base EV สูงระดับ 'Golden Opportunity' (เช่น +15% ขึ้นไป): 
+           - อนุญาตให้ 'เพิกเฉย' ต่อกฎ GEM ที่เป็นเพียงคำเตือนระดับต่ำ-กลาง (1-2 ดาว) ได้ 
+           - หัก impact_score แค่นิดหน่อย (ไม่เกิน -0.05) และยังคงอนุมัติ (final_decision: true)
+        2. หากละเมิดกฎ GEM ระดับ 'Fatal (อันตรายถึงชีวิต/สั่งห้ามแทง)':
+           - ไม่ว่า Base EV จะสูงแค่ไหน ก็ต้องสั่งทับมือทันที! (final_decision: false) พร้อมหัก impact_score หนักๆ (เช่น -0.20)
+        3. ชั่งน้ำหนักตามบริบท: อธิบายเหตุผลแบบเซียนบอลว่าทำไมถึงกล้าฝืนกฎ หรือทำไมถึงต้องยอมทิ้ง Base EV สวยๆ
+        """
+
     prompt = f"""
     คุณคือ Chief Risk Officer ประจำกองทุน Quant Sports Betting 
     หน้าที่ของคุณคือการนำ "คัมภีร์ GEM RULES" มาวิเคราะห์ร่วมกับ "ความคุ้มค่าทางคณิตศาสตร์ (Base EV)" แบบชั่งน้ำหนักองค์รวม (Holistic Risk-Reward Balancing)
@@ -204,22 +225,47 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     - เป้าหมายลงทุน: {target} (เรต {hdp_line} ค่าน้ำ {odds})
     - Base EV ทางคณิตศาสตร์: {base_ev * 100:.2f}%
     
+    {mode_instruction}
+    
     [คัมภีร์ THE ORACLE DATABASE]
     {oracle_database}
     
-    คำสั่งการวิเคราะห์แบบองค์รวม (Holistic Weights):
-    1. อย่าสั่ง PASS ทันทีที่เจอกฎข้อเดียว! ให้สแกนหากฎ GEM "ทั้งหมด" ที่เกี่ยวข้อง (ทั้งข้อที่สนับสนุนให้แทง และข้อที่เตือนให้ระวัง)
-    2. นำกฎที่พบมาชั่งน้ำหนักกับค่า Base EV ({base_ev * 100:.2f}%) ดังนี้:
-       - 🟢 หาก Base EV สูงมาก (เช่น >8%) และกฎ GEM ที่เจอเป็นเพียง "คำเตือนระดับกลาง" ให้หัก impact_score ลงเล็กน้อย (เช่น -0.02 ถึง -0.04) แต่ยังคงอนุมัติ (final_decision: true)
-       - 🔴 หากเจอกฎ GEM ระดับ "Fatal/สั่งตาย" หรือมีกฎเตือนภัยซ้อนกันหลายข้อ ให้ปรับ impact_score ติดลบหนักๆ (เช่น -0.10 ถึง -0.20) และสั่ง PASS ทันที (final_decision: false)
-       - 🌟 หากเจอกฎ GEM ระดับ "Value/สนับสนุน" (เช่น True Value, Reverse Cyanide) ให้บวก impact_score เพิ่ม (เช่น +0.02 ถึง +0.08)
-    3. ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่นรอบนอก:
+    คำสั่งการตอบกลับ:
+    ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่นรอบนอก:
     {{
         "rule_triggered": "สรุปชื่อกฎ GEM ทั้งหมดที่นำมาชั่งน้ำหนัก (เช่น Gem 15 + Gem 42)",
         "impact_score": ตัวเลขทศนิยมประเมินความเสี่ยงสุทธิ (ลบเมื่อเสี่ยง, บวกเมื่อสนับสนุน),
         "final_decision": true (คุ้มค่าที่จะลงทุน) หรือ false (อันตรายเกินไป สั่ง PASS),
-        "final_comment": "อธิบายเหตุผลการชั่งน้ำหนักระหว่าง Base EV ที่ได้ กับกฎ GEM ที่พบ แบบดุดันและเฉียบขาด"
+        "final_comment": "อธิบายเหตุผลการชั่งน้ำหนักแบบดุดันและฟันธง"
     }}
+    """
+    
+    # 🔄 ระบบ Auto-Retry เจาะเกราะ API
+    for attempt in range(3):
+        try:
+            model = genai.GenerativeModel('models/gemini-2.5-flash')
+            response = model.generate_content(prompt)
+            
+            bt = chr(96) * 3
+            res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
+            
+            return json.loads(res_text)
+            
+        except Exception as e:
+            error_str = str(e).replace('"', "'")
+            
+            # ถ้ายิงรัวเกินไป (Rate Limit 429) ให้รอ 2 วินาทีแล้วลองใหม่
+            if "429" in error_str and attempt < 2:
+                time.sleep(2)
+                continue
+                
+            if attempt == 2:
+                return {
+                    "rule_triggered": "System Error / Quota Exceeded", 
+                    "impact_score": 0.0, 
+                    "final_decision": True if base_ev >= 0.08 else False, 
+                    "final_comment": f"AI ล้มเหลว (ใช้คณิตศาสตร์ล้วน): {error_str}"
+                }
     """
     # (โค้ดส่วน prompt ด้านบนเหมือนเดิม) ...
     
