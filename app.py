@@ -223,7 +223,8 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     try:
         model = genai.GenerativeModel('models/gemini-2.5-flash')
         response = model.generate_content(prompt)
-        json_str = response.text.replace('```json', '').replace('```', '').strip()
+        json_str = response.text.replace('```json', '').replace('
+```', '').strip()
         return json.loads(json_str)
     except Exception as e:
         return {"rule_triggered": "Error", "impact_score": 0.0, "final_decision": True if base_ev >= 0.08 else False, "final_comment": "เชื่อมต่อ AI ล้มเหลว ใช้ Base EV เพียวๆ"}
@@ -300,16 +301,22 @@ def calculate_clv(row):
 # ==========================================
 st.title("🎯 GEM System 9.0: The Book of GEMs Engine")
 
-# ตั้งค่า AI แบบฝังออโต้ (Auto API Key)
+# 🛠️ ระบบดึง Key อัตโนมัติจาก Streamlit Secrets
 st.sidebar.header("🔑 AI Integration (Gemini)")
-AUTO_API_KEY = "AIzaSy_ใส่กุญแจใหม่ที่นี่_" # <--- ⚠️ เปลี่ยนกุญแจของคุณตรงนี้ ⚠️
-api_key = AUTO_API_KEY
 
-if api_key and api_key != "AIzaSy_ใส่กุญแจใหม่ที่นี่_":
-    genai.configure(api_key=api_key, transport="rest")
-    st.sidebar.success("✅ AI Connected (GEM Knowledge Loaded)")
-else: 
-    st.sidebar.warning("⚠️ กรุณาตรวจสอบ API Key หรือนำไปใส่ในโค้ด")
+# เช็คว่ามี Secrets ใน Streamlit Cloud ไหม (กู้คืนโค้ดเดิมของคุณ)
+if "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=api_key)
+    st.sidebar.success("✅ AI Connected (Auto Secrets)")
+else:
+    # เผื่อกรณีรันในเครื่อง (Local) แล้วไม่มี Secrets
+    api_key = st.sidebar.text_input("ใส่ Gemini API Key:", type="password")
+    if api_key:
+        genai.configure(api_key=api_key)
+        st.sidebar.success("✅ AI Connected (Manual Input)")
+    else:
+        st.sidebar.warning("⚠️ ไม่พบ API Key กรุณาระบุเพื่อเปิดใช้งาน AI")
 
 tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
 
@@ -325,20 +332,23 @@ with tab1:
     st.markdown("---")
     
     with st.expander("👁️ AI Vision: สกัดราคาจากภาพ", expanded=False):
-        uploaded_file = st.file_uploader("อัปโหลดรูปตารางราคา", type=['png', 'jpg'])
-        if uploaded_file and st.button("🪄 สกัดข้อมูล", use_container_width=True):
-            with st.spinner('กำลังอ่านรูป...'):
-                try:
-                    img = Image.open(uploaded_file)
-                    model = genai.GenerativeModel('models/gemini-2.5-flash')
-                    p = """สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}"""
-                    res = model.generate_content([p, img])
-                    data = json.loads(res.text.replace('```json', '').replace('```', '').strip())
-                    for k, v in data.items(): st.session_state[k] = v
-                    st.success("✅ สกัดข้อมูลสำเร็จ")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"⚠️ สกัดข้อมูลล้มเหลว: {e}")
+        if not api_key:
+            st.warning("⚠️ กรุณาตรวจสอบ API Key ก่อนใช้งานโหมดนี้")
+        else:
+            uploaded_file = st.file_uploader("อัปโหลดรูปตารางราคา", type=['png', 'jpg'])
+            if uploaded_file and st.button("🪄 สกัดข้อมูล", use_container_width=True):
+                with st.spinner('กำลังอ่านรูป...'):
+                    try:
+                        img = Image.open(uploaded_file)
+                        model = genai.GenerativeModel('models/gemini-2.5-flash')
+                        p = """สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}"""
+                        res = model.generate_content([p, img])
+                        data = json.loads(res.text.replace('```json', '').replace('```', '').strip())
+                        for k, v in data.items(): st.session_state[k] = v
+                        st.success("✅ สกัดข้อมูลสำเร็จ")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"⚠️ สกัดข้อมูลล้มเหลว: {e}")
 
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
     col1, col2 = st.columns(2)
@@ -378,32 +388,35 @@ with tab1:
         target_to_check = best_ah if best_ah['ev'] > best_ou['ev'] else best_ou
         
         if target_to_check['ev'] >= trigger_limit:
-            with st.spinner("🧠 AI กำลังเทียบสมการกับ 'คัมภีร์ GEM'..."):
-                ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'])
-                net_ev = target_to_check['ev'] + ai_verdict['impact_score']
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Base EV (คณิตศาสตร์)", f"{target_to_check['ev']*100:.2f}%")
-                c2.metric("GEM Rule Adjust", f"{ai_verdict['impact_score']*100:.2f}%")
-                c3.metric("Net EV (ความคุ้มค่าจริง)", f"{net_ev*100:.2f}%")
-                
-                st.info(f"**📖 กฎ GEM ที่เกี่ยวข้อง:** {ai_verdict['rule_triggered']}")
-                
-                if ai_verdict['final_decision'] and net_ev >= trigger_limit:
-                    st.success(f"✅ AI APPROVED: {ai_verdict['final_comment']}")
-                    # Save to DB
-                    def get_defensive_k(ev, odds, bank):
-                        if ev < trigger_limit: return 0.0
-                        b_k, p_k = odds - 1, (ev + 1) / odds
-                        k_pct = ((b_k * p_k) - (1 - p_k)) / b_k
-                        return min(k_pct * 0.25, 0.05) * bank
+            if not api_key:
+                st.warning("⚠️ กรุณาใส่ API Key เพื่อให้ AI กรองความเสี่ยง")
+            else:
+                with st.spinner("🧠 AI กำลังเทียบสมการกับ 'คัมภีร์ GEM'..."):
+                    ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'])
+                    net_ev = target_to_check['ev'] + ai_verdict['impact_score']
                     
-                    inv = get_defensive_k(net_ev, target_to_check['odds'], total_bankroll)
-                    tz_th = timezone(timedelta(hours=7))
-                    save_to_csv([{"Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": target_to_check['hdp'], "Target": target_to_check['n'], "EV_Pct": round(net_ev*100, 2), "Investment": round(inv, 2), "Odds": target_to_check['odds'], "Closing_Odds": 0.0, "Result": ""}])
-                else:
-                    st.error(f"🚫 AI REJECTED (ทับมือ): {ai_verdict['final_comment']}")
-                    st.write("ไม้นี้ถูก AI สกัดไว้ ไม่มีการบันทึกลงพอร์ตลงทุนครับ")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Base EV (คณิตศาสตร์)", f"{target_to_check['ev']*100:.2f}%")
+                    c2.metric("GEM Rule Adjust", f"{ai_verdict['impact_score']*100:.2f}%")
+                    c3.metric("Net EV (ความคุ้มค่าจริง)", f"{net_ev*100:.2f}%")
+                    
+                    st.info(f"**📖 กฎ GEM ที่เกี่ยวข้อง:** {ai_verdict['rule_triggered']}")
+                    
+                    if ai_verdict['final_decision'] and net_ev >= trigger_limit:
+                        st.success(f"✅ AI APPROVED: {ai_verdict['final_comment']}")
+                        # Save to DB
+                        def get_defensive_k(ev, odds, bank):
+                            if ev < trigger_limit: return 0.0
+                            b_k, p_k = odds - 1, (ev + 1) / odds
+                            k_pct = ((b_k * p_k) - (1 - p_k)) / b_k
+                            return min(k_pct * 0.25, 0.05) * bank
+                        
+                        inv = get_defensive_k(net_ev, target_to_check['odds'], total_bankroll)
+                        tz_th = timezone(timedelta(hours=7))
+                        save_to_csv([{"Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": target_to_check['hdp'], "Target": target_to_check['n'], "EV_Pct": round(net_ev*100, 2), "Investment": round(inv, 2), "Odds": target_to_check['odds'], "Closing_Odds": 0.0, "Result": ""}])
+                    else:
+                        st.error(f"🚫 AI REJECTED (ทับมือ): {ai_verdict['final_comment']}")
+                        st.write("ไม้นี้ถูก AI สกัดไว้ ไม่มีการบันทึกลงพอร์ตลงทุนครับ")
         else:
             st.warning("🛡️ Base EV ต่ำเกินไป ไม่เข้าเกณฑ์ลงทุน")
 
@@ -466,51 +479,54 @@ with tab3:
     st.header("📺 Live Sniper Engine (Market Overreaction)")
     
     with st.expander("👁️ AI Live Vision: สแกนราคาจากรูปภาพ", expanded=False):
-        live_images = st.file_uploader("อัปโหลดรูป AH, O/U, 1x2 (สูงสุด 3 รูป)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
-        if live_images:
-            cols = st.columns(len(live_images))
-            imgs = []
-            for idx, img_file in enumerate(live_images):
-                img = Image.open(img_file)
-                imgs.append(img)
-                cols[idx].image(img, use_container_width=True, caption=f"รูปที่ {idx+1}")
-            
-            if st.button("🪄 สกัดข้อมูล Live ลงระบบ", use_container_width=True):
-                with st.spinner("AI กำลังกวาดสายตาทั้ง 3 ตาราง..."):
-                    try:
-                        model = genai.GenerativeModel('models/gemini-2.5-flash')
-                        prompt = """
-                        คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอลสด สกัดข้อมูลจาก "ทุกรูปภาพ" รวมกัน ตาม JSON format นี้เท่านั้น:
-                        {
-                            "current_min": นาทีปัจจุบันที่หัวตาราง, "current_score_h": สกอร์เจ้าบ้าน, "current_score_a": สกอร์ทีมเยือน,
-                            "pre_h": ราคาเปิด 1x2 เหย้า (แถว"ต้น"), "pre_d": ราคาเปิด 1x2 เสมอ (แถว"ต้น"), "pre_a": ราคาเปิด 1x2 เยือน (แถว"ต้น"), "pre_ou": ราคาเปิดสูงต่ำ (แถว"ต้น"),
-                            "live_hdp": เรต AH ปัจจุบัน (แถวล่างสุด), "live_hdp_h": ค่าน้ำ AH เหย้า (แถวล่างสุด), "live_hdp_a": ค่าน้ำ AH เยือน (แถวล่างสุด),
-                            "live_ou": เรต O/U ปัจจุบัน (แถวล่างสุด), "live_ou_over": ค่าน้ำ O/U สูง (แถวล่างสุด), "live_ou_under": ค่าน้ำ O/U ต่ำ (แถวล่างสุด)
-                        }
-                        ถ้าเป็น 0/0.5 แปลงเป็น 0.25, 0.5/1 แปลงเป็น 0.75
-                        """
-                        response = model.generate_content([prompt] + imgs)
-                        json_str = response.text.replace('```json', '').replace('```', '').strip()
-                        data = json.loads(json_str)
-                        
-                        st.session_state.current_min = int(data.get("current_min", 45))
-                        st.session_state.lh_s = int(data.get("current_score_h", 0))
-                        st.session_state.la_s = int(data.get("current_score_a", 0))
-                        st.session_state.live_pre_h = float(data.get("pre_h", 2.0))
-                        st.session_state.live_pre_d = float(data.get("pre_d", 3.0))
-                        st.session_state.live_pre_a = float(data.get("pre_a", 3.0))
-                        st.session_state.live_pre_ou = float(data.get("pre_ou", 2.5))
-                        st.session_state.live_hdp = float(data.get("live_hdp", 0.0))
-                        st.session_state.live_hdp_h = float(data.get("live_hdp_h", 0.9))
-                        st.session_state.live_hdp_a = float(data.get("live_hdp_a", 0.9))
-                        st.session_state.live_ou = float(data.get("live_ou", 2.5))
-                        st.session_state.live_ou_over = float(data.get("live_ou_over", 0.9))
-                        st.session_state.live_ou_under = float(data.get("live_ou_under", 0.9))
-                        
-                        st.success("✅ AI ดึงข้อมูล Live และราคาเปิด สำเร็จ!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ: {e}")
+        if not api_key:
+            st.warning("⚠️ กรุณาตรวจสอบ API Key ก่อนใช้งานโหมดนี้")
+        else:
+            live_images = st.file_uploader("อัปโหลดรูป AH, O/U, 1x2 (สูงสุด 3 รูป)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
+            if live_images:
+                cols = st.columns(len(live_images))
+                imgs = []
+                for idx, img_file in enumerate(live_images):
+                    img = Image.open(img_file)
+                    imgs.append(img)
+                    cols[idx].image(img, use_container_width=True, caption=f"รูปที่ {idx+1}")
+                
+                if st.button("🪄 สกัดข้อมูล Live ลงระบบ", use_container_width=True):
+                    with st.spinner("AI กำลังกวาดสายตาทั้ง 3 ตาราง..."):
+                        try:
+                            model = genai.GenerativeModel('models/gemini-2.5-flash')
+                            prompt = """
+                            คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอลสด สกัดข้อมูลจาก "ทุกรูปภาพ" รวมกัน ตาม JSON format นี้เท่านั้น:
+                            {
+                                "current_min": นาทีปัจจุบันที่หัวตาราง, "current_score_h": สกอร์เจ้าบ้าน, "current_score_a": สกอร์ทีมเยือน,
+                                "pre_h": ราคาเปิด 1x2 เหย้า (แถว"ต้น"), "pre_d": ราคาเปิด 1x2 เสมอ (แถว"ต้น"), "pre_a": ราคาเปิด 1x2 เยือน (แถว"ต้น"), "pre_ou": ราคาเปิดสูงต่ำ (แถว"ต้น"),
+                                "live_hdp": เรต AH ปัจจุบัน (แถวล่างสุด), "live_hdp_h": ค่าน้ำ AH เหย้า (แถวล่างสุด), "live_hdp_a": ค่าน้ำ AH เยือน (แถวล่างสุด),
+                                "live_ou": เรต O/U ปัจจุบัน (แถวล่างสุด), "live_ou_over": ค่าน้ำ O/U สูง (แถวล่างสุด), "live_ou_under": ค่าน้ำ O/U ต่ำ (แถวล่างสุด)
+                            }
+                            ถ้าเป็น 0/0.5 แปลงเป็น 0.25, 0.5/1 แปลงเป็น 0.75
+                            """
+                            response = model.generate_content([prompt] + imgs)
+                            json_str = response.text.replace('```json', '').replace('```', '').strip()
+                            data = json.loads(json_str)
+                            
+                            st.session_state.current_min = int(data.get("current_min", 45))
+                            st.session_state.lh_s = int(data.get("current_score_h", 0))
+                            st.session_state.la_s = int(data.get("current_score_a", 0))
+                            st.session_state.live_pre_h = float(data.get("pre_h", 2.0))
+                            st.session_state.live_pre_d = float(data.get("pre_d", 3.0))
+                            st.session_state.live_pre_a = float(data.get("pre_a", 3.0))
+                            st.session_state.live_pre_ou = float(data.get("pre_ou", 2.5))
+                            st.session_state.live_hdp = float(data.get("live_hdp", 0.0))
+                            st.session_state.live_hdp_h = float(data.get("live_hdp_h", 0.9))
+                            st.session_state.live_hdp_a = float(data.get("live_hdp_a", 0.9))
+                            st.session_state.live_ou = float(data.get("live_ou", 2.5))
+                            st.session_state.live_ou_over = float(data.get("live_ou_over", 0.9))
+                            st.session_state.live_ou_under = float(data.get("live_ou_under", 0.9))
+                            
+                            st.success("✅ AI ดึงข้อมูล Live และราคาเปิด สำเร็จ!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ: {e}")
 
     st.markdown("---")
     col_l1, col_l2 = st.columns(2)
@@ -565,22 +581,25 @@ with tab3:
         if best_ou_val > best_ah_val: target_live_check = {"n": target_ou, "ev": best_ou_val, "hdp": live_ou, "odds": fix(live_ou_over) if target_ou=="สูง" else fix(live_ou_under)}
 
         if target_live_check['ev'] >= trigger_limit:
-            with st.spinner("🧠 AI กำลังพิจารณาความเสี่ยง In-Play ตามคัมภีร์ GEM..."):
-                ai_live = ai_quant_decision_engine("Live Match", target_live_check['n'], target_live_check['ev'], target_live_check['hdp'], target_live_check['odds'], is_live=True, current_min=current_min, score=f"{current_score_h}-{current_score_a}")
-                net_live_ev = target_live_check['ev'] + ai_live['impact_score']
-                
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Live Base EV", f"{target_live_check['ev']*100:.2f}%")
-                c2.metric("GEM Rule Adjust", f"{ai_live['impact_score']*100:.2f}%")
-                c3.metric("Net Live EV", f"{net_live_ev*100:.2f}%")
-                
-                st.info(f"**📖 กฎ GEM ที่จับได้:** {ai_live['rule_triggered']}")
-                
-                if ai_live['final_decision'] and net_live_ev >= trigger_limit:
-                    st.error(f"🚨 SNIPER ALERT: {target_live_check['n']} อนุมัติการโจมตี! (Value > {sniper_threshold}%)")
-                    st.success(f"✅ AI APPROVED: {ai_live['final_comment']}")
-                    st.toast("🔥 เจาะเกราะเจ้ามือสำเร็จ!", icon="🚨")
-                else:
-                    st.warning(f"🚫 AI REJECTED: {ai_live['final_comment']}")
+            if not api_key:
+                st.warning("⚠️ กรุณาใส่ API Key เพื่อให้ AI กรองความเสี่ยง")
+            else:
+                with st.spinner("🧠 AI กำลังพิจารณาความเสี่ยง In-Play ตามคัมภีร์ GEM..."):
+                    ai_live = ai_quant_decision_engine("Live Match", target_live_check['n'], target_live_check['ev'], target_live_check['hdp'], target_live_check['odds'], is_live=True, current_min=current_min, score=f"{current_score_h}-{current_score_a}")
+                    net_live_ev = target_live_check['ev'] + ai_live['impact_score']
+                    
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Live Base EV", f"{target_live_check['ev']*100:.2f}%")
+                    c2.metric("GEM Rule Adjust", f"{ai_live['impact_score']*100:.2f}%")
+                    c3.metric("Net Live EV", f"{net_live_ev*100:.2f}%")
+                    
+                    st.info(f"**📖 กฎ GEM ที่จับได้:** {ai_live['rule_triggered']}")
+                    
+                    if ai_live['final_decision'] and net_live_ev >= trigger_limit:
+                        st.error(f"🚨 SNIPER ALERT: {target_live_check['n']} อนุมัติการโจมตี! (Value > {sniper_threshold}%)")
+                        st.success(f"✅ AI APPROVED: {ai_live['final_comment']}")
+                        st.toast("🔥 เจาะเกราะเจ้ามือสำเร็จ!", icon="🚨")
+                    else:
+                        st.warning(f"🚫 AI REJECTED: {ai_live['final_comment']}")
         else:
             st.write("🛡️ ตลาดปกติ (ยังไม่พบช่องโหว่ความตื่นตระหนก)")
