@@ -10,33 +10,9 @@ from PIL import Image
 import google.generativeai as genai
 
 # --- CONFIG ---
-st.set_page_config(page_title="GEM System 9.0 (The Book of GEMs)", layout="wide")
+st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
 LOG_FILE = "gem_history_log.csv"
-
-# ==========================================
-# 🧠 THE KNOWLEDGE BASE (คัมภีร์ GEM)
-# ==========================================
-GEM_KNOWLEDGE_BASE = """
-[กฎเหล็กการลงทุน GEM RULES]
-1. ทฤษฎีความโกลาหลของใบแดง: มีใบแดง ห้ามกด "ต่ำสด (Live Under)" ให้เล็ง "สูงสด" ยกเว้นสกอร์ขาด 3 ลูก
-2. จุดระเบิดสคริปต์บอลถ้วย: บอลถ้วยน็อกเอาต์ ถ้ายิงใน 20 นาทีแรก ห้ามแทงต่ำ ให้รอสวนสูงสด
-3. สวิตช์ทำลายล้างสคริปต์: บอลสด หากเกิด ใบแดง, จุดโทษ 15 นาทีแรก, บาดเจ็บตัวหลัก ถือว่าสคริปต์ Pre-Match โมฆะ
-4. ภาพลวงตารถถังลีกภูธร: ทีมต่อ -1.5 ในลีกภูมิภาค/ลีกสมัครเล่น/ลีกหญิง มักจะชนะแค่ 1-0 ห้ามต่อเต็มเวลา
-5. กฎข้อยกเว้นบอลความผันผวนสูง: บอลหญิง, เยาวชน U19/U20, ออสเตรเลีย, เนเธอร์แลนด์ เพดานสกอร์พังง่าย ห้ามแทง Under 
-6. กฎภาพลวงตาลีกยิงยับ: บอลหญิง/ออสเตรเลีย ถ้าราคาสูงต่ำจ่ายน้ำเต็ม 1.00 ฝั่ง Under คือของจริง ห้ามกด Over
-7. ทฤษฎีไซยาไนด์กลับขั้วเอเชีย: J-League / K-League ถ้าเจ้าบ้านเป็นต่อแล้วน้ำล้น (ไซยาไนด์) คือ True Value ให้กดต่อเจ้าบ้านได้
-8. ทฤษฎีไซยาไนด์ทะลักจุดเดือด: O/U ล้นทะลุ 1.35-1.50+ คือสคริปต์จริง ให้สวนแทงหน้าไซยาไนด์นั้นไปเลย
-9. เพดานลวงโลกของทีมต่อมิดด้าม: ทีมต่อ 1.30 แต่ O/U ตั้งไว้ต่ำๆ (เช่น 2.5) แล้วจ่ายน้ำต่ำ ห้ามแทงต่ำเด็ดขาด
-10. ทฤษฎีมีดโกนอ็อกแคม: ทีมใหญ่ (พูล < 1.80) ถ้า HDP จ่ายน้ำสมเหตุสมผล 0.75-0.85 ให้ต่อเลย ห้ามคิดซับซ้อน
-11. กฎเหล็กพรีเมียมเรท: ห้ามลงทุนในไม้ที่จ่ายน้ำต่ำกว่า 0.75 เด็ดขาด ให้ PASS
-12. ดัชนีความบ้าคลั่งภูมิภาค: ตุรกี, กรีซ, ละตินอเมริกา, ยุโรปตะวันออก ไซยาไนด์คือภาพสะท้อนกลับ ห้ามวิเคราะห์ตรงๆ
-13. โพรโทคอลระงับแทงต่ำบอลเด็ก: ห้ามแทงต่ำ (Under) ก่อนเตะในลีคเยาวชนยุโรป/ละตินเด็ดขาด
-14. แบนทีมเยือนอาหรับ: ลีกตะวันออกกลาง ห้ามต่อทีมเยือนเด็ดขาด ให้เล่นสูงครึ่งหลังแทน
-15. โรงเชือดทีมเต็งมหาชน: ทีมเต็งจักรวาล พูล < 1.40 ห้ามต่อก่อนเตะ ให้รอโดนนำก่อนค่อยเล่นสด
-16. กฎกามิกาเซ่ท้ายเกม: 20 นาทีสุดท้าย ทีมตามหลัง 2 ลูก และ O/U จ่ายน้ำล้น 1.30+ ให้สวนกด "สูง (Over)" ทันที
-17. กฎห้ามลั่นไก 15 นาทีแรก: บอลสด ห้ามเทรดใน 15 นาทีแรก ให้รอการ Calibration ของเจ้ามือ
-18. ทฤษฎีแฝดนรก 1X2: Live สด หากค่าน้ำ 1 หรือ 2 เท่ากับเสมอเป๊ะ ห้ามแทงต่ำเด็ดขาด
-"""
+RULES_FILE = "gem_rules.txt" # 🧠 ไฟล์สมองของเรา
 
 # ==========================================
 # 0. ระบบตั้งค่าตัวแปร (Session State Init)
@@ -47,13 +23,23 @@ def init_session_state():
         'h1x2_val': 1.0, 'd1x2_val': 1.0, 'a1x2_val': 1.0,
         'hdp_line_val': 0.0, 'hdp_h_w_val': 0.0, 'hdp_a_w_val': 0.0,
         'ou_line_val': 2.5, 'ou_over_w_val': 0.0, 'ou_under_w_val': 0.0,
-        'raw_text': ""
+        'raw_text': "",
+        'live_hdp': 0.0, 'live_ou': 2.50,
+        'lh_s': 0, 'la_s': 0, 'current_min': 45
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
 
 init_session_state()
+
+# ฟังก์ชันดึงกฎจากไฟล์ (ถ้าไม่มีไฟล์ให้แจ้งเตือน)
+@st.cache_data(ttl=60) # โหลดซ้ำทุกๆ 60 วินาทีเผื่อเราไปแก้ไฟล์
+def load_gem_rules():
+    if os.path.exists(RULES_FILE):
+        with open(RULES_FILE, "r", encoding="utf-8") as f:
+            return f.read()
+    return "ไม่พบไฟล์คัมภีร์. โปรดสร้างไฟล์ gem_rules.txt และใส่กฎทั้งหมดลงไป"
 
 def clear_form_data():
     st.session_state.raw_text = ""
@@ -70,10 +56,9 @@ def parse_line(line_str):
         if '/' in line_str or ',' in line_str:
             sep = '/' if '/' in line_str else ','
             parts = line_str.split(sep)
-            val = (float(parts[0]) + float(parts[1])) / 2.0
+            return (-1 if is_negative else 1) * ((float(parts[0]) + float(parts[1])) / 2.0)
         else:
-            val = float(line_str)
-        return -val if is_negative else val
+            return float(line_str) * (-1 if is_negative else 1)
     except:
         return 0.0
 
@@ -203,48 +188,83 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
     return 0.0
 
 # ==========================================
-# 2. ระบบ AI Decision Engine (Chief Risk Officer)
+# 2. ระบบ AI Decision Engine (Chief Risk Officer) + The Oracle DB
 # ==========================================
 def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
+    # โหลดคัมภีร์จากไฟล์ .txt
+    oracle_database = load_gem_rules()
+    
     prompt = f"""
     คุณคือ Chief Risk Officer ประจำกองทุน Quant Sports Betting 
-    พิจารณาการลงทุนนี้โดยใช้ "กฎเหล็ก (GEM RULES)" อย่างเคร่งครัด
+    พิจารณาการลงทุนนี้โดยใช้ "คัมภีร์ GEM RULES (The Oracle)" ด้านล่างนี้อย่างเคร่งครัด
+    คุณต้องดึงเฉพาะข้อที่ตรงกับสถานการณ์มาวิเคราะห์ ห้ามคิดไปเองเด็ดขาด!
     
-    [ข้อมูลหน้างาน]
+    [ข้อมูลหน้างานปัจจุบัน]
     - คู่แข่งขัน: {match_name}
     - สถานการณ์: {'Live นาทีที่ ' + str(current_min) + ' สกอร์ ' + str(score) if is_live else 'Pre-Match (ก่อนเตะ)'}
     - เป้าหมายลงทุน: {target} (เรต {hdp_line} ค่าน้ำ {odds})
-    - Base EV: {base_ev * 100:.2f}%
+    - Base EV ทางคณิตศาสตร์: {base_ev * 100:.2f}%
     
-    {GEM_KNOWLEDGE_BASE}
+    [คัมภีร์ THE ORACLE DATABASE]
+    {oracle_database}
     
-    คำสั่ง: สกัดข้อมูลจากชื่อทีมหรือสถานการณ์ ว่าเข้าข่ายละเมิดกฎข้อใดหรือไม่? 
-    ประเมินแล้วตอบกลับเป็น JSON Format ดังนี้:
+    คำสั่ง: 
+    1. สแกนฐานข้อมูลเพื่อหากฎที่ตรงกับชื่อทีม, สถานการณ์ Live, ใบแดง หรือเรตราคา
+    2. ถ้ามีกฎบังคับให้ Pass หรือหักคะแนน EV ให้ระบุมา
+    3. ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่น:
     {{
-        "rule_triggered": "ชื่อกฎที่เข้าข่าย (ถ้าไม่มีให้ระบุ None)",
-        "impact_score": ตัวเลขปรับลดหรือเพิ่ม EV (ระหว่าง -0.10 ถึง 0.05),
+        "rule_triggered": "อ้างอิงชื่อ Gem ที่ตรงที่สุด (ถ้าไม่มีให้ระบุ No Rule)",
+        "impact_score": ตัวเลขปรับลดหรือเพิ่ม EV (ระหว่าง -0.15 ถึง 0.05),
         "final_decision": true (อนุมัติ) หรือ false (สั่ง Pass),
-        "final_comment": "คำอธิบายเหตุผลแบบดุดันและฟันธง"
+        "final_comment": "อธิบายสั้นๆ ดุดันแบบเซียนว่าทำไมถึงรอด/ทำไมถึงสั่งทับมือ"
     }}
     """
     try:
         model = genai.GenerativeModel('models/gemini-2.5-flash')
         response = model.generate_content(prompt)
         
-        # ใช้ ASCII ของ backtick ป้องกันปัญหาการ copy โค้ดไปวางแล้วพัง
+        # ป้องกันโค้ดแหว่งจาก Backtick (```)
         bt = chr(96) * 3
         res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
         
         return json.loads(res_text)
     except Exception as e:
-        # 🚨 สั่งให้ระบบพ่น Error ที่แท้จริงออกมาโชว์ จะได้รู้ว่าพังที่จุดไหน
-        error_msg = str(e).replace('"', "'") # ป้องกันเครื่องหมายคำพูดตีกัน
-        return {
-            "rule_triggered": f"System Error: {error_msg}", 
-            "impact_score": 0.0, 
-            "final_decision": True if base_ev >= 0.08 else False, 
-            "final_comment": f"AI ล้มเหลว (เช็ค Error ที่ช่องกฎ GEM)"
+        error_str = str(e).replace('"', "'")
+        return {"rule_triggered": f"System Error", "impact_score": 0.0, "final_decision": True if base_ev >= 0.08 else False, "final_comment": f"AI Parsing Failed: {error_str}"}
+
+# ==========================================
+# UI / UX Components (ระบบวาดหน้าปัดและปุ่ม)
+# ==========================================
+def create_ev_gauge(ev_value, title, threshold=8.0):
+    ev_pct = ev_value * 100
+    if ev_pct >= threshold: color = "#00FF7F" 
+    elif ev_pct > 0: color = "#FFD700" 
+    else: color = "#FF4500" 
+        
+    fig = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = ev_pct,
+        number = {'suffix': "%", 'font': {'color': color, 'size': 30}},
+        title = {'text': title, 'font': {'size': 16, 'color': 'white'}},
+        gauge = {
+            'axis': {'range': [-20, 20], 'tickwidth': 1, 'tickcolor': "white"},
+            'bar': {'color': color},
+            'bgcolor': "rgba(0,0,0,0.1)",
+            'borderwidth': 1,
+            'bordercolor': "gray",
+            'steps': [
+                {'range': [-20, 0], 'color': "rgba(255, 69, 0, 0.15)"},
+                {'range': [0, threshold], 'color': "rgba(255, 215, 0, 0.15)"},
+                {'range': [threshold, 20], 'color': "rgba(0, 255, 127, 0.15)"}
+            ],
+            'threshold': {'line': {'color': "white", 'width': 3}, 'thickness': 0.75, 'value': ev_pct}
         }
+    ))
+    fig.update_layout(height=200, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    return fig
+
+def adj_hdp(val): st.session_state['live_hdp'] += val
+def adj_ou(val): st.session_state['live_ou'] += val
 
 # ==========================================
 # 3. ระบบจัดการประวัติ, แก้บั๊ก Excel, และคำนวณ CLV
@@ -268,19 +288,16 @@ def load_logs():
 
 def calculate_net_profit(row):
     try:
-        if pd.isna(row['Result']) or str(row['Result']).strip() == "" or float(row['Investment']) <= 0: 
-            return 0.0
-            
+        if pd.isna(row['Result']) or str(row['Result']).strip() == "" or float(row['Investment']) <= 0: return 0.0
         result_str = str(row['Result']).strip()
         
-        # 🛡️ ระบบป้องกันความเสี่ยง (Date Format Trap) จาก Excel
+        # 🛡️ Anti-Excel Date Format Bug
         if "00:00:00" in result_str or len(re.findall(r'-', result_str)) > 1:
             date_parts = re.findall(r'\d+', result_str.split(' ')[0])
             if len(date_parts) >= 3:
                 h_score = int(date_parts[1]) if int(date_parts[1]) < 2000 else int(date_parts[0])
                 a_score = int(date_parts[2]) if int(date_parts[2]) < 2000 else int(date_parts[1])
-            else:
-                 return 0.0
+            else: return 0.0
         else:
             scores = re.findall(r'\d+', result_str)
             if len(scores) < 2: return 0.0
@@ -291,8 +308,8 @@ def calculate_net_profit(row):
         
         if target == "เจ้าบ้าน": net_margin = diff - hdp
         elif target == "ทีมเยือน": net_margin = (a_score - h_score) + hdp
-        elif target == "สูง" or target == "สูง (FH)": net_margin = (h_score + a_score) - hdp
-        elif target == "ต่ำ" or target == "ต่ำ (FH)": net_margin = hdp - (h_score + a_score)
+        elif target == "สูง": net_margin = (h_score + a_score) - hdp
+        elif target == "ต่ำ": net_margin = hdp - (h_score + a_score)
         else: return 0.0
         
         if net_margin > 0.25: return invest * (odds - 1)
@@ -300,68 +317,21 @@ def calculate_net_profit(row):
         elif net_margin == 0: return 0.0
         elif net_margin == -0.25: return -(invest / 2)
         else: return -invest
-    except Exception as e: 
-        return 0.0
+    except: return 0.0
 
 def calculate_clv(row):
     try:
-        if pd.isna(row['Closing_Odds']) or float(row['Closing_Odds']) <= 1.0: 
-            return 0.0
-        odds_taken = float(row['Odds'])
-        closing_odds = float(row['Closing_Odds'])
-        return ((odds_taken / closing_odds) - 1.0) * 100.0
-    except: 
-        return 0.0
-# ==========================================
-# 🎨 UI / UX Components (ระบบวาดหน้าปัดและปุ่ม)
-# ==========================================
-def create_ev_gauge(ev_value, title, threshold=8.0):
-    ev_pct = ev_value * 100
-    
-    # 🚥 เปลี่ยนสีตามความคุ้มค่า (จิตวิทยาสี)
-    if ev_pct >= threshold: color = "#00FF7F" # เขียวสว่าง (ยิงได้!)
-    elif ev_pct > 0: color = "#FFD700" # เหลือง (เฝ้าระวัง)
-    else: color = "#FF4500" # แดง (ยาพิษ)
-        
-    fig = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = ev_pct,
-        number = {'suffix': "%", 'font': {'color': color, 'size': 32}},
-        title = {'text': title, 'font': {'size': 18, 'color': 'white'}},
-        gauge = {
-            'axis': {'range': [-20, 20], 'tickwidth': 1, 'tickcolor': "white"},
-            'bar': {'color': color},
-            'bgcolor': "rgba(0,0,0,0.1)",
-            'borderwidth': 1,
-            'bordercolor': "gray",
-            'steps': [
-                {'range': [-20, 0], 'color': "rgba(255, 69, 0, 0.15)"},
-                {'range': [0, threshold], 'color': "rgba(255, 215, 0, 0.15)"},
-                {'range': [threshold, 20], 'color': "rgba(0, 255, 127, 0.15)"}
-            ],
-            'threshold': {
-                'line': {'color': "white", 'width': 3},
-                'thickness': 0.75,
-                'value': ev_pct
-            }
-        }
-    ))
-    fig.update_layout(height=220, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    return fig
-
-# Callback Functions สำหรับ UX ปุ่มกดด่วน
-def adj_hdp(val): st.session_state['live_hdp'] += val
-def adj_ou(val): st.session_state['live_ou'] += val
+        if pd.isna(row['Closing_Odds']) or float(row['Closing_Odds']) <= 1.0: return 0.0
+        return ((float(row['Odds']) / float(row['Closing_Odds'])) - 1.0) * 100.0
+    except: return 0.0
 
 # ==========================================
 # 4. UI - Main Layout
 # ==========================================
-st.title("🎯 GEM System 9.0: The Book of GEMs Engine")
+st.title("🎯 GEM System 10.0: The Oracle")
 
-# 🛠️ ระบบดึง Key อัตโนมัติจาก Streamlit Secrets
-st.sidebar.header("🔑 AI Integration (Gemini)")
-
-# เช็คว่ามี Secrets ใน Streamlit Cloud ไหม
+# 🛠️ AI Integration
+st.sidebar.header("🔑 AI Oracle Integration")
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
@@ -370,11 +340,18 @@ else:
     api_key = st.sidebar.text_input("ใส่ Gemini API Key:", type="password")
     if api_key:
         genai.configure(api_key=api_key)
-        st.sidebar.success("✅ AI Connected (Manual Input)")
+        st.sidebar.success("✅ AI Connected")
     else:
-        st.sidebar.warning("⚠️ ไม่พบ API Key กรุณาระบุเพื่อเปิดใช้งาน AI")
+        st.sidebar.warning("⚠️ โปรดใส่ API Key")
 
-tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Live"])
+# แสดงสถานะ Database
+if os.path.exists(RULES_FILE):
+    file_size = os.path.getsize(RULES_FILE) / 1024
+    st.sidebar.info(f"📚 โหลดคัมภีร์แล้ว: {RULES_FILE} ({file_size:.1f} KB)")
+else:
+    st.sidebar.error(f"❌ ไม่พบไฟล์ '{RULES_FILE}' โปรดสร้างไฟล์และใส่กฎลงไป!")
+
+tab1, tab2, tab3 = st.tabs(["🚀 Pre-Match Terminal", "📈 Performance Dashboard", "📺 In-Play Sniper"])
 
 # --- TAB 1: Pre-Match ---
 with tab1:
@@ -388,8 +365,7 @@ with tab1:
     st.markdown("---")
     
     with st.expander("👁️ AI Vision: สกัดราคาจากภาพ", expanded=False):
-        if not api_key:
-            st.warning("⚠️ กรุณาตรวจสอบ API Key ก่อนใช้งานโหมดนี้")
+        if not api_key: st.warning("⚠️ ต้องการ API Key")
         else:
             uploaded_file = st.file_uploader("อัปโหลดรูปตารางราคา", type=['png', 'jpg'])
             if uploaded_file and st.button("🪄 สกัดข้อมูลจากรูปภาพ", use_container_width=True):
@@ -399,36 +375,30 @@ with tab1:
                         model = genai.GenerativeModel('models/gemini-2.5-flash')
                         p = 'สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
                         res = model.generate_content([p, img])
-                        
-                        # ใช้ ASCII ป้องกันปัญหา Copy & Paste
                         bt = chr(96) * 3
-                        res_text = res.text.replace(bt + 'json', '').replace(bt, '').strip()
-                        data = json.loads(res_text)
-                        
+                        data = json.loads(res.text.replace(bt+'json', '').replace(bt, '').strip())
                         for k, v in data.items(): st.session_state[k] = v
-                        st.success("✅ สกัดข้อมูลสำเร็จ")
+                        st.success("✅ สำเร็จ!")
                         st.rerun()
-                    except Exception as e:
-                        st.error(f"⚠️ สกัดข้อมูลล้มเหลว: {e}")
+                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
-    # 🆕 นำช่อง Text Parser แบบเก่ากลับมา
-    with st.expander("⚡ Text Parser: วางข้อความดิบ (โหมดคลาสสิก)", expanded=False):
+    with st.expander("⚡ Text Parser: วางข้อความดิบ", expanded=False):
         st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=100, key="raw_text")
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
+        c_b1, c_b2 = st.columns(2)
+        with c_b1:
             if st.button("🪄 สกัดข้อมูลจากข้อความ", use_container_width=True):
                 try:
                     raw = st.session_state.raw_text
                     m_vs = re.search(r'(.*VS.*)', raw)
                     if m_vs: st.session_state.match_name = m_vs.group(1).strip()
                     h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) 
-                    if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) 
+                    if len(h_matches)>=1: st.session_state.h1x2_val=float(h_matches[0]) 
+                    if len(h_matches)>=2: st.session_state.hdp_h_w_val=float(h_matches[1]) 
                     d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(d_matches) >= 1: st.session_state.d1x2_val = float(d_matches[0])
+                    if len(d_matches)>=1: st.session_state.d1x2_val=float(d_matches[0])
                     a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) 
-                    if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) 
+                    if len(a_matches)>=1: st.session_state.a1x2_val=float(a_matches[0]) 
+                    if len(a_matches)>=2: st.session_state.hdp_a_w_val=float(a_matches[1]) 
                     ah_match = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
                     if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
                     ou_match = re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)', raw, re.MULTILINE)
@@ -437,270 +407,211 @@ with tab1:
                     if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
                     u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
                     if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
-                    st.success("✅ สกัดข้อความสำเร็จ!")
-                except Exception as e:
-                    st.error(f"⚠️ ข้อความมีปัญหา: {e}")
-        with col_btn2:
-            st.button("🗑️ ล้างข้อมูลทั้งหมด", use_container_width=True, on_click=clear_form_data)
+                    st.success("✅ สำเร็จ!")
+                except Exception as e: st.error(f"⚠️ Error: {e}")
+        with c_b2: st.button("🗑️ ล้างฟอร์ม", use_container_width=True, on_click=clear_form_data)
 
     st.markdown("---")
-
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
     col1, col2 = st.columns(2)
     with col1:
-        st.subheader("1. พูล & AH (เต็มเวลา)")
+        st.subheader("1. พูล & AH")
         h1x2 = st.number_input("เหย้า (1X2)", format="%.2f", key="h1x2_val")
         d1x2 = st.number_input("เสมอ (1X2)", format="%.2f", key="d1x2_val")
         a1x2 = st.number_input("เยือน (1X2)", format="%.2f", key="a1x2_val")
-        hdp_line = st.number_input("เรตต่อรอง (HDP)", format="%.2f", step=0.25, key="hdp_line_val")
+        hdp_line = st.number_input("เรต (HDP)", format="%.2f", step=0.25, key="hdp_line_val")
         hdp_h_w = st.number_input("น้ำเจ้าบ้าน", format="%.2f", key="hdp_h_w_val")
         hdp_a_w = st.number_input("น้ำทีมเยือน", format="%.2f", key="hdp_a_w_val")
     with col2:
-        st.subheader("2. ตลาด O/U (เต็มเวลา)")
-        ou_line = st.number_input("เรตสกอร์รวม (O/U)", format="%.2f", step=0.25, key="ou_line_val")
-        ou_over_w = st.number_input("น้ำหน้าสูง (Over)", format="%.2f", key="ou_over_w_val")
-        ou_under_w = st.number_input("น้ำหน้าต่ำ (Under)", format="%.2f", key="ou_under_w_val")
+        st.subheader("2. ตลาด O/U")
+        ou_line = st.number_input("เรต (O/U)", format="%.2f", step=0.25, key="ou_line_val")
+        ou_over_w = st.number_input("น้ำสูง (Over)", format="%.2f", key="ou_over_w_val")
+        ou_under_w = st.number_input("น้ำต่ำ (Under)", format="%.2f", key="ou_under_w_val")
 
     if st.button("🚀 ANALYZE PRE-MATCH", use_container_width=True):
         def fix(o): return o + 1.0 if o < 1.1 else o
         h_o, d_o, a_o = fix(h1x2), fix(d1x2), fix(a1x2)
         hw_o, aw_o, ow_o, uw_o = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
         prob_h, prob_d, prob_a = shin_devig(h_o, d_o, a_o)
-        hw2, hw1, d_exact, aw1, aw2, p_total = calc_dixon_coles_matrix(prob_h, prob_d, prob_a, ou_line, dc_rho)
+        hw2, hw1, d_ex, aw1, aw2, p_total = calc_dixon_coles_matrix(prob_h, prob_d, prob_a, ou_line, dc_rho)
         is_h_fav = prob_h >= prob_a
         ev_h = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, hw_o, is_fav_team=is_h_fav)
         ev_a = calc_advanced_ah_ev(hdp_line, aw2, aw1, d_exact, hw1, hw2, aw_o, is_fav_team=not is_h_fav) - (hdba_val/100)
-        ev_over = calc_advanced_ou_ev(ou_line, p_total, ow_o, is_over=True)
-        ev_under = calc_advanced_ou_ev(ou_line, p_total, uw_o, is_over=False)
+        ev_over = calc_advanced_ou_ev(ou_line, p_total, ow_o, True)
+        ev_under = calc_advanced_ou_ev(ou_line, p_total, uw_o, False)
 
         best_ah = max([{"n": "เจ้าบ้าน", "ev": ev_h, "odds": hw_o, "hdp": hdp_line}, {"n": "ทีมเยือน", "ev": ev_a, "odds": aw_o, "hdp": hdp_line}], key=lambda x: x['ev'])
         best_ou = max([{"n": "สูง", "ev": ev_over, "odds": ow_o, "hdp": ou_line}, {"n": "ต่ำ", "ev": ev_under, "odds": uw_o, "hdp": ou_line}], key=lambda x: x['ev'])
 
         st.markdown("---")
-        st.subheader(f"📊 ผลวิเคราะห์ทางคณิตศาสตร์คู่ {match_name}")
-        st.write(f"**เป้า AH:** {best_ah['n']} (EV: {best_ah['ev']*100:.2f}%) | **เป้า O/U:** {best_ou['n']} (EV: {best_ou['ev']*100:.2f}%)")
+        st.subheader(f"📊 ผลวิเคราะห์ทางคณิตศาสตร์")
+        
+        g1, g2 = st.columns(2)
+        with g1: st.plotly_chart(create_ev_gauge(best_ah['ev'], f"AH: {best_ah['n']}", sniper_threshold), use_container_width=True)
+        with g2: st.plotly_chart(create_ev_gauge(best_ou['ev'], f"O/U: {best_ou['n']}", sniper_threshold), use_container_width=True)
 
         target_to_check = best_ah if best_ah['ev'] > best_ou['ev'] else best_ou
         
         if target_to_check['ev'] >= trigger_limit:
-            if not api_key:
-                st.warning("⚠️ กรุณาใส่ API Key เพื่อให้ AI กรองความเสี่ยง")
+            if not api_key: st.warning("⚠️ กรุณาใส่ API Key ให้ AI กรองความเสี่ยง")
             else:
-                with st.spinner("🧠 AI กำลังเทียบสมการกับ 'คัมภีร์ GEM'..."):
+                with st.spinner("🧠 THE ORACLE กำลังค้นหาคัมภีร์ที่ตรงกับคู่ของคุณ..."):
                     ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'])
-                    net_ev = target_to_check['ev'] + ai_verdict['impact_score']
+                    net_ev = target_to_check['ev'] + ai_verdict.get('impact_score', 0)
                     
+                    st.markdown("---")
                     c1, c2, c3 = st.columns(3)
-                    c1.metric("Base EV (คณิตศาสตร์)", f"{target_to_check['ev']*100:.2f}%")
-                    c2.metric("GEM Rule Adjust", f"{ai_verdict['impact_score']*100:.2f}%")
-                    c3.metric("Net EV (ความคุ้มค่าจริง)", f"{net_ev*100:.2f}%")
+                    c1.metric("Base EV", f"{target_to_check['ev']*100:.2f}%")
+                    c2.metric("Oracle Rule Adjust", f"{ai_verdict.get('impact_score', 0)*100:.2f}%")
+                    c3.metric("Net EV", f"{net_ev*100:.2f}%")
                     
-                    st.info(f"**📖 กฎ GEM ที่เกี่ยวข้อง:** {ai_verdict['rule_triggered']}")
+                    st.info(f"**📖 กฎที่ทำงาน:** {ai_verdict.get('rule_triggered', 'None')}")
                     
-                    if ai_verdict['final_decision'] and net_ev >= trigger_limit:
-                        st.success(f"✅ AI APPROVED: {ai_verdict['final_comment']}")
-                        # Save to DB
-                        def get_defensive_k(ev, odds, bank):
-                            if ev < trigger_limit: return 0.0
-                            b_k, p_k = odds - 1, (ev + 1) / odds
-                            k_pct = ((b_k * p_k) - (1 - p_k)) / b_k
-                            return min(k_pct * 0.25, 0.05) * bank
-                        
-                        inv = get_defensive_k(net_ev, target_to_check['odds'], total_bankroll)
+                    if ai_verdict.get('final_decision', False) and net_ev >= trigger_limit:
+                        st.balloons()
+                        st.success(f"✅ ORACLE APPROVED: {ai_verdict.get('final_comment', 'Good')}")
+                        inv = min( (((target_to_check['odds']-1) * ((net_ev+1)/target_to_check['odds']) - (1-((net_ev+1)/target_to_check['odds']))) / (target_to_check['odds']-1)) * 0.25, 0.05) * total_bankroll
                         tz_th = timezone(timedelta(hours=7))
                         save_to_csv([{"Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": target_to_check['hdp'], "Target": target_to_check['n'], "EV_Pct": round(net_ev*100, 2), "Investment": round(inv, 2), "Odds": target_to_check['odds'], "Closing_Odds": 0.0, "Result": ""}])
                     else:
-                        st.error(f"🚫 AI REJECTED (ทับมือ): {ai_verdict['final_comment']}")
-                        st.write("ไม้นี้ถูก AI สกัดไว้ ไม่มีการบันทึกลงพอร์ตลงทุนครับ")
+                        st.error(f"🚫 ORACLE REJECTED: {ai_verdict.get('final_comment', 'Pass')}")
         else:
-            st.warning("🛡️ Base EV ต่ำเกินไป ไม่เข้าเกณฑ์ลงทุน")
+            st.warning("🛡️ Base EV ต่ำเกินไป")
 
-# --- TAB 2: Performance & CLV Dashboard ---
+# --- TAB 2: Dashboard ---
 with tab2:
     logs = load_logs()
     if logs is not None:
-        st.subheader("📝 บันทึกผลสกอร์ และราคาปิด (Closing Odds)")
+        st.subheader("📝 บันทึกผล & ราคาปิด (Closing Odds)")
         display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
+        edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result"), "Closing_Odds": st.column_config.NumberColumn("Closing Odds", min_value=0.0, format="%.2f")}, use_container_width=True, num_rows="dynamic")
         
-        edited_df = st.data_editor(
-            display_df, 
-            column_config={
-                "Result": st.column_config.TextColumn("Result (e.g. 2-1)"),
-                "Closing_Odds": st.column_config.NumberColumn("ราคาปิด (Closing Odds)", min_value=0.0, format="%.2f")
-            }, 
-            use_container_width=True, 
-            num_rows="dynamic"
-        )
-        
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("💾 Save Score & Calculate Profit"): 
-                edited_df.to_csv(LOG_FILE, index=False, encoding='utf-8-sig')
-                st.rerun()
-        with col_btn2:
-            if st.button("🗑️ ล้างประวัติทั้งหมด (Clear Logs)"):
-                if os.path.exists(LOG_FILE): os.remove(LOG_FILE); st.rerun()
+        c_b1, c_b2 = st.columns(2)
+        if c_b1.button("💾 Save Score"): edited_df.to_csv(LOG_FILE, index=False, encoding='utf-8-sig'); st.rerun()
+        if c_b2.button("🗑️ Clear Logs"): 
+            if os.path.exists(LOG_FILE): os.remove(LOG_FILE); st.rerun()
         
         logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
         logs['CLV_Pct'] = logs.apply(calculate_clv, axis=1)
         inv_logs = logs[logs['Investment'] > 0]
         
         st.markdown("---")
-        st.subheader("🏆 Performance & CLV Statistics")
         m1, m2, m3, m4, m5 = st.columns(5)
         m1.metric("กำไรสุทธิ", f"{logs['Net_Profit'].sum():,.2f} THB")
-        m2.metric("ยอดรวมลงทุน", f"{inv_logs['Investment'].sum():,.2f} THB")
+        m2.metric("ลงทุนสะสม", f"{inv_logs['Investment'].sum():,.2f} THB")
         m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
         m4.metric("ROI", f"{(logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
-        
-        valid_clv = inv_logs[inv_logs['Closing_Odds'] > 1.0]
-        avg_clv = valid_clv['CLV_Pct'].mean()
-        m5.metric("🎯 Average CLV", f"{avg_clv:.2f}%" if pd.notna(avg_clv) else "0.00%")
+        m5.metric("Average CLV", f"{inv_logs[inv_logs['Closing_Odds']>1.0]['CLV_Pct'].mean():.2f}%" if not inv_logs[inv_logs['Closing_Odds']>1.0].empty else "0.00%")
         
         if not logs.empty:
-            st.markdown("---")
-            st.subheader("📉 กราฟกำไรสะสม (Equity Curve)")
-            logs_sorted = logs.sort_values(by='Time')
-            logs_sorted['Cumulative_Profit'] = logs_sorted['Net_Profit'].cumsum()
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=logs_sorted['Time'], y=logs_sorted['Cumulative_Profit'], mode='lines', line=dict(color='#00FF7F', width=3, shape='spline'), fill='tozeroy', fillcolor='rgba(0, 255, 127, 0.15)', name='กำไรสะสม'))
-            fig.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis=dict(showgrid=False, title="", showticklabels=True), yaxis=dict(showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', title="ยอดเงิน (THB)", zeroline=True, zerolinecolor='rgba(255, 0, 0, 0.3)'), hovermode="x unified", margin=dict(l=0, r=0, t=30, b=0))
+            logs_s = logs.sort_values(by='Time')
+            logs_s['Cumulative_Profit'] = logs_s['Net_Profit'].cumsum()
+            fig = go.Figure(go.Scatter(x=logs_s['Time'], y=logs_s['Cumulative_Profit'], mode='lines', fill='tozeroy', line=dict(color='#00FF7F', width=3)))
+            fig.update_layout(title="Equity Curve", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
+    else: st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
 
-# --- TAB 3: IN-PLAY LIVE (Sniper Module) ---
+# --- TAB 3: IN-PLAY LIVE ---
 with tab3:
     st.header("📺 Live Sniper Command Center")
     
-    with st.expander("👁️ AI Live Vision: สแกนราคาจากรูปภาพ", expanded=False):
-        if not api_key:
-            st.warning("⚠️ กรุณาตรวจสอบ API Key ก่อนใช้งานโหมดนี้")
+    with st.expander("👁️ AI Live Vision", expanded=False):
+        if not api_key: st.warning("⚠️ ต้องการ API Key")
         else:
-            live_images = st.file_uploader("อัปโหลดรูป AH, O/U, 1x2 (สูงสุด 3 รูป)", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
-            if live_images:
-                cols = st.columns(len(live_images))
-                imgs = []
-                for idx, img_file in enumerate(live_images):
-                    img = Image.open(img_file)
-                    imgs.append(img)
-                    cols[idx].image(img, use_container_width=True, caption=f"รูปที่ {idx+1}")
-                
-                if st.button("🪄 สกัดข้อมูล Live ลงระบบ", use_container_width=True):
-                    with st.spinner("AI กำลังกวาดสายตาทั้ง 3 ตาราง..."):
-                        try:
-                            model = genai.GenerativeModel('models/gemini-2.5-flash')
-                            prompt = """คุณคือผู้เชี่ยวชาญ สกัดข้อมูลจากภาพเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, "pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, "live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}"""
-                            response = model.generate_content([prompt] + imgs)
-                            bt = chr(96) * 3
-                            data = json.loads(response.text.replace(bt+'json', '').replace(bt, '').strip())
-                            for k, v in data.items(): st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
-                            st.success("✅ AI ดึงข้อมูล สำเร็จ!")
-                            st.rerun()
-                        except Exception as e: st.error(f"⚠️ สกัดล้มเหลว: {e}")
+            live_images = st.file_uploader("อัปโหลดรูป (สูงสุด 3 รูป)", type=['png', 'jpg'], accept_multiple_files=True)
+            if live_images and st.button("🪄 สกัดข้อมูล", use_container_width=True):
+                with st.spinner("กวาดสายตา..."):
+                    try:
+                        imgs = [Image.open(f) for f in live_images]
+                        model = genai.GenerativeModel('models/gemini-2.5-flash')
+                        p = """สกัดเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, "pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, "live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}"""
+                        res = model.generate_content([p] + imgs)
+                        bt = chr(96)*3
+                        data = json.loads(res.text.replace(bt+'json', '').replace(bt, '').strip())
+                        for k, v in data.items(): st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
+                        st.success("✅ สำเร็จ!")
+                        st.rerun()
+                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
-    st.markdown("---")
-    
-    # 🏁 แถวที่ 1: สถานะเกม
     col_l1, col_l2 = st.columns(2)
     with col_l1:
         st.subheader("🏁 สถานะเกมปัจจุบัน")
         c_h1, c_h2 = st.columns(2)
-        current_score_h = c_h1.number_input("สกอร์เจ้าบ้าน", min_value=0, value=st.session_state.get('lh_s', 0), key="lh_s_input")
-        red_card_h = c_h2.checkbox("🟥 เจ้าบ้านใบแดง", key="rc_h")
+        current_score_h = c_h1.number_input("สกอร์เหย้า", min_value=0, value=st.session_state.get('lh_s', 0), key="lh_s_input")
+        red_card_h = c_h2.checkbox("🟥 เหย้าใบแดง", key="rc_h")
         c_a1, c_a2 = st.columns(2)
-        current_score_a = c_a1.number_input("สกอร์ทีมเยือน", min_value=0, value=st.session_state.get('la_s', 0), key="la_s_input")
-        red_card_a = c_a2.checkbox("🟥 ทีมเยือนใบแดง", key="rc_a")
-        current_min = st.slider("นาทีที่แข่งขัน", 0, 120, st.session_state.get('current_min', 45))
+        current_score_a = c_a1.number_input("สกอร์เยือน", min_value=0, value=st.session_state.get('la_s', 0), key="la_s_input")
+        red_card_a = c_a2.checkbox("🟥 เยือนใบแดง", key="rc_a")
+        current_min = st.slider("นาทีแข่งขัน", 0, 120, st.session_state.get('current_min', 45))
     with col_l2:
-        st.subheader("💡 อ้างอิงราคาเปิด (Pre-match)")
-        pre_h = st.number_input("เหย้า (เปิด)", value=st.session_state.get('pre_h', 2.00), format="%.2f")
-        pre_d = st.number_input("เสมอ (เปิด)", value=st.session_state.get('pre_d', 3.40), format="%.2f")
-        pre_a = st.number_input("เยือน (เปิด)", value=st.session_state.get('pre_a', 3.00), format="%.2f")
-        pre_ou = st.number_input("O/U (เปิด)", value=st.session_state.get('pre_ou', 2.50), format="%.2f", step=0.25)
+        st.subheader("💡 ราคาเปิด (Pre-match)")
+        pre_h = st.number_input("เหย้า(เปิด)", value=st.session_state.get('pre_h', 2.0), format="%.2f")
+        pre_d = st.number_input("เสมอ(เปิด)", value=st.session_state.get('pre_d', 3.0), format="%.2f")
+        pre_a = st.number_input("เยือน(เปิด)", value=st.session_state.get('pre_a', 3.0), format="%.2f")
+        pre_ou = st.number_input("O/U(เปิด)", value=st.session_state.get('pre_ou', 2.5), format="%.2f", step=0.25)
 
     st.markdown("---")
-    
-    # ⚡ แถวที่ 2: UX Frictionless Input (ปุ่มสไนเปอร์)
     st.subheader("💰 ราคา Live ปัจจุบัน (Sniper Adjust)")
     col_live1, col_live2 = st.columns(2)
     
     with col_live1:
         st.markdown("**Live HDP (เรตแฮนดิแคป)**")
-        if 'live_hdp' not in st.session_state: st.session_state['live_hdp'] = 0.0
         btn_h1, btn_h2, btn_h3 = st.columns([1, 2, 1])
-        btn_h1.button("➖ 0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,), use_container_width=True)
+        btn_h1.button("➖ 0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
         live_hdp = btn_h2.number_input("Live HDP", value=st.session_state['live_hdp'], step=0.25, key="live_hdp", label_visibility="collapsed", format="%.2f")
-        btn_h3.button("➕ 0.25", key="h_add", on_click=adj_hdp, args=(0.25,), use_container_width=True)
-        
+        btn_h3.button("➕ 0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
         c_w1, c_w2 = st.columns(2)
-        live_hdp_h = c_w1.number_input("น้ำเจ้าบ้าน", value=st.session_state.get('live_hdp_h', 0.90), format="%.2f")
-        live_hdp_a = c_w2.number_input("น้ำทีมเยือน", value=st.session_state.get('live_hdp_a', 0.90), format="%.2f")
+        live_hdp_h = c_w1.number_input("น้ำเหย้า", value=st.session_state.get('live_hdp_h', 0.9), format="%.2f")
+        live_hdp_a = c_w2.number_input("น้ำเยือน", value=st.session_state.get('live_hdp_a', 0.9), format="%.2f")
 
     with col_live2:
         st.markdown("**Live O/U (เรตสกอร์รวม)**")
-        if 'live_ou' not in st.session_state: st.session_state['live_ou'] = 2.50
         btn_o1, btn_o2, btn_o3 = st.columns([1, 2, 1])
-        btn_o1.button("➖ 0.25", key="o_sub", on_click=adj_ou, args=(-0.25,), use_container_width=True)
+        btn_o1.button("➖ 0.25", key="o_sub", on_click=adj_ou, args=(-0.25,))
         live_ou = btn_o2.number_input("Live O/U", value=st.session_state['live_ou'], step=0.25, key="live_ou", label_visibility="collapsed", format="%.2f")
-        btn_o3.button("➕ 0.25", key="o_add", on_click=adj_ou, args=(0.25,), use_container_width=True)
-        
+        btn_o3.button("➕ 0.25", key="o_add", on_click=adj_ou, args=(0.25,))
         c_w3, c_w4 = st.columns(2)
-        live_ou_over = c_w3.number_input("น้ำหน้าสูง", value=st.session_state.get('live_ou_over', 0.90), format="%.2f")
-        live_ou_under = c_w4.number_input("น้ำหน้าต่ำ", value=st.session_state.get('live_ou_under', 0.90), format="%.2f")
+        live_ou_over = c_w3.number_input("น้ำสูง", value=st.session_state.get('live_ou_over', 0.9), format="%.2f")
+        live_ou_under = c_w4.number_input("น้ำต่ำ", value=st.session_state.get('live_ou_under', 0.9), format="%.2f")
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # 🚀 แถวที่ 3: UI Visual Execution
-    if st.button("🎯 ENGAGE SNIPER (ประมวลผล)", use_container_width=True):
+    if st.button("🎯 ENGAGE SNIPER", use_container_width=True):
         def fix(o): return o + 1.0 if o < 1.1 else o
         p_h, p_d, p_a = shin_devig(fix(pre_h), fix(pre_d), fix(pre_a))
-        mins_left = 90 - current_min if current_min <= 90 else 1
-        
-        hw2, hw1, d_ex, aw1, aw2, p_total_ou = calc_dixon_coles_matrix(
-            p_h, p_d, p_a, pre_ou, dc_rho, current_h=current_score_h, current_a=current_score_a, minutes_left=max(mins_left, 1), red_card_h=red_card_h, red_card_a=red_card_a
-        )
-        is_h_fav = p_h >= p_a
-        ev_ah_h = calc_advanced_ah_ev(live_hdp, hw2, hw1, d_ex, aw1, aw2, fix(live_hdp_h), is_h_fav)
-        ev_ah_a = calc_advanced_ah_ev(live_hdp, aw2, aw1, d_ex, hw1, hw2, fix(live_hdp_a), not is_h_fav) - (hdba_val/100)
-        ev_over = calc_advanced_ou_ev(live_ou, p_total_ou, fix(live_ou_over), True)
-        ev_under = calc_advanced_ou_ev(live_ou, p_total_ou, fix(live_ou_under), False)
+        m_left = max(90 - current_min, 1)
+        hw2, hw1, d_ex, aw1, aw2, p_tot = calc_dixon_coles_matrix(p_h, p_d, p_a, pre_ou, dc_rho, current_score_h, current_score_a, m_left, red_card_h, red_card_a)
+        is_fav = p_h >= p_a
+        ev_h = calc_advanced_ah_ev(live_hdp, hw2, hw1, d_ex, aw1, aw2, fix(live_hdp_h), is_fav)
+        ev_a = calc_advanced_ah_ev(live_hdp, aw2, aw1, d_ex, hw1, hw2, fix(live_hdp_a), not is_fav) - (hdba_val/100)
+        ev_o = calc_advanced_ou_ev(live_ou, p_tot, fix(live_ou_over), True)
+        ev_u = calc_advanced_ou_ev(live_ou, p_tot, fix(live_ou_under), False)
 
-        best_ah_val = max(ev_ah_h, ev_ah_a); target_ah = "เจ้าบ้าน" if ev_ah_h > ev_ah_a else "ทีมเยือน"
-        best_ou_val = max(ev_over, ev_under); target_ou = "สูง" if ev_over > ev_under else "ต่ำ"
+        b_ah_v = max(ev_h, ev_a); t_ah = "เจ้าบ้าน" if ev_h > ev_a else "ทีมเยือน"
+        b_ou_v = max(ev_o, ev_u); t_ou = "สูง" if ev_o > ev_u else "ต่ำ"
         
-        st.success(f"⚡ วิเคราะห์เสร็จสิ้น: นาทีที่ {current_min} | สกอร์ {current_score_h}-{current_score_a}")
-        
-        # 📊 แสดงผลด้วย Gauge Chart
         g1, g2 = st.columns(2)
-        with g1:
-            st.plotly_chart(create_ev_gauge(best_ah_val, f"HDP ({target_ah})", sniper_threshold), use_container_width=True)
-        with g2:
-            st.plotly_chart(create_ev_gauge(best_ou_val, f"O/U ({target_ou})", sniper_threshold), use_container_width=True)
+        with g1: st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", sniper_threshold), use_container_width=True)
+        with g2: st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", sniper_threshold), use_container_width=True)
         
-        target_live_check = {"n": target_ah, "ev": best_ah_val, "hdp": live_hdp, "odds": fix(live_hdp_h) if target_ah=="เจ้าบ้าน" else fix(live_hdp_a)}
-        if best_ou_val > best_ah_val: target_live_check = {"n": target_ou, "ev": best_ou_val, "hdp": live_ou, "odds": fix(live_ou_over) if target_ou=="สูง" else fix(live_ou_under)}
+        t_live = {"n": t_ah, "ev": b_ah_v, "hdp": live_hdp, "odds": fix(live_hdp_h) if t_ah=="เจ้าบ้าน" else fix(live_hdp_a)}
+        if b_ou_v > b_ah_v: t_live = {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
 
-        if target_live_check['ev'] >= trigger_limit:
-            if not api_key:
-                st.warning("⚠️ กรุณาใส่ API Key เพื่อให้ AI กรองความเสี่ยง")
+        if t_live['ev'] >= trigger_limit:
+            if not api_key: st.warning("⚠️ โปรดใส่ API Key")
             else:
-                with st.spinner("🧠 AI กำลังพิจารณาความเสี่ยง In-Play ตามคัมภีร์ GEM..."):
-                    ai_live = ai_quant_decision_engine("Live Match", target_live_check['n'], target_live_check['ev'], target_live_check['hdp'], target_live_check['odds'], is_live=True, current_min=current_min, score=f"{current_score_h}-{current_score_a}")
-                    net_live_ev = target_live_check['ev'] + ai_live['impact_score']
+                with st.spinner("🧠 THE ORACLE กำลังประมวลผล Live สด..."):
+                    ai_live = ai_quant_decision_engine("Live", t_live['n'], t_live['ev'], t_live['hdp'], t_live['odds'], True, current_min, f"{current_score_h}-{current_score_a}")
+                    net_l_ev = t_live['ev'] + ai_live.get('impact_score', 0)
                     
                     st.markdown("---")
                     c1, c2, c3 = st.columns(3)
-                    c1.metric("Live Base EV", f"{target_live_check['ev']*100:.2f}%")
-                    c2.metric("GEM Rule Adjust", f"{ai_live['impact_score']*100:.2f}%")
-                    c3.metric("Net Live EV", f"{net_live_ev*100:.2f}%")
-                    st.info(f"**📖 กฎ GEM ที่จับได้:** {ai_live['rule_triggered']}")
+                    c1.metric("Live EV", f"{t_live['ev']*100:.2f}%")
+                    c2.metric("Oracle Adjust", f"{ai_live.get('impact_score', 0)*100:.2f}%")
+                    c3.metric("Net Live EV", f"{net_l_ev*100:.2f}%")
+                    st.info(f"**📖 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
                     
-                    if ai_live['final_decision'] and net_live_ev >= trigger_limit:
-                        st.balloons() # 🎈 จุดพลุฉลองเมื่อเจอ Value Bet สวยๆ!
-                        st.error(f"🚨 SNIPER ALERT: เป้าหมาย '{target_live_check['n']}' อนุมัติการโจมตี!")
-                        st.success(f"✅ AI CRO: {ai_live['final_comment']}")
-                    else:
-                        st.warning(f"🚫 AI REJECTED: {ai_live['final_comment']}")
-        else:
-            st.write("🛡️ ตลาดปกติ (ยังไม่พบช่องโหว่ความตื่นตระหนก)")
+                    if ai_live.get('final_decision', False) and net_l_ev >= trigger_limit:
+                        st.balloons()
+                        st.error(f"🚨 SNIPER ALERT: เป้า '{t_live['n']}' อนุมัติโจมตี!")
+                        st.success(f"✅ ORACLE: {ai_live.get('final_comment', 'Good')}")
+                    else: st.warning(f"🚫 ORACLE REJECTED: {ai_live.get('final_comment', 'Pass')}")
+        else: st.write("🛡️ ตลาดปกติ (ไม่พบช่องโหว่)")
