@@ -4,6 +4,7 @@ import os
 import re
 import math
 import json
+import time
 from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
 from PIL import Image
@@ -12,7 +13,7 @@ import google.generativeai as genai
 # --- CONFIG ---
 st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
 LOG_FILE = "gem_history_log.csv"
-RULES_FILE = "gem_rules.txt" # 🧠 ไฟล์สมองของเรา
+RULES_FILE = "gem_rules.txt" 
 
 # ==========================================
 # 0. ระบบตั้งค่าตัวแปร (Session State Init)
@@ -33,13 +34,12 @@ def init_session_state():
 
 init_session_state()
 
-# ฟังก์ชันดึงกฎจากไฟล์ (ถ้าไม่มีไฟล์ให้แจ้งเตือน)
-@st.cache_data(ttl=60) # โหลดซ้ำทุกๆ 60 วินาทีเผื่อเราไปแก้ไฟล์
+@st.cache_data(ttl=60)
 def load_gem_rules():
     if os.path.exists(RULES_FILE):
         with open(RULES_FILE, "r", encoding="utf-8") as f:
             return f.read()
-    return "ไม่พบไฟล์คัมภีร์. โปรดสร้างไฟล์ gem_rules.txt และใส่กฎทั้งหมดลงไป"
+    return "ไม่พบไฟล์คัมภีร์ โปรดสร้างไฟล์ gem_rules.txt และใส่กฎทั้งหมดลงไป"
 
 def clear_form_data():
     st.session_state.raw_text = ""
@@ -188,116 +188,72 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
     return 0.0
 
 # ==========================================
-# 2. ระบบ AI Decision Engine (Chief Risk Officer) + The Oracle DB
+# 2. ระบบ AI Decision Engine (Chief Risk Officer)
 # ==========================================
 def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
-    import time
-    # โหลดคัมภีร์จากไฟล์ .txt
     oracle_database = load_gem_rules()
     
-    # 🌟 กำหนด Prompt แยกโหมดชัดเจนระหว่าง Pre-Match และ Live
     if not is_live:
-        mode_instruction = """
-        [โหมดการวิเคราะห์: PRE-MATCH (บอลก่อนเตะ)]
-        คำสั่ง: ในโหมดนี้ ให้ความสำคัญกับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' เป็นหลัก!
-        - กฎ GEM Rules ให้ใช้เป็นแค่ 'ข้อควรระวัง (Warning)' เท่านั้น ไม่ต้องเคร่งครัดมาก
-        - หาก Base EV เป็นบวก และไม่ได้ละเมิดกฎ GEM ระดับ 'ร้ายแรง/สั่งตาย' ให้ทำการอนุมัติ (final_decision: true) เสมอ
-        """
+        mode_instruction = (
+            "[โหมดการวิเคราะห์: PRE-MATCH (บอลก่อนเตะ)]\n"
+            "คำสั่ง: ในโหมดนี้ ให้ความสำคัญกับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' เป็นหลัก!\n"
+            "- กฎ GEM Rules ให้ใช้เป็นแค่ 'ข้อควรระวัง (Warning)' เท่านั้น ไม่ต้องเคร่งครัดมาก\n"
+            "- หาก Base EV เป็นบวก และไม่ได้ละเมิดกฎ GEM ระดับ 'ร้ายแรง/สั่งตาย' ให้ทำการอนุมัติ (final_decision: true) เสมอ"
+        )
     else:
-        mode_instruction = f"""
-        [โหมดการวิเคราะห์: IN-PLAY LIVE (บอลสด)]
-        คำสั่ง: ในโหมดนี้ ให้เปิดใช้งาน 'คัมภีร์ GEM RULES' อย่างเต็มรูปแบบ! แต่อย่าตึงเกินไป ให้ประเมินตามเงื่อนไขต่อไปนี้:
-        1. หาก Base EV สูงระดับ 'Golden Opportunity' (เช่น +15% ขึ้นไป): 
-           - อนุญาตให้ 'เพิกเฉย' ต่อกฎ GEM ที่เป็นเพียงคำเตือนระดับต่ำ-กลาง (1-2 ดาว) ได้ 
-           - หัก impact_score แค่นิดหน่อย (ไม่เกิน -0.05) และยังคงอนุมัติ (final_decision: true)
-        2. หากละเมิดกฎ GEM ระดับ 'Fatal (อันตรายถึงชีวิต/สั่งห้ามแทง)':
-           - ไม่ว่า Base EV จะสูงแค่ไหน ก็ต้องสั่งทับมือทันที! (final_decision: false) พร้อมหัก impact_score หนักๆ (เช่น -0.20)
-        3. ชั่งน้ำหนักตามบริบท: อธิบายเหตุผลแบบเซียนบอลว่าทำไมถึงกล้าฝืนกฎ หรือทำไมถึงต้องยอมทิ้ง Base EV สวยๆ
-        """
+        mode_instruction = (
+            "[โหมดการวิเคราะห์: IN-PLAY LIVE (บอลสด)]\n"
+            "คำสั่ง: ในโหมดนี้ ให้เปิดใช้งาน 'คัมภีร์ GEM RULES' อย่างเต็มรูปแบบ! แต่อย่าตึงเกินไป ให้ประเมินตามเงื่อนไขต่อไปนี้:\n"
+            "1. หาก Base EV สูงระดับ 'Golden Opportunity' (เช่น +15% ขึ้นไป): \n"
+            "   - อนุญาตให้ 'เพิกเฉย' ต่อกฎ GEM ที่เป็นเพียงคำเตือนระดับต่ำ-กลาง (1-2 ดาว) ได้ \n"
+            "   - หัก impact_score แค่นิดหน่อย (ไม่เกิน -0.05) และยังคงอนุมัติ (final_decision: true)\n"
+            "2. หากละเมิดกฎ GEM ระดับ 'Fatal (อันตรายถึงชีวิต/สั่งห้ามแทง)':\n"
+            "   - ไม่ว่า Base EV จะสูงแค่ไหน ก็ต้องสั่งทับมือทันที! (final_decision: false) พร้อมหัก impact_score หนักๆ (เช่น -0.20)\n"
+            "3. ชั่งน้ำหนักตามบริบท: อธิบายเหตุผลแบบเซียนบอลว่าทำไมถึงกล้าฝืนกฎ หรือทำไมถึงต้องยอมทิ้ง Base EV สวยๆ"
+        )
 
-    prompt = f"""
-    คุณคือ Chief Risk Officer ประจำกองทุน Quant Sports Betting 
-    หน้าที่ของคุณคือการนำ "คัมภีร์ GEM RULES" มาวิเคราะห์ร่วมกับ "ความคุ้มค่าทางคณิตศาสตร์ (Base EV)" แบบชั่งน้ำหนักองค์รวม (Holistic Risk-Reward Balancing)
+    # เลิกใช้ """ ป้องกันบั๊ก Copy & Paste
+    prompt = (
+        "คุณคือ Chief Risk Officer ประจำกองทุน Quant Sports Betting\n"
+        "หน้าที่ของคุณคือการนำ 'คัมภีร์ GEM RULES' มาวิเคราะห์ร่วมกับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' แบบชั่งน้ำหนักองค์รวม\n\n"
+        "[ข้อมูลหน้างานปัจจุบัน]\n"
+        f"- คู่แข่งขัน: {match_name}\n"
+        f"- สถานการณ์: {'Live นาทีที่ ' + str(current_min) + ' สกอร์ ' + str(score) if is_live else 'Pre-Match (ก่อนเตะ)'}\n"
+        f"- เป้าหมายลงทุน: {target} (เรต {hdp_line} ค่าน้ำ {odds})\n"
+        f"- Base EV ทางคณิตศาสตร์: {base_ev * 100:.2f}%\n\n"
+        f"{mode_instruction}\n\n"
+        "[คัมภีร์ THE ORACLE DATABASE]\n"
+        f"{oracle_database}\n\n"
+        "คำสั่งการตอบกลับ:\n"
+        "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่นรอบนอก:\n"
+        "{\n"
+        '    "rule_triggered": "สรุปชื่อกฎ GEM ทั้งหมดที่นำมาชั่งน้ำหนัก",\n'
+        '    "impact_score": 0.0,\n'
+        '    "final_decision": true,\n'
+        '    "final_comment": "อธิบายเหตุผลการชั่งน้ำหนัก"\n'
+        "}"
+    )
     
-    [ข้อมูลหน้างานปัจจุบัน]
-    - คู่แข่งขัน: {match_name}
-    - สถานการณ์: {'Live นาทีที่ ' + str(current_min) + ' สกอร์ ' + str(score) if is_live else 'Pre-Match (ก่อนเตะ)'}
-    - เป้าหมายลงทุน: {target} (เรต {hdp_line} ค่าน้ำ {odds})
-    - Base EV ทางคณิตศาสตร์: {base_ev * 100:.2f}%
-    
-    {mode_instruction}
-    
-    [คัมภีร์ THE ORACLE DATABASE]
-    {oracle_database}
-    
-    คำสั่งการตอบกลับ:
-    ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่นรอบนอก:
-    {{
-        "rule_triggered": "สรุปชื่อกฎ GEM ทั้งหมดที่นำมาชั่งน้ำหนัก (เช่น Gem 15 + Gem 42)",
-        "impact_score": ตัวเลขทศนิยมประเมินความเสี่ยงสุทธิ (ลบเมื่อเสี่ยง, บวกเมื่อสนับสนุน),
-        "final_decision": true (คุ้มค่าที่จะลงทุน) หรือ false (อันตรายเกินไป สั่ง PASS),
-        "final_comment": "อธิบายเหตุผลการชั่งน้ำหนักแบบดุดันและฟันธง"
-    }}
-    """
-    
-    # 🔄 ระบบ Auto-Retry เจาะเกราะ API
     for attempt in range(3):
         try:
             model = genai.GenerativeModel('models/gemini-2.5-flash')
             response = model.generate_content(prompt)
-            
             bt = chr(96) * 3
             res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
-            
             return json.loads(res_text)
-            
         except Exception as e:
             error_str = str(e).replace('"', "'")
-            
-            # ถ้ายิงรัวเกินไป (Rate Limit 429) ให้รอ 2 วินาทีแล้วลองใหม่
             if "429" in error_str and attempt < 2:
                 time.sleep(2)
                 continue
-                
             if attempt == 2:
                 return {
-                    "rule_triggered": "System Error / Quota Exceeded", 
+                    "rule_triggered": "System Error", 
                     "impact_score": 0.0, 
                     "final_decision": True if base_ev >= 0.08 else False, 
                     "final_comment": f"AI ล้มเหลว (ใช้คณิตศาสตร์ล้วน): {error_str}"
                 }
-    """
-    # (โค้ดส่วน prompt ด้านบนเหมือนเดิม) ...
-    
-    import time # อย่าลืม import time ไว้บนสุดของไฟล์ด้วยนะครับ (ถ้ายังไม่มี)
 
-    # 🔄 ระบบ Auto-Retry เจาะเกราะ API
-    for attempt in range(3): # ลองพยายามสูงสุด 3 ครั้ง
-        try:
-            model = genai.GenerativeModel('models/gemini-2.5-flash')
-            response = model.generate_content(prompt)
-            
-            bt = chr(96) * 3
-            res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
-            
-            return json.loads(res_text)
-            
-        except Exception as e:
-            error_str = str(e).replace('"', "'")
-            
-            # ถ้าติด Error 429 (โควต้าเต็ม/ยิงรัวไป) ให้รอ 2 วินาทีแล้วยิงใหม่
-            if "429" in error_str and attempt < 2:
-                time.sleep(2)
-                continue # วนลูปกลับไปลองใหม่
-                
-            # ถ้าพยายามครบ 3 ครั้งแล้วยังไม่ได้ ค่อยคาย Error ออกมา
-            if attempt == 2:
-                return {
-                    "rule_triggered": "System Error 429", 
-                    "impact_score": 0.0, 
-                    "final_decision": True if base_ev >= 0.08 else False, 
-                    "final_comment": f"API โควต้าเต็มแบบถาวร: {error_str}"
-                }
 # ==========================================
 # UI / UX Components (ระบบวาดหน้าปัดและปุ่ม)
 # ==========================================
@@ -357,7 +313,6 @@ def calculate_net_profit(row):
         if pd.isna(row['Result']) or str(row['Result']).strip() == "" or float(row['Investment']) <= 0: return 0.0
         result_str = str(row['Result']).strip()
         
-        # 🛡️ Anti-Excel Date Format Bug
         if "00:00:00" in result_str or len(re.findall(r'-', result_str)) > 1:
             date_parts = re.findall(r'\d+', result_str.split(' ')[0])
             if len(date_parts) >= 3:
@@ -396,7 +351,6 @@ def calculate_clv(row):
 # ==========================================
 st.title("🎯 GEM System 10.0: The Oracle")
 
-# 🛠️ AI Integration
 st.sidebar.header("🔑 AI Oracle Integration")
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
@@ -410,7 +364,6 @@ else:
     else:
         st.sidebar.warning("⚠️ โปรดใส่ API Key")
 
-# แสดงสถานะ Database
 if os.path.exists(RULES_FILE):
     file_size = os.path.getsize(RULES_FILE) / 1024
     st.sidebar.info(f"📚 โหลดคัมภีร์แล้ว: {RULES_FILE} ({file_size:.1f} KB)")
@@ -439,8 +392,15 @@ with tab1:
                     try:
                         img = Image.open(uploaded_file)
                         model = genai.GenerativeModel('models/gemini-2.5-flash')
-                        p = 'สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
-                        res = model.generate_content([p, img])
+                        
+                        # ใช้การต่อ string แทนการใช้ """ 
+                        prompt_img = (
+                            'สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,'
+                            '"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,'
+                            '"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
+                        )
+                        
+                        res = model.generate_content([prompt_img, img])
                         bt = chr(96) * 3
                         data = json.loads(res.text.replace(bt+'json', '').replace(bt, '').strip())
                         for k, v in data.items(): st.session_state[k] = v
@@ -590,8 +550,15 @@ with tab3:
                     try:
                         imgs = [Image.open(f) for f in live_images]
                         model = genai.GenerativeModel('models/gemini-2.5-flash')
-                        p = """สกัดเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, "pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, "live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}"""
-                        res = model.generate_content([p] + imgs)
+                        
+                        # ใช้การต่อ string เพื่อป้องกันบั๊ก SyntaxError 
+                        prompt_live = (
+                            'สกัดเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, '
+                            '"pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, '
+                            '"live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}'
+                        )
+                        
+                        res = model.generate_content([prompt_live] + imgs)
                         bt = chr(96)*3
                         data = json.loads(res.text.replace(bt+'json', '').replace(bt, '').strip())
                         for k, v in data.items(): st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
