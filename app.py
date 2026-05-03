@@ -293,9 +293,15 @@ with tab1:
                                 "ou_line_val": เรตสูงต่ำเต็มเวลา, "ou_over_w_val": ค่าน้ำสูงเต็มเวลา, "ou_under_w_val": ค่าน้ำต่ำเต็มเวลา
                             }
                             """
-                            response = model.generate_content([prompt, img])
-                            json_str = response.text.replace('
-```json', '').replace('```', '').strip()
+                            response = model.generate_content(...)
+                            
+                            # 👇 บรรทัดที่ชอบแหว่งตอนก๊อปปี้คือบรรทัดนี้ครับ
+                            json_str = response.text.replace('```json', '').replace('
+```', '').strip()
+                            
+                            # 👇 โหมด Pre-Match จะเป็นแบบนี้
+                            extracted_data = json.loads(json_str) 
+                            # หรือถ้าเป็นโหมด Live จะเป็น: data = json.loads(json_str)
                             extracted_data = json.loads(json_str)
                             
                             for k, v in extracted_data.items():
