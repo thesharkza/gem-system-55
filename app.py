@@ -198,7 +198,7 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
             "[โหมดการวิเคราะห์: PRE-MATCH (บอลก่อนเตะ)]\n"
             "คำสั่ง: ในโหมดนี้ ให้ความสำคัญกับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' เป็นหลัก!\n"
             "- กฎ GEM Rules ให้ใช้เป็นแค่ 'ข้อควรระวัง (Warning)' เท่านั้น ไม่ต้องเคร่งครัดมาก\n"
-            "- หาก Base EV เป็นบวก และไม่ได้ละเมิดกฎ GEM ระดับ 'ร้ายแรง/สั่งตาย' ให้ทำการอนุมัติ (final_decision: true) เสมอ"
+            "- หาก Base EV ผ่านเกณฑ์ (Threshold) ที่ตั้งไว้ ให้ถือว่าคุ้มค่า และทำการอนุมัติ (final_decision: true) เสมอ"
         )
     else:
         mode_instruction = (
@@ -212,7 +212,6 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
             "3. ชั่งน้ำหนักตามบริบท: อธิบายเหตุผลแบบเซียนบอลว่าทำไมถึงกล้าฝืนกฎ หรือทำไมถึงต้องยอมทิ้ง Base EV สวยๆ"
         )
 
-    # เลิกใช้ """ ป้องกันบั๊ก Copy & Paste
     prompt = (
         "คุณคือ Chief Risk Officer ประจำกองทุน Quant Sports Betting\n"
         "หน้าที่ของคุณคือการนำ 'คัมภีร์ GEM RULES' มาวิเคราะห์ร่วมกับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' แบบชั่งน้ำหนักองค์รวม\n\n"
@@ -378,8 +377,14 @@ with tab1:
     total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0)
     dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho", -0.30, 0.0, -0.10, step=0.01)
     hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
-    sniper_threshold = st.sidebar.slider("เป้าหมาย Value ขั้นต่ำ (%)", 1.0, 20.0, 8.0, step=0.5)
-    trigger_limit = sniper_threshold / 100.0
+    
+    # 🌟 แยกปรับ Threshold แบบอิสระตามคำขอ
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🎯 EV Threshold (เป้าหมายกำไร)")
+    ah_threshold = st.sidebar.slider("เป้าหมาย แฮนดิแคป (AH) %", 1.0, 20.0, 10.0, step=0.5)
+    ou_threshold = st.sidebar.slider("เป้าหมาย สกอร์รวม (O/U) %", 1.0, 20.0, 15.0, step=0.5)
+    ah_limit = ah_threshold / 100.0
+    ou_limit = ou_threshold / 100.0
 
     st.markdown("---")
     
@@ -392,14 +397,11 @@ with tab1:
                     try:
                         img = Image.open(uploaded_file)
                         model = genai.GenerativeModel('models/gemini-2.5-flash')
-                        
-                        # ใช้การต่อ string แทนการใช้ """ 
                         prompt_img = (
                             'สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,'
                             '"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,'
                             '"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
                         )
-                        
                         res = model.generate_content([prompt_img, img])
                         bt = chr(96) * 3
                         data = json.loads(res.text.replace(bt+'json', '').replace(bt, '').strip())
@@ -472,17 +474,28 @@ with tab1:
         st.markdown("---")
         st.subheader(f"📊 ผลวิเคราะห์ทางคณิตศาสตร์")
         
+        # 🌟 แสดงหน้าปัดโดยแยกเกณฑ์ตามที่ตั้งไว้ (เข็มจะชี้สีเขียวเมื่อผ่านเกณฑ์ของตัวเอง)
         g1, g2 = st.columns(2)
-        with g1: st.plotly_chart(create_ev_gauge(best_ah['ev'], f"AH: {best_ah['n']}", sniper_threshold), use_container_width=True)
-        with g2: st.plotly_chart(create_ev_gauge(best_ou['ev'], f"O/U: {best_ou['n']}", sniper_threshold), use_container_width=True)
+        with g1: st.plotly_chart(create_ev_gauge(best_ah['ev'], f"AH: {best_ah['n']}", ah_threshold), use_container_width=True)
+        with g2: st.plotly_chart(create_ev_gauge(best_ou['ev'], f"O/U: {best_ou['n']}", ou_threshold), use_container_width=True)
 
-        target_to_check = best_ah if best_ah['ev'] > best_ou['ev'] else best_ou
-        
-        if target_to_check['ev'] >= trigger_limit:
+        # 🌟 ตรวจสอบว่าเป้าไหนผ่านเกณฑ์ของตัวเอง
+        ah_passed = best_ah['ev'] >= ah_limit
+        ou_passed = best_ou['ev'] >= ou_limit
+
+        if ah_passed or ou_passed:
+            # เลือกเป้าหมายที่ดีที่สุดที่ผ่านเกณฑ์ (ถ้าผ่านทั้งคู่ เอาอันที่ EV สูงกว่า)
+            if ah_passed and ou_passed:
+                target_to_check = best_ah if best_ah['ev'] > best_ou['ev'] else best_ou
+            elif ah_passed:
+                target_to_check = best_ah
+            else:
+                target_to_check = best_ou
+
             if not api_key: st.warning("⚠️ กรุณาใส่ API Key ให้ AI กรองความเสี่ยง")
             else:
-                with st.spinner("🧠 THE ORACLE กำลังค้นหาคัมภีร์ที่ตรงกับคู่ของคุณ..."):
-                    ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'])
+                with st.spinner("🧠 THE ORACLE กำลังตรวจสอบข้อควรระวัง (Pre-Match Mode)..."):
+                    ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'], is_live=False)
                     net_ev = target_to_check['ev'] + ai_verdict.get('impact_score', 0)
                     
                     st.markdown("---")
@@ -493,16 +506,18 @@ with tab1:
                     
                     st.info(f"**📖 กฎที่ทำงาน:** {ai_verdict.get('rule_triggered', 'None')}")
                     
-                    if ai_verdict.get('final_decision', False) and net_ev >= trigger_limit:
+                    if ai_verdict.get('final_decision', False):
                         st.balloons()
                         st.success(f"✅ ORACLE APPROVED: {ai_verdict.get('final_comment', 'Good')}")
+                        # ใช้เป้าหมายที่ตั้งไว้ในการคำนวณเงินลงทุน
+                        limit_for_calc = ah_limit if target_to_check['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else ou_limit
                         inv = min( (((target_to_check['odds']-1) * ((net_ev+1)/target_to_check['odds']) - (1-((net_ev+1)/target_to_check['odds']))) / (target_to_check['odds']-1)) * 0.25, 0.05) * total_bankroll
                         tz_th = timezone(timedelta(hours=7))
                         save_to_csv([{"Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": target_to_check['hdp'], "Target": target_to_check['n'], "EV_Pct": round(net_ev*100, 2), "Investment": round(inv, 2), "Odds": target_to_check['odds'], "Closing_Odds": 0.0, "Result": ""}])
                     else:
                         st.error(f"🚫 ORACLE REJECTED: {ai_verdict.get('final_comment', 'Pass')}")
         else:
-            st.warning("🛡️ Base EV ต่ำเกินไป")
+            st.warning(f"🛡️ เป้าหมายไม่ถึงเกณฑ์ที่ตั้งไว้ (AH: {ah_threshold}%, O/U: {ou_threshold}%)")
 
 # --- TAB 2: Dashboard ---
 with tab2:
@@ -550,14 +565,11 @@ with tab3:
                     try:
                         imgs = [Image.open(f) for f in live_images]
                         model = genai.GenerativeModel('models/gemini-2.5-flash')
-                        
-                        # ใช้การต่อ string เพื่อป้องกันบั๊ก SyntaxError 
                         prompt_live = (
                             'สกัดเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, '
                             '"pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, '
                             '"live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}'
                         )
-                        
                         res = model.generate_content([prompt_live] + imgs)
                         bt = chr(96)*3
                         data = json.loads(res.text.replace(bt+'json', '').replace(bt, '').strip())
@@ -621,14 +633,22 @@ with tab3:
         b_ah_v = max(ev_h, ev_a); t_ah = "เจ้าบ้าน" if ev_h > ev_a else "ทีมเยือน"
         b_ou_v = max(ev_o, ev_u); t_ou = "สูง" if ev_o > ev_u else "ต่ำ"
         
+        # 🌟 โหมด Live สด ก็ใช้เกณฑ์ที่แยกกันด้วย
         g1, g2 = st.columns(2)
-        with g1: st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", sniper_threshold), use_container_width=True)
-        with g2: st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", sniper_threshold), use_container_width=True)
+        with g1: st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", ah_threshold), use_container_width=True)
+        with g2: st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", ou_threshold), use_container_width=True)
         
-        t_live = {"n": t_ah, "ev": b_ah_v, "hdp": live_hdp, "odds": fix(live_hdp_h) if t_ah=="เจ้าบ้าน" else fix(live_hdp_a)}
-        if b_ou_v > b_ah_v: t_live = {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
+        ah_live_passed = b_ah_v >= ah_limit
+        ou_live_passed = b_ou_v >= ou_limit
 
-        if t_live['ev'] >= trigger_limit:
+        if ah_live_passed or ou_live_passed:
+            if ah_live_passed and ou_live_passed:
+                t_live = {"n": t_ah, "ev": b_ah_v, "hdp": live_hdp, "odds": fix(live_hdp_h) if t_ah=="เจ้าบ้าน" else fix(live_hdp_a)} if b_ah_v > b_ou_v else {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
+            elif ah_live_passed:
+                t_live = {"n": t_ah, "ev": b_ah_v, "hdp": live_hdp, "odds": fix(live_hdp_h) if t_ah=="เจ้าบ้าน" else fix(live_hdp_a)}
+            else:
+                t_live = {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
+
             if not api_key: st.warning("⚠️ โปรดใส่ API Key")
             else:
                 with st.spinner("🧠 THE ORACLE กำลังประมวลผล Live สด..."):
@@ -642,9 +662,11 @@ with tab3:
                     c3.metric("Net Live EV", f"{net_l_ev*100:.2f}%")
                     st.info(f"**📖 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
                     
-                    if ai_live.get('final_decision', False) and net_l_ev >= trigger_limit:
+                    # 🌟 ใช้เกณฑ์เฉพาะตัว (AH 10% หรือ O/U 15%) ในการตัดสินใจลั่นไก
+                    limit_to_use = ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else ou_limit
+                    if ai_live.get('final_decision', False) and net_l_ev >= limit_to_use:
                         st.balloons()
                         st.error(f"🚨 SNIPER ALERT: เป้า '{t_live['n']}' อนุมัติโจมตี!")
                         st.success(f"✅ ORACLE: {ai_live.get('final_comment', 'Good')}")
-                    else: st.warning(f"🚫 ORACLE REJECTED: {ai_live.get('final_comment', 'Pass')}")
-        else: st.write("🛡️ ตลาดปกติ (ไม่พบช่องโหว่)")
+                    else: st.warning(f"🚫 ORACLE REJECTED (ทับมือ): {ai_live.get('final_comment', 'Pass')}")
+        else: st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมายที่ตั้งไว้ AH: {ah_threshold}%, O/U: {ou_threshold}%)")
