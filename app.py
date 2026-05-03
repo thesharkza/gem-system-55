@@ -564,7 +564,7 @@ with tab2:
 
 # --- TAB 3: IN-PLAY LIVE (Sniper Module) ---
 with tab3:
-    st.header("📺 Live Sniper Engine (Market Overreaction)")
+    st.header("📺 Live Sniper Command Center")
     
     with st.expander("👁️ AI Live Vision: สแกนราคาจากรูปภาพ", expanded=False):
         if not api_key:
@@ -583,43 +583,18 @@ with tab3:
                     with st.spinner("AI กำลังกวาดสายตาทั้ง 3 ตาราง..."):
                         try:
                             model = genai.GenerativeModel('models/gemini-2.5-flash')
-                            prompt = """
-                            คุณคือผู้เชี่ยวชาญการอ่านตารางราคาฟุตบอลสด สกัดข้อมูลจาก "ทุกรูปภาพ" รวมกัน ตาม JSON format นี้เท่านั้น:
-                            {
-                                "current_min": นาทีปัจจุบันที่หัวตาราง, "current_score_h": สกอร์เจ้าบ้าน, "current_score_a": สกอร์ทีมเยือน,
-                                "pre_h": ราคาเปิด 1x2 เหย้า (แถว"ต้น"), "pre_d": ราคาเปิด 1x2 เสมอ (แถว"ต้น"), "pre_a": ราคาเปิด 1x2 เยือน (แถว"ต้น"), "pre_ou": ราคาเปิดสูงต่ำ (แถว"ต้น"),
-                                "live_hdp": เรต AH ปัจจุบัน (แถวล่างสุด), "live_hdp_h": ค่าน้ำ AH เหย้า (แถวล่างสุด), "live_hdp_a": ค่าน้ำ AH เยือน (แถวล่างสุด),
-                                "live_ou": เรต O/U ปัจจุบัน (แถวล่างสุด), "live_ou_over": ค่าน้ำ O/U สูง (แถวล่างสุด), "live_ou_under": ค่าน้ำ O/U ต่ำ (แถวล่างสุด)
-                            }
-                            ถ้าเป็น 0/0.5 แปลงเป็น 0.25, 0.5/1 แปลงเป็น 0.75
-                            """
+                            prompt = """คุณคือผู้เชี่ยวชาญ สกัดข้อมูลจากภาพเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, "pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, "live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}"""
                             response = model.generate_content([prompt] + imgs)
-                            
-                            # ใช้ ASCII ป้องกันปัญหา Copy & Paste
                             bt = chr(96) * 3
-                            res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
-                            data = json.loads(res_text)
-                            
-                            st.session_state.current_min = int(data.get("current_min", 45))
-                            st.session_state.lh_s = int(data.get("current_score_h", 0))
-                            st.session_state.la_s = int(data.get("current_score_a", 0))
-                            st.session_state.live_pre_h = float(data.get("pre_h", 2.0))
-                            st.session_state.live_pre_d = float(data.get("pre_d", 3.0))
-                            st.session_state.live_pre_a = float(data.get("pre_a", 3.0))
-                            st.session_state.live_pre_ou = float(data.get("pre_ou", 2.5))
-                            st.session_state.live_hdp = float(data.get("live_hdp", 0.0))
-                            st.session_state.live_hdp_h = float(data.get("live_hdp_h", 0.9))
-                            st.session_state.live_hdp_a = float(data.get("live_hdp_a", 0.9))
-                            st.session_state.live_ou = float(data.get("live_ou", 2.5))
-                            st.session_state.live_ou_over = float(data.get("live_ou_over", 0.9))
-                            st.session_state.live_ou_under = float(data.get("live_ou_under", 0.9))
-                            
-                            st.success("✅ AI ดึงข้อมูล Live และราคาเปิด สำเร็จ!")
+                            data = json.loads(response.text.replace(bt+'json', '').replace(bt, '').strip())
+                            for k, v in data.items(): st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
+                            st.success("✅ AI ดึงข้อมูล สำเร็จ!")
                             st.rerun()
-                        except Exception as e:
-                            st.error(f"⚠️ AI อ่านข้อมูลไม่สำเร็จ: {e}")
+                        except Exception as e: st.error(f"⚠️ สกัดล้มเหลว: {e}")
 
     st.markdown("---")
+    
+    # 🏁 แถวที่ 1: สถานะเกม
     col_l1, col_l2 = st.columns(2)
     with col_l1:
         st.subheader("🏁 สถานะเกมปัจจุบัน")
@@ -632,24 +607,45 @@ with tab3:
         current_min = st.slider("นาทีที่แข่งขัน", 0, 120, st.session_state.get('current_min', 45))
     with col_l2:
         st.subheader("💡 อ้างอิงราคาเปิด (Pre-match)")
-        pre_h = st.number_input("เหย้า (เปิด)", value=st.session_state.get('live_pre_h', 2.00), format="%.2f")
-        pre_d = st.number_input("เสมอ (เปิด)", value=st.session_state.get('live_pre_d', 3.40), format="%.2f")
-        pre_a = st.number_input("เยือน (เปิด)", value=st.session_state.get('live_pre_a', 3.00), format="%.2f")
-        pre_ou = st.number_input("O/U (เปิด)", value=st.session_state.get('live_pre_ou', 2.50), format="%.2f", step=0.25)
+        pre_h = st.number_input("เหย้า (เปิด)", value=st.session_state.get('pre_h', 2.00), format="%.2f")
+        pre_d = st.number_input("เสมอ (เปิด)", value=st.session_state.get('pre_d', 3.40), format="%.2f")
+        pre_a = st.number_input("เยือน (เปิด)", value=st.session_state.get('pre_a', 3.00), format="%.2f")
+        pre_ou = st.number_input("O/U (เปิด)", value=st.session_state.get('pre_ou', 2.50), format="%.2f", step=0.25)
 
     st.markdown("---")
-    st.subheader("💰 ราคา Live ปัจจุบัน")
+    
+    # ⚡ แถวที่ 2: UX Frictionless Input (ปุ่มสไนเปอร์)
+    st.subheader("💰 ราคา Live ปัจจุบัน (Sniper Adjust)")
     col_live1, col_live2 = st.columns(2)
+    
     with col_live1:
-        live_hdp = st.number_input("Live HDP", step=0.25, value=st.session_state.get('live_hdp', 0.0), format="%.2f")
-        live_hdp_h = st.number_input("น้ำ Live เจ้าบ้าน", value=st.session_state.get('live_hdp_h', 0.90), format="%.2f")
-        live_hdp_a = st.number_input("น้ำ Live ทีมเยือน", value=st.session_state.get('live_hdp_a', 0.90), format="%.2f")
-    with col_live2:
-        live_ou = st.number_input("Live O/U", step=0.25, value=st.session_state.get('live_ou', 2.50), format="%.2f")
-        live_ou_over = st.number_input("น้ำ Live สูง", value=st.session_state.get('live_ou_over', 0.90), format="%.2f")
-        live_ou_under = st.number_input("น้ำ Live ต่ำ", value=st.session_state.get('live_ou_under', 0.90), format="%.2f")
+        st.markdown("**Live HDP (เรตแฮนดิแคป)**")
+        if 'live_hdp' not in st.session_state: st.session_state['live_hdp'] = 0.0
+        btn_h1, btn_h2, btn_h3 = st.columns([1, 2, 1])
+        btn_h1.button("➖ 0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,), use_container_width=True)
+        live_hdp = btn_h2.number_input("Live HDP", value=st.session_state['live_hdp'], step=0.25, key="live_hdp", label_visibility="collapsed", format="%.2f")
+        btn_h3.button("➕ 0.25", key="h_add", on_click=adj_hdp, args=(0.25,), use_container_width=True)
+        
+        c_w1, c_w2 = st.columns(2)
+        live_hdp_h = c_w1.number_input("น้ำเจ้าบ้าน", value=st.session_state.get('live_hdp_h', 0.90), format="%.2f")
+        live_hdp_a = c_w2.number_input("น้ำทีมเยือน", value=st.session_state.get('live_hdp_a', 0.90), format="%.2f")
 
-    if st.button("🎯 SCAN FOR OVERREACTION", use_container_width=True):
+    with col_live2:
+        st.markdown("**Live O/U (เรตสกอร์รวม)**")
+        if 'live_ou' not in st.session_state: st.session_state['live_ou'] = 2.50
+        btn_o1, btn_o2, btn_o3 = st.columns([1, 2, 1])
+        btn_o1.button("➖ 0.25", key="o_sub", on_click=adj_ou, args=(-0.25,), use_container_width=True)
+        live_ou = btn_o2.number_input("Live O/U", value=st.session_state['live_ou'], step=0.25, key="live_ou", label_visibility="collapsed", format="%.2f")
+        btn_o3.button("➕ 0.25", key="o_add", on_click=adj_ou, args=(0.25,), use_container_width=True)
+        
+        c_w3, c_w4 = st.columns(2)
+        live_ou_over = c_w3.number_input("น้ำหน้าสูง", value=st.session_state.get('live_ou_over', 0.90), format="%.2f")
+        live_ou_under = c_w4.number_input("น้ำหน้าต่ำ", value=st.session_state.get('live_ou_under', 0.90), format="%.2f")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # 🚀 แถวที่ 3: UI Visual Execution
+    if st.button("🎯 ENGAGE SNIPER (ประมวลผล)", use_container_width=True):
         def fix(o): return o + 1.0 if o < 1.1 else o
         p_h, p_d, p_a = shin_devig(fix(pre_h), fix(pre_d), fix(pre_a))
         mins_left = 90 - current_min if current_min <= 90 else 1
@@ -666,7 +662,14 @@ with tab3:
         best_ah_val = max(ev_ah_h, ev_ah_a); target_ah = "เจ้าบ้าน" if ev_ah_h > ev_ah_a else "ทีมเยือน"
         best_ou_val = max(ev_over, ev_under); target_ou = "สูง" if ev_over > ev_under else "ต่ำ"
         
-        st.success(f"วิเคราะห์หน้างานนาทีที่ {current_min} | สกอร์ {current_score_h}-{current_score_a}")
+        st.success(f"⚡ วิเคราะห์เสร็จสิ้น: นาทีที่ {current_min} | สกอร์ {current_score_h}-{current_score_a}")
+        
+        # 📊 แสดงผลด้วย Gauge Chart
+        g1, g2 = st.columns(2)
+        with g1:
+            st.plotly_chart(create_ev_gauge(best_ah_val, f"HDP ({target_ah})", sniper_threshold), use_container_width=True)
+        with g2:
+            st.plotly_chart(create_ev_gauge(best_ou_val, f"O/U ({target_ou})", sniper_threshold), use_container_width=True)
         
         target_live_check = {"n": target_ah, "ev": best_ah_val, "hdp": live_hdp, "odds": fix(live_hdp_h) if target_ah=="เจ้าบ้าน" else fix(live_hdp_a)}
         if best_ou_val > best_ah_val: target_live_check = {"n": target_ou, "ev": best_ou_val, "hdp": live_ou, "odds": fix(live_ou_over) if target_ou=="สูง" else fix(live_ou_under)}
@@ -679,17 +682,17 @@ with tab3:
                     ai_live = ai_quant_decision_engine("Live Match", target_live_check['n'], target_live_check['ev'], target_live_check['hdp'], target_live_check['odds'], is_live=True, current_min=current_min, score=f"{current_score_h}-{current_score_a}")
                     net_live_ev = target_live_check['ev'] + ai_live['impact_score']
                     
+                    st.markdown("---")
                     c1, c2, c3 = st.columns(3)
                     c1.metric("Live Base EV", f"{target_live_check['ev']*100:.2f}%")
                     c2.metric("GEM Rule Adjust", f"{ai_live['impact_score']*100:.2f}%")
                     c3.metric("Net Live EV", f"{net_live_ev*100:.2f}%")
-                    
                     st.info(f"**📖 กฎ GEM ที่จับได้:** {ai_live['rule_triggered']}")
                     
                     if ai_live['final_decision'] and net_live_ev >= trigger_limit:
-                        st.error(f"🚨 SNIPER ALERT: {target_live_check['n']} อนุมัติการโจมตี! (Value > {sniper_threshold}%)")
-                        st.success(f"✅ AI APPROVED: {ai_live['final_comment']}")
-                        st.toast("🔥 เจาะเกราะเจ้ามือสำเร็จ!", icon="🚨")
+                        st.balloons() # 🎈 จุดพลุฉลองเมื่อเจอ Value Bet สวยๆ!
+                        st.error(f"🚨 SNIPER ALERT: เป้าหมาย '{target_live_check['n']}' อนุมัติการโจมตี!")
+                        st.success(f"✅ AI CRO: {ai_live['final_comment']}")
                     else:
                         st.warning(f"🚫 AI REJECTED: {ai_live['final_comment']}")
         else:
