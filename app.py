@@ -198,17 +198,35 @@ def load_logs():
 
 def calculate_net_profit(row):
     try:
-        if pd.isna(row['Result']) or row['Result'] == "" or row['Investment'] <= 0: return 0.0
-        scores = re.findall(r'\d+', str(row['Result']))
-        if len(scores) < 2: return 0.0
-        h_score, a_score = int(scores[0]), int(scores[1])
-        hdp, target, odds, invest = float(row['HDP']), row['Target'], float(row['Odds']), float(row['Investment'])
+        if pd.isna(row['Result']) or str(row['Result']) == "" or float(row['Investment']) <= 0: 
+            return 0.0
+            
+        result_str = str(row['Result']).strip()
+        
+        # 🛡️ ระบบป้องกันความเสี่ยง (Date Format Trap) จาก Excel
+        if "00:00:00" in result_str or len(re.findall(r'-', result_str)) > 1:
+            # ดึงเฉพาะส่วนของ "เดือน" และ "วัน" (ซึ่งมักจะเป็น 2 ตัวกลางและหลัง) ออกมา
+            # เช่น '2000-01-02 00:00:00' -> ดึง 01 และ 02
+            date_parts = re.findall(r'\d+', result_str.split(' ')[0])
+            if len(date_parts) >= 3:
+                # เอาแค่เดือนและวัน (กรณีปีขึ้นก่อน เช่น 2000-01-02 หรือ 2026-02-01)
+                h_score = int(date_parts[1]) if int(date_parts[1]) < 2000 else int(date_parts[0])
+                a_score = int(date_parts[2]) if int(date_parts[2]) < 2000 else int(date_parts[1])
+            else:
+                 return 0.0
+        else:
+            # ระบบอ่านสกอร์ปกติ (เช่น "1-1", "2 0", "3:1")
+            scores = re.findall(r'\d+', result_str)
+            if len(scores) < 2: return 0.0
+            h_score, a_score = int(scores[0]), int(scores[1])
+            
+        hdp, target, odds, invest = float(row['HDP']), str(row['Target']).strip(), float(row['Odds']), float(row['Investment'])
         diff = h_score - a_score
         
         if target == "เจ้าบ้าน": net_margin = diff - hdp
         elif target == "ทีมเยือน": net_margin = (a_score - h_score) + hdp
-        elif target == "สูง": net_margin = (h_score + a_score) - hdp
-        elif target == "ต่ำ": net_margin = hdp - (h_score + a_score)
+        elif target == "สูง" or target == "สูง (FH)": net_margin = (h_score + a_score) - hdp
+        elif target == "ต่ำ" or target == "ต่ำ (FH)": net_margin = hdp - (h_score + a_score)
         else: return 0.0
         
         if net_margin > 0.25: return invest * (odds - 1)
@@ -216,16 +234,7 @@ def calculate_net_profit(row):
         elif net_margin == 0: return 0.0
         elif net_margin == -0.25: return -(invest / 2)
         else: return -invest
-    except: return 0.0
-
-def calculate_clv(row):
-    try:
-        if pd.isna(row['Closing_Odds']) or float(row['Closing_Odds']) <= 1.0: 
-            return 0.0
-        odds_taken = float(row['Odds'])
-        closing_odds = float(row['Closing_Odds'])
-        return ((odds_taken / closing_odds) - 1.0) * 100.0
-    except: 
+    except Exception as e: 
         return 0.0
 
 # ==========================================
