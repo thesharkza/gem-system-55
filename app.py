@@ -237,7 +237,14 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
         
         return json.loads(res_text)
     except Exception as e:
-        return {"rule_triggered": "Error", "impact_score": 0.0, "final_decision": True if base_ev >= 0.08 else False, "final_comment": "เชื่อมต่อ AI ล้มเหลว ใช้ Base EV เพียวๆ"}
+        # 🚨 สั่งให้ระบบพ่น Error ที่แท้จริงออกมาโชว์ จะได้รู้ว่าพังที่จุดไหน
+        error_msg = str(e).replace('"', "'") # ป้องกันเครื่องหมายคำพูดตีกัน
+        return {
+            "rule_triggered": f"System Error: {error_msg}", 
+            "impact_score": 0.0, 
+            "final_decision": True if base_ev >= 0.08 else False, 
+            "final_comment": f"AI ล้มเหลว (เช็ค Error ที่ช่องกฎ GEM)"
+        }
 
 # ==========================================
 # 3. ระบบจัดการประวัติ, แก้บั๊ก Excel, และคำนวณ CLV
