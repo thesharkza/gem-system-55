@@ -305,6 +305,46 @@ def calculate_clv(row):
         return ((odds_taken / closing_odds) - 1.0) * 100.0
     except: 
         return 0.0
+# ==========================================
+# 🎨 UI / UX Components (ระบบวาดหน้าปัดและปุ่ม)
+# ==========================================
+def create_ev_gauge(ev_value, title, threshold=8.0):
+    ev_pct = ev_value * 100
+    
+    # 🚥 เปลี่ยนสีตามความคุ้มค่า (จิตวิทยาสี)
+    if ev_pct >= threshold: color = "#00FF7F" # เขียวสว่าง (ยิงได้!)
+    elif ev_pct > 0: color = "#FFD700" # เหลือง (เฝ้าระวัง)
+    else: color = "#FF4500" # แดง (ยาพิษ)
+        
+    fig = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = ev_pct,
+        number = {'suffix': "%", 'font': {'color': color, 'size': 32}},
+        title = {'text': title, 'font': {'size': 18, 'color': 'white'}},
+        gauge = {
+            'axis': {'range': [-20, 20], 'tickwidth': 1, 'tickcolor': "white"},
+            'bar': {'color': color},
+            'bgcolor': "rgba(0,0,0,0.1)",
+            'borderwidth': 1,
+            'bordercolor': "gray",
+            'steps': [
+                {'range': [-20, 0], 'color': "rgba(255, 69, 0, 0.15)"},
+                {'range': [0, threshold], 'color': "rgba(255, 215, 0, 0.15)"},
+                {'range': [threshold, 20], 'color': "rgba(0, 255, 127, 0.15)"}
+            ],
+            'threshold': {
+                'line': {'color': "white", 'width': 3},
+                'thickness': 0.75,
+                'value': ev_pct
+            }
+        }
+    ))
+    fig.update_layout(height=220, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    return fig
+
+# Callback Functions สำหรับ UX ปุ่มกดด่วน
+def adj_hdp(val): st.session_state['live_hdp'] += val
+def adj_ou(val): st.session_state['live_ou'] += val
 
 # ==========================================
 # 4. UI - Main Layout
