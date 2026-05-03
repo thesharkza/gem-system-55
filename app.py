@@ -297,9 +297,10 @@ with tab1:
         with col_btn2:
             st.button("🗑️ ล้างข้อมูลทั้งหมด", use_container_width=True, on_click=clear_form_data)
 
-    match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
+        match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
     
-    col1, col2, col3 = st.columns(3)
+    # 🛠️ ปรับเหลือแค่ 2 คอลัมน์ (ตัดครึ่งแรกทิ้ง)
+    col1, col2 = st.columns(2)
     with col1:
         st.subheader("1. พูล & AH (เต็มเวลา)")
         h1x2 = st.number_input("เหย้า (1X2)", format="%.2f", key="h1x2_val")
@@ -313,17 +314,11 @@ with tab1:
         ou_line = st.number_input("เรตสกอร์รวม (O/U)", format="%.2f", step=0.25, key="ou_line_val")
         ou_over_w = st.number_input("น้ำหน้าสูง (Over)", format="%.2f", key="ou_over_w_val")
         ou_under_w = st.number_input("น้ำหน้าต่ำ (Under)", format="%.2f", key="ou_under_w_val")
-    with col3:
-        st.subheader("3. ตลาด O/U (ครึ่งแรก)")
-        fh_ou_line = st.number_input("เรตสกอร์รวม (FH)", format="%.2f", step=0.25, key="fh_ou_line_val")
-        fh_ou_over_w = st.number_input("น้ำสูง (FH)", format="%.2f", key="fh_ou_over_w_val")
-        fh_ou_under_w = st.number_input("น้ำต่ำ (FH)", format="%.2f", key="fh_ou_under_w_val")
 
     if st.button("🚀 ANALYZE PRE-MATCH", use_container_width=True):
         def fix(o): return o + 1.0 if o < 1.1 else o
         h_o, d_o, a_o = fix(h1x2), fix(d1x2), fix(a1x2)
         hw_o, aw_o, ow_o, uw_o = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
-        fhow_o, fhuw_o = fix(fh_ou_over_w), fix(fh_ou_under_w)
 
         prob_h, prob_d, prob_a = shin_devig(h_o, d_o, a_o)
         
@@ -334,10 +329,6 @@ with tab1:
         ev_over = calc_advanced_ou_ev(ou_line, p_total, ow_o, is_over=True)
         ev_under = calc_advanced_ou_ev(ou_line, p_total, uw_o, is_over=False)
 
-        _, _, _, _, _, p_total_fh = calc_dixon_coles_matrix(prob_h, prob_d, prob_a, ou_line, dc_rho, is_fh=True)
-        ev_fh_over = calc_advanced_ou_ev(fh_ou_line, p_total_fh, fhow_o, is_over=True)
-        ev_fh_under = calc_advanced_ou_ev(fh_ou_line, p_total_fh, fhuw_o, is_over=False)
-
         def get_defensive_k(ev, odds, bank):
             if ev < trigger_limit: return 0.0
             b_k, p_k = odds - 1, (ev + 1) / odds
@@ -346,25 +337,22 @@ with tab1:
 
         ah_list = [{"n": "เจ้าบ้าน", "ev": ev_h, "odds": hw_o, "hdp": hdp_line}, {"n": "ทีมเยือน", "ev": ev_a, "odds": aw_o, "hdp": hdp_line}]
         ou_list = [{"n": "สูง", "ev": ev_over, "odds": ow_o, "hdp": ou_line}, {"n": "ต่ำ", "ev": ev_under, "odds": uw_o, "hdp": ou_line}]
-        fh_list = [{"n": "สูง (FH)", "ev": ev_fh_over, "odds": fhow_o, "hdp": fh_ou_line}, {"n": "ต่ำ (FH)", "ev": ev_fh_under, "odds": fhuw_o, "hdp": fh_ou_line}]
         
         best_ah = max(ah_list, key=lambda x: x['ev'])
         best_ou = max(ou_list, key=lambda x: x['ev'])
-        best_fh = max(fh_list, key=lambda x: x['ev'])
 
         k_money_ah = get_defensive_k(best_ah['ev'], best_ah['odds'], total_bankroll)
         k_money_ou = get_defensive_k(best_ou['ev'], best_ou['odds'], total_bankroll)
-        k_money_fh = get_defensive_k(best_fh['ev'], best_fh['odds'], total_bankroll)
 
         ah_status = "🔥 INVEST" if best_ah['ev'] >= trigger_limit else "🛡️ NO BET"
         ou_status = "🔥 INVEST" if best_ou['ev'] >= trigger_limit else "🛡️ NO BET"
-        fh_status = "🔥 INVEST" if best_fh['ev'] >= trigger_limit else "🛡️ NO BET"
 
         st.session_state['ai_analysis_data'] = {
             "match": match_name, "prob_h": prob_h, "prob_d": prob_d, "prob_a": prob_a,
-            "best_ah": best_ah, "best_ou": best_ou, "best_fh": best_fh
+            "best_ah": best_ah, "best_ou": best_ou
         }
 
+        # 🛠️ ตัด Report ส่วนของครึ่งแรกออก
         st.session_state['report'] = f"""📊 GEM System 8.4: AI-Powered Quant Report
 =======================================
 ⚽ คู่แข่งขัน: {match_name}
@@ -379,10 +367,6 @@ with tab1:
 3️⃣ ตลาดสกอร์รวม (Over/Under เต็มเวลา)
 • EV หน้าสูง: {ev_over*100:.2f}% | EV หน้าต่ำ: {ev_under*100:.2f}%
 ✅ สรุป O/U: [{ou_status}] เป้าหมาย -> {best_ou['n']} (แนะนำลงทุน: {k_money_ou:,.2f} THB)
-
-4️⃣ ตลาดสกอร์รวม ครึ่งแรก (First-Half O/U)
-• EV หน้าสูง: {ev_fh_over*100:.2f}% | EV หน้าต่ำ: {ev_fh_under*100:.2f}%
-✅ สรุป FH: [{fh_status}] เป้าหมาย -> {best_fh['n']} (แนะนำลงทุน: {k_money_fh:,.2f} THB)
 =======================================
 """
         tz_th = timezone(timedelta(hours=7))
@@ -391,9 +375,7 @@ with tab1:
         logs_to_save = []
         if best_ah['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ah['hdp'], "Target": best_ah['n'], "EV_Pct": round(best_ah['ev']*100, 2), "Investment": round(k_money_ah, 2), "Odds": best_ah['odds'], "Result": ""})
         if best_ou['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_ou['hdp'], "Target": best_ou['n'], "EV_Pct": round(best_ou['ev']*100, 2), "Investment": round(k_money_ou, 2), "Odds": best_ou['odds'], "Result": ""})
-        if best_fh['ev'] >= trigger_limit: logs_to_save.append({"Time": current_time, "Match": match_name, "HDP": best_fh['hdp'], "Target": best_fh['n'], "EV_Pct": round(best_fh['ev']*100, 2), "Investment": round(k_money_fh, 2), "Odds": best_fh['odds'], "Result": ""})
 
-        # ระบบ Auto-Save 
         if logs_to_save:
             save_to_csv(logs_to_save)
             st.success(f"✅ สแกนพบไม้ระดับ A+ ระบบได้ทำการบันทึกลง Dashboard อัตโนมัติเรียบร้อยแล้ว!")
@@ -403,30 +385,25 @@ with tab1:
     if 'report' in st.session_state:
         st.text_area("Pre-Match Report:", value=st.session_state['report'], height=350)
         
-        # 🆕 โหมดที่ 3: ให้ AI ช่วยวิเคราะห์และตัดสินใจด่านสุดท้าย (Chief Risk Officer) ใช้ Gemini 2.5 Pro
         if api_key and 'ai_analysis_data' in st.session_state:
             if st.button("🤖 ให้ AI (Chief Risk Officer) ช่วยวิเคราะห์ความเสี่ยงด่านสุดท้าย", use_container_width=True):
                 with st.spinner('AI กำลังวิเคราะห์ตัวเลขและประเมินความเสี่ยง...'):
                     d = st.session_state['ai_analysis_data']
                     
-                    # 🤖 เลือกรุ่นวิเคราะห์ข้อมูลที่ฉลาดล้ำลึกที่สุดจากลิสต์ของคุณ
-                    model = genai.GenerativeModel('models/gemini-2.5-pro')
+                    # 🛠️ ตัดข้อมูล FH ออกจากสมองของ Chief Risk Officer
                     prompt = f"""
                     คุณคือ Chief Risk Officer ประจำกองทุนเดิมพันกีฬา คุณมีหน้าที่ให้คำแนะนำสั้นๆ กระชับๆ ดุดันแบบมืออาชีพ (ไม่เกิน 4-5 บรรทัด)
                     ข้อมูลการคำนวณคณิตศาสตร์ของคู่ {d['match']}:
                     - โอกาสชนะจริง: เหย้า {d['prob_h']*100:.1f}%, เสมอ {d['prob_d']*100:.1f}%, เยือน {d['prob_a']*100:.1f}%
                     - เป้าที่ดีที่สุด AH: {d['best_ah']['n']} (EV: {d['best_ah']['ev']*100:.2f}%)
                     - เป้าที่ดีที่สุด O/U: {d['best_ou']['n']} (EV: {d['best_ou']['ev']*100:.2f}%)
-                    - เป้าที่ดีที่สุด FH: {d['best_fh']['n']} (EV: {d['best_fh']['ev']*100:.2f}%)
                     คำถาม: สรุปว่าคู่นี้มีความเสี่ยงแอบแฝงอะไรไหม? และควรลงทุนหนักหรือเบา? ตอบเป็นภาษาไทย
                     """
                     try:
-                        # 🤖 พยายามใช้รุ่น Pro ก่อน (Thinking/Deep Analysis)
                         model = genai.GenerativeModel('models/gemini-2.5-pro')
                         ai_advice = model.generate_content(prompt)
                         st.info(f"**🧠 AI Risk Analysis (Gemini 2.5 Pro):**\n\n{ai_advice.text}")
                     except Exception as e:
-                        # 🔄 ถ้า Pro เต็ม (Error 429) ให้สลับมาใช้ Flash (Fast) ทันที
                         if "429" in str(e) or "quota" in str(e).lower():
                             st.warning("⚠️ โควต้ารุ่น Pro เต็ม ระบบสลับมาใช้รุ่น Flash (Fast) แทนชั่วคราวครับ")
                             try:
@@ -437,6 +414,7 @@ with tab1:
                                 st.error(f"⚠️ AI ประมวลผลล้มเหลวทั้งสองระบบ: {e_fast}")
                         else:
                             st.error(f"⚠️ AI เกิดข้อผิดพลาด: {e}")
+
 
 # --- TAB 2: Performance Dashboard ---
 with tab2:
