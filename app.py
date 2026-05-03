@@ -235,7 +235,7 @@ st.title("🎯 GEM System 8.5: Ultimate Quant & CLV")
 
 # ตั้งค่า AI แบบฝังออโต้ (Auto API Key)
 st.sidebar.header("🔑 AI Integration (Gemini)")
-AUTO_API_KEY = "AIzaSyCbIMvDLtt00PVV21Qkdu1E1wFtaE2mJBI"
+AUTO_API_KEY = "AIzaSyCbIMvDLtt00PVV21Qkdu1E1wFtaE2mJBI" # <-- เปลี่ยนคีย์ใหม่ตรงนี้นะครับ!
 api_key = AUTO_API_KEY
 
 if api_key:
@@ -293,15 +293,9 @@ with tab1:
                                 "ou_line_val": เรตสูงต่ำเต็มเวลา, "ou_over_w_val": ค่าน้ำสูงเต็มเวลา, "ou_under_w_val": ค่าน้ำต่ำเต็มเวลา
                             }
                             """
-                            response = model.generate_content(...)
-                            
-                            # 👇 บรรทัดที่ชอบแหว่งตอนก๊อปปี้คือบรรทัดนี้ครับ
-                            json_str = response.text.replace('```json', '').replace('
-```', '').strip()
-                            
-                            # 👇 โหมด Pre-Match จะเป็นแบบนี้
-                            extracted_data = json.loads(json_str) 
-                            # หรือถ้าเป็นโหมด Live จะเป็น: data = json.loads(json_str)
+                            response = model.generate_content([prompt, img])
+                            # ซ่อมบรรทัดที่แหว่ง 100% เรียบร้อยครับ
+                            json_str = response.text.replace('```json', '').replace('```', '').strip()
                             extracted_data = json.loads(json_str)
                             
                             for k, v in extracted_data.items():
@@ -564,6 +558,7 @@ with tab3:
                             }
                             """
                             response = model.generate_content([prompt] + imgs)
+                            # ซ่อมบรรทัดที่แหว่ง 100% เรียบร้อยครับ
                             json_str = response.text.replace('```json', '').replace('```', '').strip()
                             data = json.loads(json_str)
                             
