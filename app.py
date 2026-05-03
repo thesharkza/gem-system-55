@@ -196,10 +196,16 @@ def load_logs():
         except: return None
     return None
 
-def calculate_net_profit(row):
+def calculate_clv(row):
     try:
-        if pd.isna(row['Result']) or str(row['Result']) == "" or float(row['Investment']) <= 0: 
+        if pd.isna(row['Closing_Odds']) or float(row['Closing_Odds']) <= 1.0: 
             return 0.0
+        odds_taken = float(row['Odds'])
+        closing_odds = float(row['Closing_Odds'])
+        # สูตร CLV: (ราคาที่แทงได้ / ราคาปิด) - 1
+        return ((odds_taken / closing_odds) - 1.0) * 100.0
+    except: 
+        return 0.0
             
         result_str = str(row['Result']).strip()
         
