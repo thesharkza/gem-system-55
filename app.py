@@ -223,9 +223,13 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     try:
         model = genai.GenerativeModel('models/gemini-2.5-flash')
         response = model.generate_content(prompt)
-        json_str = response.text.replace('```json', '').replace('
-```', '').strip()
-        return json.loads(json_str)
+        
+        # แก้ไขปัญหาโค้ดขาดหายตอน Copy/Paste ด้วยการแยกบรรทัด
+        res_text = response.text
+        res_text = res_text.replace('```json', '')
+        res_text = res_text.replace('```', '')
+        
+        return json.loads(res_text.strip())
     except Exception as e:
         return {"rule_triggered": "Error", "impact_score": 0.0, "final_decision": True if base_ev >= 0.08 else False, "final_comment": "เชื่อมต่อ AI ล้มเหลว ใช้ Base EV เพียวๆ"}
 
@@ -304,13 +308,12 @@ st.title("🎯 GEM System 9.0: The Book of GEMs Engine")
 # 🛠️ ระบบดึง Key อัตโนมัติจาก Streamlit Secrets
 st.sidebar.header("🔑 AI Integration (Gemini)")
 
-# เช็คว่ามี Secrets ใน Streamlit Cloud ไหม (กู้คืนโค้ดเดิมของคุณ)
+# เช็คว่ามี Secrets ใน Streamlit Cloud ไหม
 if "GEMINI_API_KEY" in st.secrets:
     api_key = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=api_key)
     st.sidebar.success("✅ AI Connected (Auto Secrets)")
 else:
-    # เผื่อกรณีรันในเครื่อง (Local) แล้วไม่มี Secrets
     api_key = st.sidebar.text_input("ใส่ Gemini API Key:", type="password")
     if api_key:
         genai.configure(api_key=api_key)
@@ -343,7 +346,13 @@ with tab1:
                         model = genai.GenerativeModel('models/gemini-2.5-flash')
                         p = """สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}"""
                         res = model.generate_content([p, img])
-                        data = json.loads(res.text.replace('```json', '').replace('```', '').strip())
+                        
+                        # แยกบรรทัดป้องกันโค้ดขาดหายตอนก๊อปปี้
+                        res_text = res.text
+                        res_text = res_text.replace('```json', '')
+                        res_text = res_text.replace('```', '')
+                        data = json.loads(res_text.strip())
+                        
                         for k, v in data.items(): st.session_state[k] = v
                         st.success("✅ สกัดข้อมูลสำเร็จ")
                         st.rerun()
@@ -506,8 +515,12 @@ with tab3:
                             ถ้าเป็น 0/0.5 แปลงเป็น 0.25, 0.5/1 แปลงเป็น 0.75
                             """
                             response = model.generate_content([prompt] + imgs)
-                            json_str = response.text.replace('```json', '').replace('```', '').strip()
-                            data = json.loads(json_str)
+                            
+                            # แยกบรรทัดป้องกันโค้ดขาดหายตอนก๊อปปี้
+                            res_text = response.text
+                            res_text = res_text.replace('```json', '')
+                            res_text = res_text.replace('```', '')
+                            data = json.loads(res_text.strip())
                             
                             st.session_state.current_min = int(data.get("current_min", 45))
                             st.session_state.lh_s = int(data.get("current_score_h", 0))
