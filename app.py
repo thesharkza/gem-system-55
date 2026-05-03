@@ -55,6 +55,13 @@ def init_session_state():
 
 init_session_state()
 
+def clear_form_data():
+    st.session_state.raw_text = ""
+    st.session_state.match_name = "ชื่อคู่แข่งขัน"
+    st.session_state.h1x2_val = 1.0; st.session_state.d1x2_val = 1.0; st.session_state.a1x2_val = 1.0
+    st.session_state.hdp_line_val = 0.0; st.session_state.hdp_h_w_val = 0.0; st.session_state.hdp_a_w_val = 0.0
+    st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
+
 def parse_line(line_str):
     line_str = str(line_str).replace(' ', '').replace('+', '')
     is_negative = '-' in line_str
@@ -224,12 +231,11 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
         model = genai.GenerativeModel('models/gemini-2.5-flash')
         response = model.generate_content(prompt)
         
-        # แก้ไขปัญหาโค้ดขาดหายตอน Copy/Paste ด้วยการแยกบรรทัด
-        res_text = response.text
-        res_text = res_text.replace('```json', '')
-        res_text = res_text.replace('```', '')
+        # ใช้ ASCII ของ backtick ป้องกันปัญหาการ copy โค้ดไปวางแล้วพัง
+        bt = chr(96) * 3
+        res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
         
-        return json.loads(res_text.strip())
+        return json.loads(res_text)
     except Exception as e:
         return {"rule_triggered": "Error", "impact_score": 0.0, "final_decision": True if base_ev >= 0.08 else False, "final_comment": "เชื่อมต่อ AI ล้มเหลว ใช้ Base EV เพียวๆ"}
 
@@ -339,25 +345,58 @@ with tab1:
             st.warning("⚠️ กรุณาตรวจสอบ API Key ก่อนใช้งานโหมดนี้")
         else:
             uploaded_file = st.file_uploader("อัปโหลดรูปตารางราคา", type=['png', 'jpg'])
-            if uploaded_file and st.button("🪄 สกัดข้อมูล", use_container_width=True):
+            if uploaded_file and st.button("🪄 สกัดข้อมูลจากรูปภาพ", use_container_width=True):
                 with st.spinner('กำลังอ่านรูป...'):
                     try:
                         img = Image.open(uploaded_file)
                         model = genai.GenerativeModel('models/gemini-2.5-flash')
-                        p = """สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}"""
+                        p = 'สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
                         res = model.generate_content([p, img])
                         
-                        # แยกบรรทัดป้องกันโค้ดขาดหายตอนก๊อปปี้
-                        res_text = res.text
-                        res_text = res_text.replace('```json', '')
-                        res_text = res_text.replace('```', '')
-                        data = json.loads(res_text.strip())
+                        # ใช้ ASCII ป้องกันปัญหา Copy & Paste
+                        bt = chr(96) * 3
+                        res_text = res.text.replace(bt + 'json', '').replace(bt, '').strip()
+                        data = json.loads(res_text)
                         
                         for k, v in data.items(): st.session_state[k] = v
                         st.success("✅ สกัดข้อมูลสำเร็จ")
                         st.rerun()
                     except Exception as e:
                         st.error(f"⚠️ สกัดข้อมูลล้มเหลว: {e}")
+
+    # 🆕 นำช่อง Text Parser แบบเก่ากลับมา
+    with st.expander("⚡ Text Parser: วางข้อความดิบ (โหมดคลาสสิก)", expanded=False):
+        st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=100, key="raw_text")
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("🪄 สกัดข้อมูลจากข้อความ", use_container_width=True):
+                try:
+                    raw = st.session_state.raw_text
+                    m_vs = re.search(r'(.*VS.*)', raw)
+                    if m_vs: st.session_state.match_name = m_vs.group(1).strip()
+                    h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
+                    if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) 
+                    if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) 
+                    d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
+                    if len(d_matches) >= 1: st.session_state.d1x2_val = float(d_matches[0])
+                    a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
+                    if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) 
+                    if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) 
+                    ah_match = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
+                    if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
+                    ou_match = re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)', raw, re.MULTILINE)
+                    if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
+                    o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
+                    if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
+                    u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
+                    if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
+                    st.success("✅ สกัดข้อความสำเร็จ!")
+                except Exception as e:
+                    st.error(f"⚠️ ข้อความมีปัญหา: {e}")
+        with col_btn2:
+            st.button("🗑️ ล้างข้อมูลทั้งหมด", use_container_width=True, on_click=clear_form_data)
+
+    st.markdown("---")
 
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
     col1, col2 = st.columns(2)
@@ -516,11 +555,10 @@ with tab3:
                             """
                             response = model.generate_content([prompt] + imgs)
                             
-                            # แยกบรรทัดป้องกันโค้ดขาดหายตอนก๊อปปี้
-                            res_text = response.text
-                            res_text = res_text.replace('```json', '')
-                            res_text = res_text.replace('```', '')
-                            data = json.loads(res_text.strip())
+                            # ใช้ ASCII ป้องกันปัญหา Copy & Paste
+                            bt = chr(96) * 3
+                            res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
+                            data = json.loads(res_text)
                             
                             st.session_state.current_min = int(data.get("current_min", 45))
                             st.session_state.lh_s = int(data.get("current_score_h", 0))
