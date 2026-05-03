@@ -55,13 +55,6 @@ def init_session_state():
 
 init_session_state()
 
-def clear_form_data():
-    st.session_state.raw_text = ""
-    st.session_state.match_name = "ชื่อคู่แข่งขัน"
-    st.session_state.h1x2_val = 1.0; st.session_state.d1x2_val = 1.0; st.session_state.a1x2_val = 1.0
-    st.session_state.hdp_line_val = 0.0; st.session_state.hdp_h_w_val = 0.0; st.session_state.hdp_a_w_val = 0.0
-    st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
-
 def parse_line(line_str):
     line_str = str(line_str).replace(' ', '').replace('+', '')
     is_negative = '-' in line_str
@@ -234,8 +227,7 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
         # แก้ไขปัญหาโค้ดขาดหายตอน Copy/Paste ด้วยการแยกบรรทัด
         res_text = response.text
         res_text = res_text.replace('```json', '')
-        res_text = res_text.replace('
-```', '')
+        res_text = res_text.replace('```', '')
         
         return json.loads(res_text.strip())
     except Exception as e:
@@ -366,38 +358,6 @@ with tab1:
                         st.rerun()
                     except Exception as e:
                         st.error(f"⚠️ สกัดข้อมูลล้มเหลว: {e}")
-
-    # 👇 นำ Text Parser กลับมาให้แล้วครับ 👇
-    with st.expander("⚡ Text Parser: วางข้อความดิบ (โหมดคลาสสิก)", expanded=False):
-        st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=100, key="raw_text")
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if st.button("🪄 สกัดข้อมูล (Extract from Text)", use_container_width=True):
-                try:
-                    raw = st.session_state.raw_text
-                    m_vs = re.search(r'(.*VS.*)', raw)
-                    if m_vs: st.session_state.match_name = m_vs.group(1).strip()
-                    h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) 
-                    if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) 
-                    d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(d_matches) >= 1: st.session_state.d1x2_val = float(d_matches[0])
-                    a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) 
-                    if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) 
-                    ah_match = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
-                    if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
-                    ou_match = re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)', raw, re.MULTILINE)
-                    if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
-                    o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
-                    if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
-                    u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
-                    if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
-                    st.success("✅ สกัดข้อความสำเร็จ!")
-                except Exception as e:
-                    st.error(f"⚠️ ข้อความมีปัญหา: {e}")
-        with col_btn2:
-            st.button("🗑️ ล้างข้อมูลทั้งหมด", use_container_width=True, on_click=clear_form_data)
 
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
     col1, col2 = st.columns(2)
