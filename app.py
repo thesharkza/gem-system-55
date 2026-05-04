@@ -628,7 +628,7 @@ with tab3:
         def fix(o): return o + 1.0 if o < 1.1 else o
         p_h, p_d, p_a = shin_devig(fix(pre_h), fix(pre_d), fix(pre_a))
         m_left = max(90 - current_min, 1)
-        hw2, hw1, d_ex, aw1, aw2, p_tot = calc_dixon_coles_matrix(p_h, p_d, p_a, pre_ou, dc_rho, current_score_h, current_score_a, m_left, red_card_h, red_card_a)
+        hw2, hw1, d_ex, aw1, aw2, p_tot = calc_dixon_coles_matrix(p_h, p_d, p_a, live_ou, fix(live_ou_over), fix(live_ou_under), dc_rho, current_score_h, current_score_a, m_left, red_card_h, red_card_a)
         is_fav = p_h >= p_a
         ev_h = calc_advanced_ah_ev(live_hdp, hw2, hw1, d_ex, aw1, aw2, fix(live_hdp_h), is_fav)
         ev_a = calc_advanced_ah_ev(live_hdp, aw2, aw1, d_ex, hw1, hw2, fix(live_hdp_a), not is_fav) - (hdba_val/100)
