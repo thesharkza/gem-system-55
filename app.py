@@ -84,32 +84,52 @@ def shin_devig(o_h, o_d, o_a):
 def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
-def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, current_a=0, minutes_left=90, red_card_h=False, red_card_a=False):
-    # คำนวณความน่าจะเป็นพื้นฐานจากพูล 1x2 (ปราศจากค่าน้ำ)
-    lam_h_base = total_goals * (p_h + (p_d * 0.5))
-    lam_a_base = total_goals * (p_a + (p_d * 0.5))
+def calc_dixon_coles_matrix(p_h, p_d, p_a, ou_line, ou_over_w, ou_under_w, rho, current_h=0, current_a=0, minutes_left=90, red_card_h=False, red_card_a=False):
+    # 🌟 Safety Check: แปลงค่าน้ำให้เป็นมาตรฐาน Decimal เสมอ (ป้องกันบั๊ก Base EV 60%+)
+    # ถ้ากรอกค่าน้ำฮ่องกง/มาเลย์ (เช่น 0.81, 0.99) โค้ดจะบวก 1 ให้อัตโนมัติเพื่อใช้คำนวณ
+    o_w = ou_over_w + 1.0 if ou_over_w < 1.1 else ou_over_w
+    u_w = ou_under_w + 1.0 if ou_under_w < 1.1 else ou_under_w
     
-    # 🌟 แก้อคติเรื่องเวลา: ประตูมักเกิดช่วงท้ายเกมมากกว่าต้นเกม (ปรับ Alpha เป็น 0.80 ให้สมจริง)
-    time_factor = (minutes_left / 90.0) ** 0.80 
+    # 🌟 1. ถอดรหัส 'จำนวนประตูที่แท้จริง' (True Expected Goals) จากค่าน้ำ O/U
+    o_prob = 1.0 / o_w
+    u_prob = 1.0 / u_w
+    margin_ou = o_prob + u_prob
+    true_o_prob = o_prob / margin_ou
     
+    # ปรับฐานประตู: ถ้าน้ำฝั่งสูงจ่ายถูก (โอกาสยิงเกินเรตมีสูง) ฐานประตูต้องขยับขึ้น
+    expected_total = ou_line + ((true_o_prob - 0.5) * 1.30)
+    expected_total = max(0.5, expected_total) # ป้องกันค่าติดลบ
+    
+    # 🌟 2. ถอดรหัส 'ความห่างชั้น' (Calibrate Supremacy)
+    # ปรับจูนเพื่อไม่ให้ทีมเต็งถูกประเมินเวอร์เกินไป (สมจริงแบบ Hedge Fund)
+    supremacy = (p_h - p_a) * (expected_total ** 0.65)
+    
+    lam_h_base = (expected_total + supremacy) / 2.0
+    lam_a_base = (expected_total - supremacy) / 2.0
+    
+    # ป้องกันไม่ให้ Expected Goals ของทีมรองต่ำกว่า 0.15 (ยังไงก็มีโอกาสฟลุ๊คยิงได้)
+    lam_h_base = max(0.15, lam_h_base)
+    lam_a_base = max(0.15, lam_a_base)
+
+    # 🌟 3. อิทธิพลของเวลา (Time Decay)
+    time_factor = (minutes_left / 90.0) ** 0.85 
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
 
-    # 🚨 ลบโค้ด "อคติทีมตามหลัง" ทิ้งทั้งหมด! ทีมแพ้คือทีมที่กาก ไม่ควรได้บัฟเพิ่ม % การยิง
-    
-    # 🌟 อัปเกรดผลกระทบใบแดง (สมจริงระดับ Quant)
+    # 🌟 4. อัปเกรดผลกระทบใบแดงให้สมจริง
     if red_card_h: 
-        lam_h *= 0.50 # ทีมโดนแดง พลังบุกหายครึ่งนึง (จากเดิม 0.70)
-        lam_a *= 1.20 # ทีมคนเยอะกว่า มีพื้นที่บุกเพิ่ม 20%
+        lam_h *= 0.50 # คนน้อย พลังบุกหายครึ่งนึง
+        lam_a *= 1.30 # คนเยอะ ได้พื้นที่บุกเพิ่ม 30%
     if red_card_a: 
         lam_a *= 0.50
-        lam_h *= 1.20
+        lam_h *= 1.30
 
+    # สร้างตาราง Poisson Matrix 10x10
     matrix = [[0.0 for j in range(10)] for i in range(10)]
     for i in range(10): 
         for j in range(10): 
             base_prob = poisson(i, lam_h) * poisson(j, lam_a)
-            # Dixon-Coles adjustment ป้องกันการเกิดผลเสมอ 0-0 หรือ 1-1 ที่มากเกินจริง
+            # Dixon-Coles adjustment: ปรับเพิ่ม/ลด โอกาสเกิดผลสกอร์ต่ำ (0-0, 1-0, 0-1, 1-1)
             if i == 0 and j == 0: tau = 1 - (lam_h * lam_a * rho)
             elif i == 0 and j == 1: tau = 1 + (lam_h * rho)
             elif i == 1 and j == 0: tau = 1 + (lam_a * rho)
