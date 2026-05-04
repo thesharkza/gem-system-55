@@ -240,7 +240,7 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     
     for attempt in range(3):
         try:
-            model = genai.GenerativeModel('models/gemini-1.5-flash-8b')
+            model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
             response = model.generate_content(prompt)
             bt = chr(96) * 3
             res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
@@ -401,7 +401,7 @@ with tab1:
                 with st.spinner('กำลังอ่านรูป...'):
                     try:
                         img = Image.open(uploaded_file)
-                        model = genai.GenerativeModel('models/gemini-1.5-flash-8b')
+                        model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
                         prompt_img = (
                             'สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,'
                             '"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,'
@@ -569,7 +569,7 @@ with tab3:
                 with st.spinner("กวาดสายตา..."):
                     try:
                         imgs = [Image.open(f) for f in live_images]
-                        model = genai.GenerativeModel('models/gemini-1.5-flash-8b')
+                        model = genai.GenerativeModel('models/gemini-2.5-flash-lite')
                         prompt_live = (
                             'สกัดเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, '
                             '"pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, '
