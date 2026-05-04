@@ -406,8 +406,8 @@ with tab1:
     # 🌟 แยกปรับ Threshold แบบอิสระตามคำขอ
     st.sidebar.markdown("---")
     st.sidebar.subheader("🎯 EV Threshold (เป้าหมายกำไร)")
-    ah_threshold = st.sidebar.slider("เป้าหมาย แฮนดิแคป (AH) %", 1.0, 20.0, 10.0, step=0.5)
-    ou_threshold = st.sidebar.slider("เป้าหมาย สกอร์รวม (O/U) %", 1.0, 20.0, 15.0, step=0.5)
+    ah_threshold = st.sidebar.slider("เป้าหมาย แฮนดิแคป (AH) %", 1.0, 20.0, 8.0, step=0.5)
+    ou_threshold = st.sidebar.slider("เป้าหมาย สกอร์รวม (O/U) %", 1.0, 20.0, 10.0, step=0.5)
     ah_limit = ah_threshold / 100.0
     ou_limit = ou_threshold / 100.0
 
