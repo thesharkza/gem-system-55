@@ -497,12 +497,21 @@ with tab1:
         best_ou = max([{"n": "สูง", "ev": ev_over, "odds": ow_o, "hdp": ou_line}, {"n": "ต่ำ", "ev": ev_under, "odds": uw_o, "hdp": ou_line}], key=lambda x: x['ev'])
 
         st.markdown("---")
-        st.subheader(f"📊 ผลวิเคราะห์ทางคณิตศาสตร์")
+        # หัวข้อหลัก (จัดกึ่งกลาง)
+        st.markdown("<h3 style='text-align: center;'>📊 ANALYZE PRE-MATCH (ผลวิเคราะห์คณิตศาสตร์)</h3>", unsafe_allow_html=True)
+        st.write("") # เว้นบรรทัดนิดนึงให้สวยงาม
         
-        # 🌟 แสดงหน้าปัดโดยแยกเกณฑ์ตามที่ตั้งไว้ (เข็มจะชี้สีเขียวเมื่อผ่านเกณฑ์ของตัวเอง)
         g1, g2 = st.columns(2)
-        with g1: st.plotly_chart(create_ev_gauge(best_ah['ev'], f"AH: {best_ah['n']}", ah_threshold), use_container_width=True)
-        with g2: st.plotly_chart(create_ev_gauge(best_ou['ev'], f"O/U: {best_ou['n']}", ou_threshold), use_container_width=True)
+        
+        with g1: 
+            # หัวข้อกราฟ AH (สีฟ้า จัดกึ่งกลาง)
+            st.markdown("<h4 style='text-align: center; color: #4db8ff;'>🔵 ตลาดแฮนดิแคป (AH)</h4>", unsafe_allow_html=True)
+            st.plotly_chart(create_ev_gauge(best_ah['ev'], f"เป้าหมาย: {best_ah['n']}", ah_threshold), use_container_width=True)
+            
+        with g2: 
+            # หัวข้อกราฟ O/U (สีส้ม จัดกึ่งกลาง)
+            st.markdown("<h4 style='text-align: center; color: #ff9933;'>🟠 ตลาดสกอร์รวม (O/U)</h4>", unsafe_allow_html=True)
+            st.plotly_chart(create_ev_gauge(best_ou['ev'], f"เป้าหมาย: {best_ou['n']}", ou_threshold), use_container_width=True)
 
         # 🌟 ตรวจสอบว่าเป้าไหนผ่านเกณฑ์ของตัวเอง
         ah_passed = best_ah['ev'] >= ah_limit
