@@ -85,28 +85,31 @@ def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
 def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, current_a=0, minutes_left=90, red_card_h=False, red_card_a=False):
+    # คำนวณความน่าจะเป็นพื้นฐานจากพูล 1x2 (ปราศจากค่าน้ำ)
     lam_h_base = total_goals * (p_h + (p_d * 0.5))
     lam_a_base = total_goals * (p_a + (p_d * 0.5))
-    time_factor = (minutes_left / 90.0) ** 0.85 
+    
+    # 🌟 แก้อคติเรื่องเวลา: ประตูมักเกิดช่วงท้ายเกมมากกว่าต้นเกม (ปรับ Alpha เป็น 0.80 ให้สมจริง)
+    time_factor = (minutes_left / 90.0) ** 0.80 
+    
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
 
-    if current_h < current_a:
-        diff = current_a - current_h
-        if diff == 1: lam_h *= 1.10
-        elif diff >= 2: lam_h *= 1.20
-    elif current_a < current_h:
-        diff = current_h - current_a
-        if diff == 1: lam_a *= 1.10
-        elif diff >= 2: lam_a *= 1.20
-
-    if red_card_h: lam_h *= 0.70
-    if red_card_a: lam_a *= 0.70
+    # 🚨 ลบโค้ด "อคติทีมตามหลัง" ทิ้งทั้งหมด! ทีมแพ้คือทีมที่กาก ไม่ควรได้บัฟเพิ่ม % การยิง
+    
+    # 🌟 อัปเกรดผลกระทบใบแดง (สมจริงระดับ Quant)
+    if red_card_h: 
+        lam_h *= 0.50 # ทีมโดนแดง พลังบุกหายครึ่งนึง (จากเดิม 0.70)
+        lam_a *= 1.20 # ทีมคนเยอะกว่า มีพื้นที่บุกเพิ่ม 20%
+    if red_card_a: 
+        lam_a *= 0.50
+        lam_h *= 1.20
 
     matrix = [[0.0 for j in range(10)] for i in range(10)]
     for i in range(10): 
         for j in range(10): 
             base_prob = poisson(i, lam_h) * poisson(j, lam_a)
+            # Dixon-Coles adjustment ป้องกันการเกิดผลเสมอ 0-0 หรือ 1-1 ที่มากเกินจริง
             if i == 0 and j == 0: tau = 1 - (lam_h * lam_a * rho)
             elif i == 0 and j == 1: tau = 1 + (lam_h * rho)
             elif i == 1 and j == 0: tau = 1 + (lam_a * rho)
@@ -125,11 +128,13 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, total_goals, rho, current_h=0, curren
             final_h = i + current_h
             final_a = j + current_a
             diff = final_h - final_a
+            
             if diff >= 2: p_h_win_by_2plus += prob
             elif diff == 1: p_h_win_by_1 += prob
             elif diff == 0: p_draw += prob
             elif diff == -1: p_a_win_by_1 += prob
             elif diff <= -2: p_a_win_by_2plus += prob
+            
             total_match_goals = final_h + final_a
             p_total_ou[total_match_goals] = p_total_ou.get(total_match_goals, 0.0) + prob
             
