@@ -738,7 +738,7 @@ with tab2:
                     for attempt in range(3):
                         try:
                             if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
-                                model = genai.GenerativeModel('models/gemma-4-31b-it')
+                                model = genai.GenerativeModel('models/gemini-2.5-flash')
                                 res_debrief = model.generate_content(prompt_debrief)
                                 st.session_state['debrief_result'] = res_debrief.text
                                 break 
@@ -753,18 +753,40 @@ with tab2:
                                 st.error(f"❌ ระบบขัดข้อง: {e}")
                                 break
 
-            # --- แจ้งเตือนสถานะการบันทึก ---
+            # --- 🌟 แจ้งเตือนสถานะการบันทึก & ปุ่มดาวน์โหลดไฟล์ ---
             if st.session_state.get('save_success', False):
-                st.success("🎉 บันทึกกฎใหม่ลงคัมภีร์ (gem_rules.txt) สำเร็จเรียบร้อยแล้ว!")
-                st.session_state['save_success'] = False 
-            # ---------------------------
+                st.success("🎉 บันทึกกฎใหม่ลงคัมภีร์สำเร็จเรียบร้อยแล้ว! (ระบบเซฟลงใน Cloud Memory ของโปรแกรมแล้ว)")
+                
+                # สร้างปุ่มให้ผู้ใช้ดาวน์โหลดไฟล์จาก Cloud ลงมาเก็บไว้ในเครื่อง
+                try:
+                    import os
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    abs_rule_path = os.path.join(current_dir, RULES_FILE)
+                    
+                    with open(abs_rule_path, "r", encoding="utf-8") as f:
+                        file_content = f.read()
+                        
+                    st.download_button(
+                        label="⬇️ ดาวน์โหลดไฟล์คัมภีร์ที่อัปเดตแล้ว (gem_rules.txt) ลงคอมพิวเตอร์",
+                        data=file_content,
+                        file_name="gem_rules.txt",
+                        mime="text/plain",
+                        type="primary"
+                    )
+                except Exception as e:
+                    st.error(f"โหลดไฟล์ไม่สำเร็จ: {e}")
+                    
+                # รีเซ็ตค่าไม่ให้เด้งซ้ำรัวๆ
+                if st.button("ปิดหน้าต่างแจ้งเตือน"):
+                    st.session_state['save_success'] = False
+                    st.rerun()
+            # ---------------------------------------------------
 
-            # ถ้าระบบมีข้อความ Debrief ค้างอยู่ ให้โชว์ "ฟอร์มกรอกข้อมูล (st.form)"
+            # ถ้าระบบมีข้อความ Debrief ค้างอยู่ ให้โชว์ "ฟอร์มกรอกข้อมูล"
             if st.session_state.get('debrief_result', "") != "":
                 st.success("✅ การวิเคราะห์เสร็จสิ้น!")
                 st.warning("✏️ คุณสามารถแก้ไข กฎที่ AI เสนอมาได้ในกล่องด้านล่างนี้ เมื่อพอใจแล้วค่อยกดบันทึก")
                 
-                # 🌟 ใช้ st.form ครอบไว้ เพื่อการันตีการส่งข้อมูล 100%
                 with st.form(key="save_rule_form"):
                     edited_text = st.text_area(
                         "ตรวจสอบและปรับแต่งกฎของคุณที่นี่:", 
@@ -772,23 +794,26 @@ with tab2:
                         height=250
                     )
                     
-                    # ปุ่ม Submit ภายใน Form
                     submit_save = st.form_submit_button("💾 บันทึกข้อความในกล่องนี้ลงคัมภีร์", type="primary", use_container_width=True)
                     
                     if submit_save:
                         if edited_text.strip() != "":
                             try:
-                                with open(RULES_FILE, "a", encoding="utf-8") as f:
+                                # 🌟 แก้ไข: ใช้ Absolute Path ล็อกพิกัดไฟล์แบบ 100%
+                                import os
+                                current_dir = os.path.dirname(os.path.abspath(__file__))
+                                abs_rule_path = os.path.join(current_dir, RULES_FILE)
+                                
+                                with open(abs_rule_path, "a", encoding="utf-8") as f:
                                     tz_th = timezone(timedelta(hours=7))
                                     now_str = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M")
                                     f.write(f"\n\n### กฎใหม่ที่เพิ่ม/แก้ไขโดยผู้ใช้ (อัปเดตวันที่ {now_str}) ###\n")
                                     f.write(edited_text)
                                 
-                                # เซฟเสร็จ เคลียร์ค่า และสั่งรีเฟรช
                                 st.session_state['debrief_result'] = ""
                                 st.session_state['save_success'] = True
-                                load_gem_rules.clear() # ล้างแคชคัมภีร์
-                                st.rerun() # รีเฟรชหน้าเว็บทันที
+                                load_gem_rules.clear() 
+                                st.rerun() 
                             except Exception as e:
                                 st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
                         else:
