@@ -512,6 +512,14 @@ with tab1:
             # หัวข้อกราฟ O/U (สีส้ม จัดกึ่งกลาง)
             st.markdown("<h4 style='text-align: center; color: #ff9933;'>🟠 ตลาดสกอร์รวม (O/U)</h4>", unsafe_allow_html=True)
             st.plotly_chart(create_ev_gauge(best_ou['ev'], f"เป้าหมาย: {best_ou['n']}", ou_threshold), use_container_width=True)
+        col1, col2, col3 = st.columns(3)
+with col1:
+    st.metric(label="🏠 เจ้าบ้านชนะ", value=f"{prob_h*100:.1f}%")
+with col2:
+    st.metric(label="🤝 เสมอ", value=f"{prob_d*100:.1f}%")
+with col3:
+    st.metric(label="✈️ เยือนชนะ", value=f"{prob_a*100:.1f}%")
+st.markdown("---")
 
         # 🌟 ตรวจสอบว่าเป้าไหนผ่านเกณฑ์ของตัวเอง
         ah_passed = best_ah['ev'] >= ah_limit
