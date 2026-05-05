@@ -360,6 +360,21 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
                     "final_comment": f"AI ล้มเหลว (ใช้คณิตศาสตร์ล้วน): ขัดข้องในการแปลง JSON"
                 }
 
+            if "429" in error_str and attempt < 2:
+                time.sleep(2)
+                continue
+            
+            if attempt == 2:
+                return {
+                    "pros_analysis": "ไม่สามารถวิเคราะห์ได้เนื่องจากระบบขัดข้อง",
+                    "cons_analysis": "ไม่สามารถวิเคราะห์ได้",
+                    "rule_triggered": "System Error", 
+                    "impact_score": 0.0, 
+                    # ให้ใช้คณิตศาสตร์ล้วน
+                    "final_decision": True if base_ev >= 0.08 else False, 
+                    "final_comment": f"AI ล้มเหลว (ใช้คณิตศาสตร์ล้วน): ขัดข้องในการแปลง JSON"
+                }
+
 # ==========================================
 # UI / UX Components (ระบบวาดหน้าปัดและปุ่ม)
 # ==========================================
