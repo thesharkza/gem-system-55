@@ -47,6 +47,7 @@ def clear_form_data():
     st.session_state.h1x2_val = 1.0; st.session_state.d1x2_val = 1.0; st.session_state.a1x2_val = 1.0
     st.session_state.hdp_line_val = 0.0; st.session_state.hdp_h_w_val = 0.0; st.session_state.hdp_a_w_val = 0.0
     st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
+    st.rerun()
 
 def parse_line(line_str):
     line_str = str(line_str).replace(' ', '').replace('+', '')
@@ -85,51 +86,40 @@ def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
 def calc_dixon_coles_matrix(p_h, p_d, p_a, ou_line, ou_over_w, ou_under_w, rho, current_h=0, current_a=0, minutes_left=90, red_card_h=False, red_card_a=False):
-    # 🌟 Safety Check: แปลงค่าน้ำให้เป็นมาตรฐาน Decimal เสมอ (ป้องกันบั๊ก Base EV 60%+)
-    # ถ้ากรอกค่าน้ำฮ่องกง/มาเลย์ (เช่น 0.81, 0.99) โค้ดจะบวก 1 ให้อัตโนมัติเพื่อใช้คำนวณ
     o_w = ou_over_w + 1.0 if ou_over_w < 1.1 else ou_over_w
     u_w = ou_under_w + 1.0 if ou_under_w < 1.1 else ou_under_w
     
-    # 🌟 1. ถอดรหัส 'จำนวนประตูที่แท้จริง' (True Expected Goals) จากค่าน้ำ O/U
     o_prob = 1.0 / o_w
     u_prob = 1.0 / u_w
     margin_ou = o_prob + u_prob
     true_o_prob = o_prob / margin_ou
     
-    # ปรับฐานประตู: ถ้าน้ำฝั่งสูงจ่ายถูก (โอกาสยิงเกินเรตมีสูง) ฐานประตูต้องขยับขึ้น
     expected_total = ou_line + ((true_o_prob - 0.5) * 1.30)
-    expected_total = max(0.5, expected_total) # ป้องกันค่าติดลบ
+    expected_total = max(0.5, expected_total) 
     
-    # 🌟 2. ถอดรหัส 'ความห่างชั้น' (Calibrate Supremacy)
-    # ปรับจูนเพื่อไม่ให้ทีมเต็งถูกประเมินเวอร์เกินไป (สมจริงแบบ Hedge Fund)
     supremacy = (p_h - p_a) * (expected_total ** 0.65)
     
     lam_h_base = (expected_total + supremacy) / 2.0
     lam_a_base = (expected_total - supremacy) / 2.0
     
-    # ป้องกันไม่ให้ Expected Goals ของทีมรองต่ำกว่า 0.15 (ยังไงก็มีโอกาสฟลุ๊คยิงได้)
     lam_h_base = max(0.15, lam_h_base)
     lam_a_base = max(0.15, lam_a_base)
 
-    # 🌟 3. อิทธิพลของเวลา (Time Decay)
     time_factor = (minutes_left / 90.0) ** 0.85 
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
 
-    # 🌟 4. อัปเกรดผลกระทบใบแดงให้สมจริง
     if red_card_h: 
-        lam_h *= 0.50 # คนน้อย พลังบุกหายครึ่งนึง
-        lam_a *= 1.30 # คนเยอะ ได้พื้นที่บุกเพิ่ม 30%
+        lam_h *= 0.50 
+        lam_a *= 1.30 
     if red_card_a: 
         lam_a *= 0.50
         lam_h *= 1.30
 
-    # สร้างตาราง Poisson Matrix 10x10
     matrix = [[0.0 for j in range(10)] for i in range(10)]
     for i in range(10): 
         for j in range(10): 
             base_prob = poisson(i, lam_h) * poisson(j, lam_a)
-            # Dixon-Coles adjustment: ปรับเพิ่ม/ลด โอกาสเกิดผลสกอร์ต่ำ (0-0, 1-0, 0-1, 1-1)
             if i == 0 and j == 0: tau = 1 - (lam_h * lam_a * rho)
             elif i == 0 and j == 1: tau = 1 + (lam_h * rho)
             elif i == 1 and j == 0: tau = 1 + (lam_a * rho)
@@ -213,7 +203,7 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
     return 0.0
 
 # ==========================================
-# 2. ระบบ AI Decision Engine (Chief Risk Officer)
+# 2. ระบบ AI Decision Engine (Chief Risk Officer) + LEVEL 3 Chain of Thought
 # ==========================================
 def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
     oracle_database = load_gem_rules()
@@ -251,10 +241,12 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
         "คำสั่งการตอบกลับ:\n"
         "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่นรอบนอก:\n"
         "{\n"
+        '    "pros_analysis": "ให้เขียนเหตุผลสนับสนุน (ข้อดี) ของการลงทุนคู่นี้",\n'
+        '    "cons_analysis": "หาช่องโหว่ ข้อควรระวัง หรือกับดักของเจ้ามือในราคานี้",\n'
         '    "rule_triggered": "สรุปชื่อกฎ GEM ทั้งหมดที่นำมาชั่งน้ำหนัก",\n'
         '    "impact_score": 0.0,\n'
         '    "final_decision": true,\n'
-        '    "final_comment": "อธิบายเหตุผลการชั่งน้ำหนัก"\n'
+        '    "final_comment": "สรุปการตัดสินใจขั้นเด็ดขาดจากการชั่งน้ำหนัก Pros และ Cons"\n'
         "}"
     )
     
@@ -272,6 +264,8 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
                 continue
             if attempt == 2:
                 return {
+                    "pros_analysis": "ไม่สามารถวิเคราะห์ได้เนื่องจากระบบขัดข้อง",
+                    "cons_analysis": "ไม่สามารถวิเคราะห์ได้",
                     "rule_triggered": "System Error", 
                     "impact_score": 0.0, 
                     "final_decision": True if base_ev >= 0.08 else False, 
@@ -403,7 +397,6 @@ with tab1:
     dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho", -0.30, 0.0, -0.10, step=0.01)
     hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5,step=0.5)
     
-    # 🌟 แยกปรับ Threshold แบบอิสระตามคำขอ
     st.sidebar.markdown("---")
     st.sidebar.subheader("🎯 EV Threshold (เป้าหมายกำไร)")
     ah_threshold = st.sidebar.slider("เป้าหมาย แฮนดิแคป (AH) %", 1.0, 20.0, 9.0, step=0.5)
@@ -497,14 +490,11 @@ with tab1:
         best_ou = max([{"n": "สูง", "ev": ev_over, "odds": ow_o, "hdp": ou_line}, {"n": "ต่ำ", "ev": ev_under, "odds": uw_o, "hdp": ou_line}], key=lambda x: x['ev'])
 
         st.markdown("---")
-        # หัวข้อหลัก (จัดกึ่งกลาง)
         st.markdown("<h3 style='text-align: center;'>📊 ANALYZE PRE-MATCH (ผลวิเคราะห์คณิตศาสตร์)</h3>", unsafe_allow_html=True)
-        st.write("") # เว้นบรรทัดนิดนึงให้สวยงาม
+        st.write("") 
 
-        # 🌟 1. กล่องตัวเลขสถิติ (Top Stats)
         st.markdown("<h5 style='text-align: center; color: #aaaaaa;'>📈 สถิติความน่าจะเป็น (Implied Probabilities)</h5>", unsafe_allow_html=True)
         
-        # ตรวจสอบว่ามีตัวแปร prob_h, prob_d, prob_a หรือไม่ (ถ้าตั้งชื่อเป็นอย่างอื่น ให้เปลี่ยนชื่อให้ตรงกันครับ)
         try:
             col1, col2, col3 = st.columns(3)
             with col1:
@@ -514,7 +504,7 @@ with tab1:
             with col3:
                 st.metric(label="✈️ โอกาสเยือนชนะ", value=f"{prob_a*100:.1f}%")
         except:
-            pass # ข้ามไปถ้าไม่ได้ดึงตัวแปรโอกาสชนะมาใช้ในหน้านี้
+            pass 
         g1, g2 = st.columns(2)
         with g1: 
             st.markdown("<h4 style='text-align: center; color: #4db8ff;'>🔵 ตลาดแฮนดิแคป (AH)</h4>", unsafe_allow_html=True)
@@ -524,12 +514,10 @@ with tab1:
             st.markdown("<h4 style='text-align: center; color: #ff9933;'>🟠 ตลาดสกอร์รวม (O/U)</h4>", unsafe_allow_html=True)
             st.plotly_chart(create_ev_gauge(best_ou['ev'], f"เป้าหมาย: {best_ou['n']}", ou_threshold), use_container_width=True)
 
-        # 🌟 ตรวจสอบว่าเป้าไหนผ่านเกณฑ์ของตัวเอง
         ah_passed = best_ah['ev'] >= ah_limit
         ou_passed = best_ou['ev'] >= ou_limit
 
         if ah_passed or ou_passed:
-            # เลือกเป้าหมายที่ดีที่สุดที่ผ่านเกณฑ์ (ถ้าผ่านทั้งคู่ เอาอันที่ EV สูงกว่า)
             if ah_passed and ou_passed:
                 target_to_check = best_ah if best_ah['ev'] > best_ou['ev'] else best_ou
             elif ah_passed:
@@ -549,12 +537,14 @@ with tab1:
                     c2.metric("Oracle Rule Adjust", f"{ai_verdict.get('impact_score', 0)*100:.2f}%")
                     c3.metric("Net EV", f"{net_ev*100:.2f}%")
                     
-                    st.info(f"**📖 กฎที่ทำงาน:** {ai_verdict.get('rule_triggered', 'None')}")
+                    with st.expander("📖 รายละเอียดการวิเคราะห์จาก THE ORACLE", expanded=True):
+                        st.success(f"**✅ ข้อดี (Pros):** {ai_verdict.get('pros_analysis', 'ไม่มี')}")
+                        st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_verdict.get('cons_analysis', 'ไม่มี')}")
+                        st.info(f"**📜 กฎที่ทำงาน:** {ai_verdict.get('rule_triggered', 'None')}")
                     
                     if ai_verdict.get('final_decision', False):
                         st.balloons()
                         st.success(f"✅ ORACLE APPROVED: {ai_verdict.get('final_comment', 'Good')}")
-                        # ใช้เป้าหมายที่ตั้งไว้ในการคำนวณเงินลงทุน
                         limit_for_calc = ah_limit if target_to_check['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else ou_limit
                         inv = min( (((target_to_check['odds']-1) * ((net_ev+1)/target_to_check['odds']) - (1-((net_ev+1)/target_to_check['odds']))) / (target_to_check['odds']-1)) * 0.25, 0.05) * total_bankroll
                         tz_th = timezone(timedelta(hours=7))
@@ -595,6 +585,44 @@ with tab2:
             fig = go.Figure(go.Scatter(x=logs_s['Time'], y=logs_s['Cumulative_Profit'], mode='lines', fill='tozeroy', line=dict(color='#00FF7F', width=3)))
             fig.update_layout(title="Equity Curve", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
+
+        # ==========================================
+        # 🤖 AI Daily Debrief (Level 4: Self-Reflection)
+        # ==========================================
+        st.markdown("---")
+        st.subheader("🤖 AI Daily Debrief (วิเคราะห์หาจุดอ่อนของระบบ)")
+        
+        loss_logs = logs[logs['Net_Profit'] < 0]
+        
+        if len(loss_logs) > 0:
+            st.info(f"🔍 พบประวัติการลงทุนที่ขาดทุนจำนวน {len(loss_logs)} รายการ")
+            if st.button("🧠 สั่ง AI วิเคราะห์ความผิดพลาด (Post-Mortem)", use_container_width=True):
+                with st.spinner("The Oracle กำลังสแกนหา 'กับดักราคา' จากประวัติความพ่ายแพ้..."):
+                    loss_data_str = loss_logs[['Time', 'Match', 'HDP', 'Target', 'Odds', 'Result', 'Net_Profit']].to_string()
+                    
+                    prompt_debrief = (
+                        "คุณคือ Chief Risk Officer ของกองทุน Quant Sports Betting\n"
+                        "ด้านล่างนี้คือประวัติการลงทุนของกองทุนเราที่ 'ขาดทุน' ในช่วงที่ผ่านมา\n"
+                        f"{loss_data_str}\n\n"
+                        "คำสั่ง:\n"
+                        "1. ให้วิเคราะห์หา 'รูปแบบ (Pattern) ความพ่ายแพ้' เช่น เรามักจะเสียเงินกับเรตแฮนดิแคปแบบไหน? หรือตลาดแบบใด?\n"
+                        "2. มีร่องรอยของการที่เจ้ามือตั้ง 'กับดักราคา' (Trap) หรือไม่?\n"
+                        "3. ให้สรุปและเสนอ 'กฎเหล็กข้อใหม่ (New GEM Rules) จำนวน 2 ข้อ' เพื่อให้ผู้ใช้งานนำไปใส่ในคัมภีร์เพื่อป้องกันความผิดพลาดเดิมในอนาคต"
+                    )
+                    
+                    try:
+                        if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
+                            model = genai.GenerativeModel('models/gemini-2.5-flash')
+                            res_debrief = model.generate_content(prompt_debrief)
+                            st.success("✅ การวิเคราะห์เสร็จสิ้น!")
+                            st.markdown(res_debrief.text)
+                        else:
+                            st.error("⚠️ ไม่พบ API Key กรุณาใส่ API Key ใน Sidebar")
+                    except Exception as e:
+                        st.error(f"เกิดข้อผิดพลาดในการวิเคราะห์: {e}")
+        else:
+            st.success("🌟 ยอดเยี่ยม! ระบบยังไม่พบประวัติการแทงเสีย AI จึงยังไม่ต้องวิเคราะห์จุดอ่อน")
+
     else: st.info("ยังไม่มีข้อมูลบันทึกในระบบ")
 
 # --- TAB 3: IN-PLAY LIVE ---
@@ -678,7 +706,6 @@ with tab3:
         b_ah_v = max(ev_h, ev_a); t_ah = "เจ้าบ้าน" if ev_h > ev_a else "ทีมเยือน"
         b_ou_v = max(ev_o, ev_u); t_ou = "สูง" if ev_o > ev_u else "ต่ำ"
         
-        # 🌟 โหมด Live สด ก็ใช้เกณฑ์ที่แยกกันด้วย
         g1, g2 = st.columns(2)
         with g1: st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", ah_threshold), use_container_width=True)
         with g2: st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", ou_threshold), use_container_width=True)
@@ -705,9 +732,12 @@ with tab3:
                     c1.metric("Live EV", f"{t_live['ev']*100:.2f}%")
                     c2.metric("Oracle Adjust", f"{ai_live.get('impact_score', 0)*100:.2f}%")
                     c3.metric("Net Live EV", f"{net_l_ev*100:.2f}%")
-                    st.info(f"**📖 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
                     
-                    # 🌟 ใช้เกณฑ์เฉพาะตัว (AH 10% หรือ O/U 15%) ในการตัดสินใจลั่นไก
+                    with st.expander("📖 รายละเอียดการวิเคราะห์ (Live Mode)", expanded=True):
+                        st.success(f"**✅ ข้อดี (Pros):** {ai_live.get('pros_analysis', 'ไม่มี')}")
+                        st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_live.get('cons_analysis', 'ไม่มี')}")
+                        st.info(f"**📜 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
+                    
                     limit_to_use = ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else ou_limit
                     if ai_live.get('final_decision', False) and net_l_ev >= limit_to_use:
                         st.balloons()
