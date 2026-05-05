@@ -47,7 +47,6 @@ def clear_form_data():
     st.session_state.h1x2_val = 1.0; st.session_state.d1x2_val = 1.0; st.session_state.a1x2_val = 1.0
     st.session_state.hdp_line_val = 0.0; st.session_state.hdp_h_w_val = 0.0; st.session_state.hdp_a_w_val = 0.0
     st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
-    st.rerun()
 
 def parse_line(line_str):
     line_str = str(line_str).replace(' ', '').replace('+', '')
