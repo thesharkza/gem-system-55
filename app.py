@@ -500,6 +500,19 @@ with tab1:
         # หัวข้อหลัก (จัดกึ่งกลาง)
         st.markdown("<h3 style='text-align: center;'>📊 ANALYZE PRE-MATCH (ผลวิเคราะห์คณิตศาสตร์)</h3>", unsafe_allow_html=True)
         st.write("") # เว้นบรรทัดนิดนึงให้สวยงาม
+
+        # 🌟 1. กล่องตัวเลขสถิติ (Top Stats)
+        st.markdown("<h5 style='text-align: center; color: #aaaaaa;'>📈 สถิติความน่าจะเป็น (Implied Probabilities)</h5>", unsafe_allow_html=True)
+        
+        # ตรวจสอบว่ามีตัวแปร prob_h, prob_d, prob_a หรือไม่ (ถ้าตั้งชื่อเป็นอย่างอื่น ให้เปลี่ยนชื่อให้ตรงกันครับ)
+        try:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric(label="🏠 โอกาสเจ้าบ้านชนะ", value=f"{prob_h*100:.1f}%")
+            with col2:
+                st.metric(label="🤝 โอกาสเสมอ", value=f"{prob_d*100:.1f}%")
+            with col3:
+                st.metric(label="✈️ โอกาสเยือนชนะ", value=f"{prob_a*100:.1f}%")
         
         g1, g2 = st.columns(2)
         
