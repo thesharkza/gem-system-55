@@ -266,8 +266,7 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
 def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
     raw_database = load_gem_rules()
     
-    # 🧠 LEVEL 2: DYNAMIC KNOWLEDGE RETRIEVAL 
-    # ตรวจสอบว่ามีฟังก์ชัน get_dynamic_rules หรือยัง ถ้ามีให้ใช้กรอง ถ้าไม่มีให้ใช้กฎทั้งหมด
+    # ตรวจสอบว่ามีฟังก์ชัน get_dynamic_rules หรือยัง
     try:
         oracle_database = get_dynamic_rules(target, is_live, raw_database)
     except NameError:
@@ -317,32 +316,44 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     
     for attempt in range(3):
         try:
-            # 🌟 อัปเกรด 1: บังคับให้ AI พ่นเฉพาะ JSON ผ่าน generation_config
-            model = genai.GenerativeModel('models/gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
+            # ลบคำสั่งพิเศษทิ้ง ใช้การเรียก AI แบบธรรมดาที่สุดเพื่อป้องกันระบบพัง
+            model = genai.GenerativeModel('models/gemini-2.5-flash')
             response = model.generate_content(prompt)
             
-            # 🌟 อัปเกรด 2: ใช้ Regex จับเฉพาะส่วนที่เป็นปีกกา { ... } เพื่อป้องกันขยะปะปน
-            res_text = response.text
-            json_match = re.search(r'\{.*\}', res_text, re.DOTALL)
-            if json_match:
-                res_text = json_match.group(0)
+            # 🌟 อัปเกรดตัวกรองข้อความขั้นสุด 
+            res_text = response.text.strip()
+            # 1. ลบ Markdown ออก (ถ้ามี)
+            res_text = res_text.replace("```json", "").replace("
+```", "").strip()
+            
+            # 2. จับข้อมูลตั้งแต่ปีกกาเปิด { ถึงปีกกาปิด }
+            start_idx = res_text.find('{')
+            end_idx = res_text.rfind('}')
+            
+            if start_idx != -1 and end_idx != -1:
+                res_text = res_text[start_idx:end_idx+1]
             else:
-                res_text = "{}" # ดักจับกรณีส่งค่าว่างเปล่ามา
+                raise ValueError("ไม่พบโครงสร้าง JSON ในคำตอบของ AI")
                 
             return json.loads(res_text)
             
         except Exception as e:
+            # เก็บค่า Error ตัวจริงไว้
             error_str = str(e).replace('"', "'")
             
-            # 🌟 อัปเกรด 3: ดักจับกรณี AI ติด Safety Filter (แบนเนื้อหาพนัน)
-            if "finish_reason" in error_str or "safety" in error_str.lower() or "Cannot get the response text" in error_str:
+            if "429" in error_str and attempt < 2:
+                time.sleep(2) # รอแป๊บนึงถ้าถูกจำกัดโควต้า
+                continue
+            
+            if attempt == 2:
+                # ถ้าพยายามครบ 3 รอบแล้วยังพัง ให้พ่น Error "ตัวจริง" ออกมาโชว์หน้าจอ!
                 return {
-                    "pros_analysis": "ไม่สามารถวิเคราะห์ได้ เนื่องจาก AI มองว่าเนื้อหาขัดต่อนโยบายความปลอดภัย (Safety Filter)",
-                    "cons_analysis": "AI ปฏิเสธการตอบคำถามในคู่นี้",
-                    "rule_triggered": "Blocked by AI Safety", 
+                    "pros_analysis": "ระบบขัดข้อง",
+                    "cons_analysis": "ระบบขัดข้อง",
+                    "rule_triggered": "System Error", 
                     "impact_score": 0.0, 
-                    "final_decision": False, # สั่งทับมือทันทีเพื่อความปลอดภัย
-                    "final_comment": "AI ล้มเหลว: เนื้อหาโดนบล็อก (สั่งทับมือ)"
+                    "final_decision": True if base_ev >= 0.08 else False, 
+                    "final_comment": f"AI ล้มเหลว: {error_str}" # แสดงข้อผิดพลาดที่แท้จริง
                 }
 
             if "429" in error_str and attempt < 2:
