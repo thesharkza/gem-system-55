@@ -715,7 +715,7 @@ with tab2:
         
         loss_logs = logs[logs['Net_Profit'] < 0]
         
-        # สร้าง Session State เพื่อเก็บผลลัพธ์ของ AI ไม่ให้หายไปตอนกดปุ่ม
+        # สร้าง Session State
         if 'debrief_result' not in st.session_state:
             st.session_state['debrief_result'] = ""
             
@@ -723,8 +723,6 @@ with tab2:
             st.info(f"🔍 พบประวัติการลงทุนที่ขาดทุนจำนวน {len(loss_logs)} รายการ")
             if st.button("🧠 สั่ง AI วิเคราะห์ความผิดพลาด (Post-Mortem)", use_container_width=True):
                 with st.spinner("The Oracle กำลังสแกนหา 'กับดักราคา' จากประวัติความพ่ายแพ้..."):
-                    
-                    # 🌟 อัปเกรด 1: เปลี่ยนมาใช้ .to_csv(index=False) เพื่อให้ AI ของ Google อ่านง่าย ไม่ Error 500
                     loss_data_str = loss_logs[['Time', 'Match', 'HDP', 'Target', 'Odds', 'Result', 'Net_Profit']].to_csv(index=False)
                     
                     prompt_debrief = (
@@ -737,53 +735,64 @@ with tab2:
                         "3. กฎใหม่ต้องขึ้นต้นด้วยคำว่า 'Gem : (ชื่อกฎ)'"
                     )
                     
-                    # 🌟 อัปเกรด 2: ใส่ระบบ Retry สู้ชีวิต ถ้าเซิร์ฟเวอร์ Google ล่ม ให้ส่งกระแทกใหม่ 3 รอบ
                     for attempt in range(3):
                         try:
                             if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
                                 model = genai.GenerativeModel('models/gemma-4-31b-it')
                                 res_debrief = model.generate_content(prompt_debrief)
-                                # เก็บผลลัพธ์ลงในหน่วยความจำ
                                 st.session_state['debrief_result'] = res_debrief.text
-                                break # ถ้าสำเร็จ ให้ออกจากการวนลูปทันที
+                                break 
                             else:
                                 st.error("⚠️ ไม่พบ API Key กรุณาใส่ API Key ใน Sidebar")
                                 break
                         except Exception as e:
-                            error_str = str(e)
-                            if ("500" in error_str or "429" in error_str) and attempt < 2:
-                                time.sleep(2) # รอ 2 วินาทีให้เซิร์ฟเวอร์ Google หายใจ แล้วลองใหม่
+                            if ("500" in str(e) or "429" in str(e)) and attempt < 2:
+                                time.sleep(2) 
                                 continue
                             else:
-                                st.error(f"❌ ระบบของ Google ขัดข้อง (ผ่านไป 3 รอบ): {error_str}")
+                                st.error(f"❌ ระบบขัดข้อง: {e}")
                                 break
 
-           # --- บล็อกข้อความแจ้งเตือนสถานะการบันทึก ---
+            # --- แจ้งเตือนสถานะการบันทึก ---
             if st.session_state.get('save_success', False):
-                st.success("🎉 บันทึกกฎใหม่ลงคัมภีร์ (gem_rules.txt) สำเร็จเรียบร้อยแล้ว! คัมภีร์อัปเดตแล้วครับ")
+                st.success("🎉 บันทึกกฎใหม่ลงคัมภีร์ (gem_rules.txt) สำเร็จเรียบร้อยแล้ว!")
                 st.session_state['save_success'] = False 
-                
-            if st.session_state.get('save_error', "") != "":
-                st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {st.session_state['save_error']}")
-                st.session_state['save_error'] = ""
-            # ----------------------------------------
+            # ---------------------------
 
-            # ถ้าระบบมีข้อความ Debrief ค้างอยู่ ให้กางกล่องข้อความให้ผู้ใช้แก้ไข
+            # ถ้าระบบมีข้อความ Debrief ค้างอยู่ ให้โชว์ "ฟอร์มกรอกข้อมูล (st.form)"
             if st.session_state.get('debrief_result', "") != "":
                 st.success("✅ การวิเคราะห์เสร็จสิ้น!")
+                st.warning("✏️ คุณสามารถแก้ไข กฎที่ AI เสนอมาได้ในกล่องด้านล่างนี้ เมื่อพอใจแล้วค่อยกดบันทึก")
                 
-                st.warning("✏️ คุณสามารถ **แก้ไข/ตัดทอน/พิมพ์เพิ่ม** กฎที่ AI เสนอมาได้ในกล่องด้านล่างนี้เลยครับ เมื่อพอใจแล้วค่อยกดบันทึก")
-                
-                # 🌟 สร้างกล่องข้อความ (Text Area) พร้อมดึงข้อความจาก AI มาใส่รอไว้
-                st.text_area(
-                    "ตรวจสอบและปรับแต่งกฎของคุณที่นี่:", 
-                    value=st.session_state['debrief_result'], 
-                    height=250, 
-                    key="edited_rule_text" # ผูกชื่อ key นี้ไว้ให้ Callback วิ่งมาดึงข้อมูล
-                )
-                
-                # ปุ่มกดบันทึก
-                st.button("💾 บันทึกข้อความในกล่องนี้ลงคัมภีร์", type="primary", use_container_width=True, on_click=approve_and_save_rule)
+                # 🌟 ใช้ st.form ครอบไว้ เพื่อการันตีการส่งข้อมูล 100%
+                with st.form(key="save_rule_form"):
+                    edited_text = st.text_area(
+                        "ตรวจสอบและปรับแต่งกฎของคุณที่นี่:", 
+                        value=st.session_state['debrief_result'], 
+                        height=250
+                    )
+                    
+                    # ปุ่ม Submit ภายใน Form
+                    submit_save = st.form_submit_button("💾 บันทึกข้อความในกล่องนี้ลงคัมภีร์", type="primary", use_container_width=True)
+                    
+                    if submit_save:
+                        if edited_text.strip() != "":
+                            try:
+                                with open(RULES_FILE, "a", encoding="utf-8") as f:
+                                    tz_th = timezone(timedelta(hours=7))
+                                    now_str = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M")
+                                    f.write(f"\n\n### กฎใหม่ที่เพิ่ม/แก้ไขโดยผู้ใช้ (อัปเดตวันที่ {now_str}) ###\n")
+                                    f.write(edited_text)
+                                
+                                # เซฟเสร็จ เคลียร์ค่า และสั่งรีเฟรช
+                                st.session_state['debrief_result'] = ""
+                                st.session_state['save_success'] = True
+                                load_gem_rules.clear() # ล้างแคชคัมภีร์
+                                st.rerun() # รีเฟรชหน้าเว็บทันที
+                            except Exception as e:
+                                st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
+                        else:
+                            st.error("⚠️ กล่องข้อความว่างเปล่า ไม่สามารถบันทึกได้ครับ")
 
         else:
             st.success("🌟 ยอดเยี่ยม! ระบบยังไม่พบประวัติการแทงเสีย AI จึงยังไม่ต้องวิเคราะห์จุดอ่อน")
