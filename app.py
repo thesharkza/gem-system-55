@@ -542,7 +542,7 @@ with tab1:
                         st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_verdict.get('cons_analysis', 'ไม่มี')}")
                         st.info(f"**📜 กฎที่ทำงาน:** {ai_verdict.get('rule_triggered', 'None')}")
                     
-                    if ai_verdict.get('final_decision', False):
+                    if ai_verdict.get('final_decision', False) and net_ev > 0:
                         st.balloons()
                         st.success(f"✅ ORACLE APPROVED: {ai_verdict.get('final_comment', 'Good')}")
                         limit_for_calc = ah_limit if target_to_check['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else ou_limit
