@@ -322,9 +322,9 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
             
             # 🌟 อัปเกรดตัวกรองข้อความขั้นสุด 
             res_text = response.text.strip()
-            # 1. ลบ Markdown ออก (ถ้ามี)
-            res_text = res_text.replace("```json", "").replace("
-```", "").strip()
+            # 1. ลบ Markdown ออก (ถ้ามี) ป้องกันบั๊กบรรทัดตกด้วย chr(96)
+            bt = chr(96) * 3
+            res_text = res_text.replace(bt + "json", "").replace(bt, "").strip()
             
             # 2. จับข้อมูลตั้งแต่ปีกกาเปิด { ถึงปีกกาปิด }
             start_idx = res_text.find('{')
