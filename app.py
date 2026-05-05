@@ -716,11 +716,13 @@ with tab2:
             st.info(f"🔍 พบประวัติการลงทุนที่ขาดทุนจำนวน {len(loss_logs)} รายการ")
             if st.button("🧠 สั่ง AI วิเคราะห์ความผิดพลาด (Post-Mortem)", use_container_width=True):
                 with st.spinner("The Oracle กำลังสแกนหา 'กับดักราคา' จากประวัติความพ่ายแพ้..."):
-                    loss_data_str = loss_logs[['Time', 'Match', 'HDP', 'Target', 'Odds', 'Result', 'Net_Profit']].to_string()
+                    
+                    # 🌟 อัปเกรด 1: เปลี่ยนมาใช้ .to_csv(index=False) เพื่อให้ AI ของ Google อ่านง่าย ไม่ Error 500
+                    loss_data_str = loss_logs[['Time', 'Match', 'HDP', 'Target', 'Odds', 'Result', 'Net_Profit']].to_csv(index=False)
                     
                     prompt_debrief = (
                         "คุณคือ Chief Risk Officer ของกองทุน Quant Sports Betting\n"
-                        "ด้านล่างนี้คือประวัติการลงทุนของกองทุนเราที่ 'ขาดทุน' ในช่วงที่ผ่านมา\n"
+                        "ด้านล่างนี้คือประวัติการลงทุนของกองทุนเราที่ 'ขาดทุน' ในช่วงที่ผ่านมา (รูปแบบ CSV)\n"
                         f"{loss_data_str}\n\n"
                         "คำสั่ง:\n"
                         "1. ให้วิเคราะห์หา 'รูปแบบ (Pattern) ความพ่ายแพ้'\n"
@@ -728,16 +730,26 @@ with tab2:
                         "3. กฎใหม่ต้องขึ้นต้นด้วยคำว่า 'Gem : (ชื่อกฎ)'"
                     )
                     
-                    try:
-                        if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
-                            model = genai.GenerativeModel('models/gemma-4-31b-it')
-                            res_debrief = model.generate_content(prompt_debrief)
-                            # เก็บผลลัพธ์ลงในหน่วยความจำ
-                            st.session_state['debrief_result'] = res_debrief.text
-                        else:
-                            st.error("⚠️ ไม่พบ API Key กรุณาใส่ API Key ใน Sidebar")
-                    except Exception as e:
-                        st.error(f"เกิดข้อผิดพลาดในการวิเคราะห์: {e}")
+                    # 🌟 อัปเกรด 2: ใส่ระบบ Retry สู้ชีวิต ถ้าเซิร์ฟเวอร์ Google ล่ม ให้ส่งกระแทกใหม่ 3 รอบ
+                    for attempt in range(3):
+                        try:
+                            if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
+                                model = genai.GenerativeModel('models/gemma-4-31b-it')
+                                res_debrief = model.generate_content(prompt_debrief)
+                                # เก็บผลลัพธ์ลงในหน่วยความจำ
+                                st.session_state['debrief_result'] = res_debrief.text
+                                break # ถ้าสำเร็จ ให้ออกจากการวนลูปทันที
+                            else:
+                                st.error("⚠️ ไม่พบ API Key กรุณาใส่ API Key ใน Sidebar")
+                                break
+                        except Exception as e:
+                            error_str = str(e)
+                            if ("500" in error_str or "429" in error_str) and attempt < 2:
+                                time.sleep(2) # รอ 2 วินาทีให้เซิร์ฟเวอร์ Google หายใจ แล้วลองใหม่
+                                continue
+                            else:
+                                st.error(f"❌ ระบบของ Google ขัดข้อง (ผ่านไป 3 รอบ): {error_str}")
+                                break
 
             # ถ้าระบบมีข้อความ Debrief ค้างอยู่ ให้แสดงผล และโชว์ปุ่ม Save
             if st.session_state.get('debrief_result', "") != "":
