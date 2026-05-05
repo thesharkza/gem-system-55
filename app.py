@@ -709,12 +709,6 @@ with tab2:
                             f.write(st.session_state['debrief_result'])
                         
                         st.success("🎉 บันทึกกฎใหม่ลงคัมภีร์สำเร็จแล้ว! กฎนี้จะถูกนำไปใช้สแกนหา Value Bet ในคู่ถัดไปทันที")
-                        # ล้างค่าในหน้าจอหลังจากเซฟเสร็จ
-                        st.session_state['debrief_result'] = ""
-                        time.sleep(2) # หน่วงเวลาให้ผู้ใช้อ่านข้อความสำเร็จ
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ ไม่สามารถบันทึกไฟล์ได้: {e}")
 
         else:
             st.success("🌟 ยอดเยี่ยม! ระบบยังไม่พบประวัติการแทงเสีย AI จึงยังไม่ต้องวิเคราะห์จุดอ่อน")
