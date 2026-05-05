@@ -245,7 +245,9 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
 # 2. ระบบ AI Decision Engine (Chief Risk Officer) + LEVEL 3 Chain of Thought
 # ==========================================
 def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
-    oracle_database = load_gem_rules()
+    raw_database = load_gem_rules()
+    # 🧠 LEVEL 2: DYNAMIC KNOWLEDGE RETRIEVAL (ร่อนตะแกรงเอากฎที่ตรงบริบทเท่านั้น)
+    oracle_database = get_dynamic_rules(target, is_live, raw_database)
     
     if not is_live:
         mode_instruction = (
