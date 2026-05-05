@@ -587,13 +587,17 @@ with tab2:
             st.plotly_chart(fig, use_container_width=True)
 
         # ==========================================
-        # 🤖 AI Daily Debrief (Level 4: Self-Reflection)
+        # 🤖 AI Daily Debrief (Level 4: Self-Reflection + 1-Click Save)
         # ==========================================
         st.markdown("---")
         st.subheader("🤖 AI Daily Debrief (วิเคราะห์หาจุดอ่อนของระบบ)")
         
         loss_logs = logs[logs['Net_Profit'] < 0]
         
+        # สร้าง Session State เพื่อเก็บผลลัพธ์ของ AI ไม่ให้หายไปตอนกดปุ่ม
+        if 'debrief_result' not in st.session_state:
+            st.session_state['debrief_result'] = ""
+            
         if len(loss_logs) > 0:
             st.info(f"🔍 พบประวัติการลงทุนที่ขาดทุนจำนวน {len(loss_logs)} รายการ")
             if st.button("🧠 สั่ง AI วิเคราะห์ความผิดพลาด (Post-Mortem)", use_container_width=True):
@@ -606,20 +610,44 @@ with tab2:
                         f"{loss_data_str}\n\n"
                         "คำสั่ง:\n"
                         "1. ให้วิเคราะห์หา 'รูปแบบ (Pattern) ความพ่ายแพ้' เช่น เรามักจะเสียเงินกับเรตแฮนดิแคปแบบไหน? หรือตลาดแบบใด?\n"
-                        "2. มีร่องรอยของการที่เจ้ามือตั้ง 'กับดักราคา' (Trap) หรือไม่?\n"
-                        "3. ให้สรุปและเสนอ 'กฎเหล็กข้อใหม่ (New GEM Rules) จำนวน 2 ข้อ' เพื่อให้ผู้ใช้งานนำไปใส่ในคัมภีร์เพื่อป้องกันความผิดพลาดเดิมในอนาคต"
+                        "2. ให้เขียน 'กฎเหล็กข้อใหม่ (New GEM Rule)' จำนวน 1-2 ข้อ สั้นๆ กระชับ เพื่อป้องกันความผิดพลาดเดิม\n"
+                        "3. กฎใหม่ต้องขึ้นต้นด้วยคำว่า 'Gem : (ชื่อกฎ)' เพื่อให้เข้ากับระบบเดิม"
                     )
                     
                     try:
                         if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
                             model = genai.GenerativeModel('models/gemini-2.5-flash')
                             res_debrief = model.generate_content(prompt_debrief)
-                            st.success("✅ การวิเคราะห์เสร็จสิ้น!")
-                            st.markdown(res_debrief.text)
+                            # เก็บผลลัพธ์ลงในหน่วยความจำ
+                            st.session_state['debrief_result'] = res_debrief.text
                         else:
                             st.error("⚠️ ไม่พบ API Key กรุณาใส่ API Key ใน Sidebar")
                     except Exception as e:
                         st.error(f"เกิดข้อผิดพลาดในการวิเคราะห์: {e}")
+
+            # ถ้าระบบมีข้อความ Debrief ค้างอยู่ ให้แสดงผล และโชว์ปุ่ม Save
+            if st.session_state['debrief_result'] != "":
+                st.success("✅ การวิเคราะห์เสร็จสิ้น!")
+                st.markdown(st.session_state['debrief_result'])
+                
+                st.warning("⚠️ โปรดอ่านกฎใหม่ด้านบน หากคุณเห็นด้วยกับ The Oracle ให้กดปุ่มด้านล่างเพื่อบันทึกทันที")
+                if st.button("📥 อนุมัติและบันทึกกฎนี้ลงคัมภีร์ (gem_rules.txt)", type="primary", use_container_width=True):
+                    # เปิดไฟล์แบบ Append ('a') เพื่อเขียนต่อท้าย
+                    try:
+                        with open(RULES_FILE, "a", encoding="utf-8") as f:
+                            tz_th = timezone(timedelta(hours=7))
+                            now_str = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M")
+                            f.write(f"\n\n### กฎใหม่ที่เรียนรู้จาก AI Debrief (วันที่ {now_str}) ###\n")
+                            f.write(st.session_state['debrief_result'])
+                        
+                        st.success("🎉 บันทึกกฎใหม่ลงคัมภีร์สำเร็จแล้ว! กฎนี้จะถูกนำไปใช้สแกนหา Value Bet ในคู่ถัดไปทันที")
+                        # ล้างค่าในหน้าจอหลังจากเซฟเสร็จ
+                        st.session_state['debrief_result'] = ""
+                        time.sleep(2) # หน่วงเวลาให้ผู้ใช้อ่านข้อความสำเร็จ
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ ไม่สามารถบันทึกไฟล์ได้: {e}")
+
         else:
             st.success("🌟 ยอดเยี่ยม! ระบบยังไม่พบประวัติการแทงเสีย AI จึงยังไม่ต้องวิเคราะห์จุดอ่อน")
 
