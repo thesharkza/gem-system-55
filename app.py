@@ -513,7 +513,8 @@ with tab1:
                 st.metric(label="🤝 โอกาสเสมอ", value=f"{prob_d*100:.1f}%")
             with col3:
                 st.metric(label="✈️ โอกาสเยือนชนะ", value=f"{prob_a*100:.1f}%")
-        
+        except:
+            pass # ข้ามไปถ้าไม่ได้ดึงตัวแปรโอกาสชนะมาใช้ในหน้านี้
         g1, g2 = st.columns(2)
         
         with g1: 
