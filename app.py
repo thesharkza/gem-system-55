@@ -40,6 +40,46 @@ def load_gem_rules():
         with open(RULES_FILE, "r", encoding="utf-8") as f:
             return f.read()
     return "ไม่พบไฟล์คัมภีร์ โปรดสร้างไฟล์ gem_rules.txt และใส่กฎทั้งหมดลงไป"
+    
+def get_dynamic_rules(target, is_live, raw_rules):
+    """
+    ฟังก์ชัน RAG (Retrieval-Augmented Generation) แบบเบา 
+    ทำหน้าที่กรองคัมภีร์ GEM ให้เหลือเฉพาะกฎที่เข้ากับหน้างานปัจจุบัน
+    """
+    rules = raw_rules.split('\n')
+    dynamic_db = []
+    
+    is_ah = target in ["เจ้าบ้าน", "ทีมเยือน"]
+    is_ou = target in ["สูง", "ต่ำ"]
+    
+    for rule in rules:
+        if not rule.strip(): 
+            continue
+            
+        rule_lower = rule.lower()
+        
+        # 1. ตะแกรงกรองตลาด (AH vs O/U)
+        # ถ้าเราแทงสูง/ต่ำ (O/U) แต่กฎข้อนี้พูดถึงแต่ 'ต่อ/รอง/เจ้าบ้าน/ทีมเยือน' -> ให้ตัดทิ้ง
+        if is_ou and any(w in rule_lower for w in ['เจ้าบ้าน', 'ทีมเยือน', 'ต่อ', 'รอง', 'ah']) and not any(w in rule_lower for w in ['สูง', 'ต่ำ', 'สกอร์', 'o/u']):
+            continue
+            
+        # ถ้าเราแทงแฮนดิแคป (AH) แต่กฎข้อนี้พูดถึงแต่ 'สูง/ต่ำ/ประตูรวม' -> ให้ตัดทิ้ง
+        if is_ah and any(w in rule_lower for w in ['สูง', 'ต่ำ', 'สกอร์รวม', 'o/u']) and not any(w in rule_lower for w in ['เจ้าบ้าน', 'ทีมเยือน', 'ต่อ', 'รอง', 'ah']):
+            continue
+            
+        # 2. ตะแกรงกรองเวลา (Pre-Match vs Live)
+        # ถ้าแทงก่อนเตะ (Pre-match) แต่กฎเป็นของบอลสด -> ให้ตัดทิ้ง
+        if not is_live and any(w in rule_lower for w in ['live', 'สด', 'นาที', 'ใบแดง', 'สกอร์ปัจจุบัน']):
+            continue 
+            
+        # ถ้าแทงบอลสด (Live) แต่กฎเป็นของก่อนเตะ -> ให้ตัดทิ้ง
+        if is_live and any(w in rule_lower for w in ['ก่อนเตะ', 'pre-match', 'ราคาเปิด']) and not any(w in rule_lower for w in ['live', 'สด', 'ไหล']):
+            continue
+            
+        # กฎข้อไหนที่ผ่านตะแกรงมาได้ (หรือเป็นกฎกว้างๆ ที่ไม่มีคีย์เวิร์ดเฉพาะ) ให้เก็บไว้
+        dynamic_db.append(rule)
+        
+    return "\n".join(dynamic_db)
 
 def clear_form_data():
     st.session_state.raw_text = ""
