@@ -89,23 +89,30 @@ def clear_form_data():
     st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
 
 def approve_and_save_rule():
-    """ฟังก์ชัน Callback สำหรับบันทึกกฎลงคัมภีร์แบบชัวร์ 100%"""
+    """ฟังก์ชัน Callback ดึงข้อมูลจากกล่องข้อความมาบันทึกลงคัมภีร์"""
     try:
-        # 1. เขียนไฟล์แบบ Append ('a')
-        with open(RULES_FILE, "a", encoding="utf-8") as f:
-            tz_th = timezone(timedelta(hours=7))
-            now_str = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M")
-            f.write(f"\n\n### กฎใหม่ที่เรียนรู้จาก AI Debrief (วันที่ {now_str}) ###\n")
-            f.write(st.session_state['debrief_result'])
+        # ดึงข้อความปัจจุบันที่อยู่ในกล่อง Text Area (key="edited_rule_text")
+        rule_to_save = st.session_state.get('edited_rule_text', "")
+        
+        if rule_to_save.strip() != "":
+            # เปิดไฟล์เพื่อเขียนต่อท้าย
+            with open(RULES_FILE, "a", encoding="utf-8") as f:
+                tz_th = timezone(timedelta(hours=7))
+                now_str = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M")
+                f.write(f"\n\n### กฎใหม่ที่เพิ่ม/แก้ไขโดยผู้ใช้ (อัปเดตวันที่ {now_str}) ###\n")
+                f.write(rule_to_save)
+                
+            # เคลียร์ข้อมูลทั้งหมดหลังเซฟเสร็จ
+            st.session_state['debrief_result'] = ""
+            st.session_state['save_success'] = True
             
-        # 2. ล้างข้อมูลหน้าจอ
-        st.session_state['debrief_result'] = ""
-        
-        # 3. ล้างแคช (Cache) ทันที! เพื่อให้ The Oracle ดึงกฎใหม่ไปใช้ในคู่ต่อไปได้เลย
-        load_gem_rules.clear() 
-        
+            # ล้างแคชเพื่อให้ระบบดึงคัมภีร์เล่มใหม่ไปใช้งานทันที
+            load_gem_rules.clear() 
+        else:
+            st.session_state['save_error'] = "กล่องข้อความว่างเปล่า ไม่สามารถบันทึกได้ครับ"
+            
     except Exception as e:
-        st.error(f"❌ ไม่สามารถบันทึกไฟล์ได้: {e}")
+        st.session_state['save_error'] = str(e)
 
 def parse_line(line_str):
     line_str = str(line_str).replace(' ', '').replace('+', '')
@@ -751,15 +758,32 @@ with tab2:
                                 st.error(f"❌ ระบบของ Google ขัดข้อง (ผ่านไป 3 รอบ): {error_str}")
                                 break
 
-            # ถ้าระบบมีข้อความ Debrief ค้างอยู่ ให้แสดงผล และโชว์ปุ่ม Save
+           # --- บล็อกข้อความแจ้งเตือนสถานะการบันทึก ---
+            if st.session_state.get('save_success', False):
+                st.success("🎉 บันทึกกฎใหม่ลงคัมภีร์ (gem_rules.txt) สำเร็จเรียบร้อยแล้ว! คัมภีร์อัปเดตแล้วครับ")
+                st.session_state['save_success'] = False 
+                
+            if st.session_state.get('save_error', "") != "":
+                st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {st.session_state['save_error']}")
+                st.session_state['save_error'] = ""
+            # ----------------------------------------
+
+            # ถ้าระบบมีข้อความ Debrief ค้างอยู่ ให้กางกล่องข้อความให้ผู้ใช้แก้ไข
             if st.session_state.get('debrief_result', "") != "":
                 st.success("✅ การวิเคราะห์เสร็จสิ้น!")
-                st.markdown(st.session_state['debrief_result'])
                 
-                st.warning("⚠️ โปรดอ่านกฎใหม่ด้านบน หากคุณเห็นด้วยกับ The Oracle ให้กดปุ่มด้านล่างเพื่อบันทึกทันที")
+                st.warning("✏️ คุณสามารถ **แก้ไข/ตัดทอน/พิมพ์เพิ่ม** กฎที่ AI เสนอมาได้ในกล่องด้านล่างนี้เลยครับ เมื่อพอใจแล้วค่อยกดบันทึก")
                 
-                # ใช้ on_click เพื่อไปเรียกฟังก์ชัน approve_and_save_rule ที่อยู่ด้านบน
-                st.button("📥 อนุมัติและบันทึกกฎนี้ลงคัมภีร์ (gem_rules.txt)", type="primary", use_container_width=True, on_click=approve_and_save_rule)
+                # 🌟 สร้างกล่องข้อความ (Text Area) พร้อมดึงข้อความจาก AI มาใส่รอไว้
+                st.text_area(
+                    "ตรวจสอบและปรับแต่งกฎของคุณที่นี่:", 
+                    value=st.session_state['debrief_result'], 
+                    height=250, 
+                    key="edited_rule_text" # ผูกชื่อ key นี้ไว้ให้ Callback วิ่งมาดึงข้อมูล
+                )
+                
+                # ปุ่มกดบันทึก
+                st.button("💾 บันทึกข้อความในกล่องนี้ลงคัมภีร์", type="primary", use_container_width=True, on_click=approve_and_save_rule)
 
         else:
             st.success("🌟 ยอดเยี่ยม! ระบบยังไม่พบประวัติการแทงเสีย AI จึงยังไม่ต้องวิเคราะห์จุดอ่อน")
