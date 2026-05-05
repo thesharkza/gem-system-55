@@ -265,8 +265,13 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
 # ==========================================
 def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
     raw_database = load_gem_rules()
-    # 🧠 LEVEL 2: DYNAMIC KNOWLEDGE RETRIEVAL (ร่อนตะแกรงเอากฎที่ตรงบริบทเท่านั้น)
-    oracle_database = get_dynamic_rules(target, is_live, raw_database)
+    
+    # 🧠 LEVEL 2: DYNAMIC KNOWLEDGE RETRIEVAL 
+    # ตรวจสอบว่ามีฟังก์ชัน get_dynamic_rules หรือยัง ถ้ามีให้ใช้กรอง ถ้าไม่มีให้ใช้กฎทั้งหมด
+    try:
+        oracle_database = get_dynamic_rules(target, is_live, raw_database)
+    except NameError:
+        oracle_database = raw_database
     
     if not is_live:
         mode_instruction = (
@@ -312,24 +317,47 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     
     for attempt in range(3):
         try:
-            model = genai.GenerativeModel('models/gemma-4-26b-a4b-it')
+            # 🌟 อัปเกรด 1: บังคับให้ AI พ่นเฉพาะ JSON ผ่าน generation_config
+            model = genai.GenerativeModel('models/gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
             response = model.generate_content(prompt)
-            bt = chr(96) * 3
-            res_text = response.text.replace(bt + 'json', '').replace(bt, '').strip()
+            
+            # 🌟 อัปเกรด 2: ใช้ Regex จับเฉพาะส่วนที่เป็นปีกกา { ... } เพื่อป้องกันขยะปะปน
+            res_text = response.text
+            json_match = re.search(r'\{.*\}', res_text, re.DOTALL)
+            if json_match:
+                res_text = json_match.group(0)
+            else:
+                res_text = "{}" # ดักจับกรณีส่งค่าว่างเปล่ามา
+                
             return json.loads(res_text)
+            
         except Exception as e:
             error_str = str(e).replace('"', "'")
+            
+            # 🌟 อัปเกรด 3: ดักจับกรณี AI ติด Safety Filter (แบนเนื้อหาพนัน)
+            if "finish_reason" in error_str or "safety" in error_str.lower() or "Cannot get the response text" in error_str:
+                return {
+                    "pros_analysis": "ไม่สามารถวิเคราะห์ได้ เนื่องจาก AI มองว่าเนื้อหาขัดต่อนโยบายความปลอดภัย (Safety Filter)",
+                    "cons_analysis": "AI ปฏิเสธการตอบคำถามในคู่นี้",
+                    "rule_triggered": "Blocked by AI Safety", 
+                    "impact_score": 0.0, 
+                    "final_decision": False, # สั่งทับมือทันทีเพื่อความปลอดภัย
+                    "final_comment": "AI ล้มเหลว: เนื้อหาโดนบล็อก (สั่งทับมือ)"
+                }
+
             if "429" in error_str and attempt < 2:
                 time.sleep(2)
                 continue
+            
             if attempt == 2:
                 return {
                     "pros_analysis": "ไม่สามารถวิเคราะห์ได้เนื่องจากระบบขัดข้อง",
                     "cons_analysis": "ไม่สามารถวิเคราะห์ได้",
                     "rule_triggered": "System Error", 
                     "impact_score": 0.0, 
+                    # ให้ใช้คณิตศาสตร์ล้วน
                     "final_decision": True if base_ev >= 0.08 else False, 
-                    "final_comment": f"AI ล้มเหลว (ใช้คณิตศาสตร์ล้วน): {error_str}"
+                    "final_comment": f"AI ล้มเหลว (ใช้คณิตศาสตร์ล้วน): ขัดข้องในการแปลง JSON"
                 }
 
 # ==========================================
