@@ -738,7 +738,7 @@ with tab2:
                     for attempt in range(3):
                         try:
                             if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
-                                model = genai.GenerativeModel('models/gemini-2.5-flash')
+                                model = genai.GenerativeModel('models/gemma-4-31b-it')
                                 res_debrief = model.generate_content(prompt_debrief)
                                 st.session_state['debrief_result'] = res_debrief.text
                                 break 
