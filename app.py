@@ -401,7 +401,7 @@ with tab1:
     st.sidebar.header("💰 Portfolio & Parameters")
     total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0)
     dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho", -0.30, 0.0, -0.10, step=0.01)
-    hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5)
+    hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.5, 10.0, 1.5)
     
     # 🌟 แยกปรับ Threshold แบบอิสระตามคำขอ
     st.sidebar.markdown("---")
