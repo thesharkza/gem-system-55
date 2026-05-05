@@ -88,25 +88,6 @@ def clear_form_data():
     st.session_state.hdp_line_val = 0.0; st.session_state.hdp_h_w_val = 0.0; st.session_state.hdp_a_w_val = 0.0
     st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
 
-def approve_and_save_rule():
-    """ฟังก์ชัน Callback สำหรับบันทึกกฎลงคัมภีร์แบบชัวร์ 100%"""
-    try:
-        # 1. เขียนไฟล์แบบ Append ('a')
-        with open(RULES_FILE, "a", encoding="utf-8") as f:
-            tz_th = timezone(timedelta(hours=7))
-            now_str = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M")
-            f.write(f"\n\n### กฎใหม่ที่เรียนรู้จาก AI Debrief (วันที่ {now_str}) ###\n")
-            f.write(st.session_state['debrief_result'])
-            
-        # 2. ล้างข้อมูลหน้าจอ
-        st.session_state['debrief_result'] = ""
-        
-        # 3. ล้างแคช (Cache) ทันที! เพื่อให้ The Oracle ดึงกฎใหม่ไปใช้ในคู่ต่อไปได้เลย
-        load_gem_rules.clear() 
-        
-    except Exception as e:
-        st.error(f"❌ ไม่สามารถบันทึกไฟล์ได้: {e}")
-
 def parse_line(line_str):
     line_str = str(line_str).replace(' ', '').replace('+', '')
     is_negative = '-' in line_str
@@ -691,15 +672,7 @@ with tab2:
                 st.markdown(st.session_state['debrief_result'])
                 
                 st.warning("⚠️ โปรดอ่านกฎใหม่ด้านบน หากคุณเห็นด้วยกับ The Oracle ให้กดปุ่มด้านล่างเพื่อบันทึกทันที")
-                # ถ้าระบบมีข้อความ Debrief ค้างอยู่ ให้แสดงผล และโชว์ปุ่ม Save
-            if st.session_state.get('debrief_result', "") != "":
-                st.success("✅ การวิเคราะห์เสร็จสิ้น!")
-                st.markdown(st.session_state['debrief_result'])
-                
-                st.warning("⚠️ โปรดอ่านกฎใหม่ด้านบน หากคุณเห็นด้วยกับ The Oracle ให้กดปุ่มด้านล่างเพื่อบันทึกทันที")
-                
-                # เปลี่ยนมาใช้ on_click ผูกกับฟังก์ชันแทน เพื่อให้ชัวร์ว่าทำงานเสร็จแน่นอนก่อนรีเฟรชจอ
-                st.button("📥 อนุมัติและบันทึกกฎนี้ลงคัมภีร์ (gem_rules.txt)", type="primary", use_container_width=True, on_click=approve_and_save_rule)
+                if st.button("📥 อนุมัติและบันทึกกฎนี้ลงคัมภีร์ (gem_rules.txt)", type="primary", use_container_width=True):
                     # เปิดไฟล์แบบ Append ('a') เพื่อเขียนต่อท้าย
                     try:
                         with open(RULES_FILE, "a", encoding="utf-8") as f:
@@ -709,6 +682,12 @@ with tab2:
                             f.write(st.session_state['debrief_result'])
                         
                         st.success("🎉 บันทึกกฎใหม่ลงคัมภีร์สำเร็จแล้ว! กฎนี้จะถูกนำไปใช้สแกนหา Value Bet ในคู่ถัดไปทันที")
+                        # ล้างค่าในหน้าจอหลังจากเซฟเสร็จ
+                        st.session_state['debrief_result'] = ""
+                        time.sleep(2) # หน่วงเวลาให้ผู้ใช้อ่านข้อความสำเร็จ
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ ไม่สามารถบันทึกไฟล์ได้: {e}")
 
         else:
             st.success("🌟 ยอดเยี่ยม! ระบบยังไม่พบประวัติการแทงเสีย AI จึงยังไม่ต้องวิเคราะห์จุดอ่อน")
