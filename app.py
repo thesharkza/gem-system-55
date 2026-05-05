@@ -516,14 +516,11 @@ with tab1:
         except:
             pass # ข้ามไปถ้าไม่ได้ดึงตัวแปรโอกาสชนะมาใช้ในหน้านี้
         g1, g2 = st.columns(2)
-        
         with g1: 
-            # หัวข้อกราฟ AH (สีฟ้า จัดกึ่งกลาง)
             st.markdown("<h4 style='text-align: center; color: #4db8ff;'>🔵 ตลาดแฮนดิแคป (AH)</h4>", unsafe_allow_html=True)
             st.plotly_chart(create_ev_gauge(best_ah['ev'], f"เป้าหมาย: {best_ah['n']}", ah_threshold), use_container_width=True)
             
         with g2: 
-            # หัวข้อกราฟ O/U (สีส้ม จัดกึ่งกลาง)
             st.markdown("<h4 style='text-align: center; color: #ff9933;'>🟠 ตลาดสกอร์รวม (O/U)</h4>", unsafe_allow_html=True)
             st.plotly_chart(create_ev_gauge(best_ou['ev'], f"เป้าหมาย: {best_ou['n']}", ou_threshold), use_container_width=True)
 
