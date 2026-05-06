@@ -325,17 +325,17 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     
     for attempt in range(3):
         try:
-            # ลบคำสั่งพิเศษทิ้ง ใช้การเรียก AI แบบธรรมดาที่สุดเพื่อป้องกันระบบพัง
-            model = genai.GenerativeModel('models/gemma-4-31b-it')
+            model = genai.GenerativeModel('models/gemini-2.5-flash')
             response = model.generate_content(prompt)
             
-            # 🌟 อัปเกรดตัวกรองข้อความขั้นสุด 
+            # อัปเกรดตัวกรองข้อความขั้นสุด 
             res_text = response.text.strip()
-            # 1. ลบ Markdown ออก (ถ้ามี) ป้องกันบั๊กบรรทัดตกด้วย chr(96)
+            
+            # ลบ Markdown ออก (ถ้ามี) ป้องกันบั๊กบรรทัดตก
             bt = chr(96) * 3
             res_text = res_text.replace(bt + "json", "").replace(bt, "").strip()
             
-            # 2. จับข้อมูลตั้งแต่ปีกกาเปิด { ถึงปีกกาปิด }
+            # จับข้อมูลตั้งแต่ปีกกาเปิด { ถึงปีกกาปิด }
             start_idx = res_text.find('{')
             end_idx = res_text.rfind('}')
             
@@ -347,52 +347,22 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
             return json.loads(res_text)
             
         except Exception as e:
-            # เก็บค่า Error ตัวจริงไว้
             error_str = str(e).replace('"', "'")
             
             if "429" in error_str and attempt < 2:
-                time.sleep(2) # รอแป๊บนึงถ้าถูกจำกัดโควต้า
+                time.sleep(2)
                 continue
             
             if attempt == 2:
-                # ถ้าพยายามครบ 3 รอบแล้วยังพัง ให้พ่น Error "ตัวจริง" ออกมาโชว์หน้าจอ!
+                # 🌟 อย่าลืมเพิ่ม confidence_level เข้าไปในกรณีที่ AI Error ด้วย ป้องกัน UI พัง
                 return {
                     "pros_analysis": "ระบบขัดข้อง",
                     "cons_analysis": "ระบบขัดข้อง",
                     "rule_triggered": "System Error", 
                     "impact_score": 0.0, 
                     "final_decision": True if base_ev >= 0.08 else False, 
-                    "final_comment": f"AI ล้มเหลว: {error_str}" # แสดงข้อผิดพลาดที่แท้จริง
-                }
-
-            if "429" in error_str and attempt < 2:
-                time.sleep(2)
-                continue
-            
-            if attempt == 2:
-                return {
-                    "pros_analysis": "ไม่สามารถวิเคราะห์ได้เนื่องจากระบบขัดข้อง",
-                    "cons_analysis": "ไม่สามารถวิเคราะห์ได้",
-                    "rule_triggered": "System Error", 
-                    "impact_score": 0.0, 
-                    # ให้ใช้คณิตศาสตร์ล้วน
-                    "final_decision": True if base_ev >= 0.08 else False, 
-                    "final_comment": f"AI ล้มเหลว (ใช้คณิตศาสตร์ล้วน): ขัดข้องในการแปลง JSON"
-                }
-
-            if "429" in error_str and attempt < 2:
-                time.sleep(2)
-                continue
-            
-            if attempt == 2:
-                return {
-                    "pros_analysis": "ไม่สามารถวิเคราะห์ได้เนื่องจากระบบขัดข้อง",
-                    "cons_analysis": "ไม่สามารถวิเคราะห์ได้",
-                    "rule_triggered": "System Error", 
-                    "impact_score": 0.0, 
-                    # ให้ใช้คณิตศาสตร์ล้วน
-                    "final_decision": True if base_ev >= 0.08 else False, 
-                    "final_comment": f"AI ล้มเหลว (ใช้คณิตศาสตร์ล้วน): ขัดข้องในการแปลง JSON"
+                    "final_comment": f"AI ล้มเหลว: {error_str}",
+                    "confidence_level": 3 if base_ev >= 0.08 else 1 # ถ้าคณิตศาสตร์ผ่านให้ 3 ดาว ถ้าไม่ผ่านให้ 1 ดาว
                 }
 
 # ==========================================
