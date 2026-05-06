@@ -282,9 +282,11 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     if not is_live:
         mode_instruction = (
             "[โหมดการวิเคราะห์: PRE-MATCH (บอลก่อนเตะ)]\n"
-            "คำสั่ง: ในโหมดนี้ ให้ความสำคัญกับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' เป็นหลัก!\n"
-            "- กฎ GEM Rules ให้ใช้เป็นแค่ 'ข้อควรระวัง (Warning)' เท่านั้น ไม่ต้องเคร่งครัดมาก\n"
-            "- หาก Base EV ผ่านเกณฑ์ (Threshold) ที่ตั้งไว้ ให้ถือว่าคุ้มค่า และทำการอนุมัติ (final_decision: true) เสมอ"
+            "คำสั่งเฉพาะกิจสำหรับโหมดนี้ (Pre-Match Strategy):\n"
+            "1. 🧮 Math-First Approach: ให้น้ำหนัก 70% กับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' บอลก่อนเตะคือสงครามของการหา Mispriced Odds (ราคาที่เจ้ามือคำนวณพลาด) หาก Base EV สูง ถือว่าเป็น Value Bet ที่ได้เปรียบ\n"
+            "2. 🛡️ GEM Rules as Risk Filter: ให้น้ำหนัก 30% กับ 'คัมภีร์ GEM' โดยเน้นตรวจจับ 'กับดักราคา (Market Trap)' หรือ 'เรตแปลกประหลาด' หากไม่ใช่การละเมิดกฎขั้นร้ายแรง (Fatal Error) ให้ใช้เป็นแค่ข้อควรระวัง (Warning)\n"
+            "3. ⚖️ Variance & Margin: ประเมินว่าค่าน้ำ (Odds) และเรต (HDP) ที่กำลังจะลงทุน คุ้มค่ากับการแบกรับความผันผวน (Variance) ตลอด 90 นาทีเต็มหรือไม่\n"
+            "- การตัดสินใจ (final_decision): หาก Base EV คุ้มค่า และไม่ชนกฎเหล็กขั้นร้ายแรง ให้ยืนยันการลงทุน (true) เสมอ"
         )
     else:
         mode_instruction = (
@@ -300,7 +302,7 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
 
     prompt = (
         "คุณคือ Chief Risk Officer ประจำกองทุน Quant Sports Betting\n"
-        "หน้าที่ของคุณคือการนำ 'คัมภีร์ GEM RULES' มาวิเคราะห์ร่วมกับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' แบบชั่งน้ำหนักองค์รวม\n\n"
+        "วิสัยทัศน์: กองทุนของเราลงทุนโดยใช้หลักการ Expected Value (EV) เพื่อเอาชนะ Margin ของเจ้ามือในระยะยาว\n\n"
         "[ข้อมูลหน้างานปัจจุบัน]\n"
         f"- คู่แข่งขัน: {match_name}\n"
         f"- สถานการณ์: {'Live นาทีที่ ' + str(current_min) + ' สกอร์ ' + str(score) if is_live else 'Pre-Match (ก่อนเตะ)'}\n"
@@ -312,12 +314,12 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
         "คำสั่งการตอบกลับ:\n"
         "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่นรอบนอก:\n"
         "{\n"
-        '    "pros_analysis": "ให้เขียนเหตุผลสนับสนุน (ข้อดี) ของการลงทุนคู่นี้",\n'
-        '    "cons_analysis": "หาช่องโหว่ ข้อควรระวัง หรือกับดักของเจ้ามือในราคานี้",\n'
-        '    "rule_triggered": "สรุปชื่อกฎ GEM ทั้งหมดที่นำมาชั่งน้ำหนัก",\n'
+        '    "pros_analysis": "อธิบายข้อได้เปรียบเชิง Quant (เช่น โครงสร้างราคาได้เปรียบ, ค่าน้ำคุ้มความเสี่ยง, EV เป็นบวก)",\n'
+        '    "cons_analysis": "ระบุความเสี่ยงเชิงโครงสร้าง (เช่น ความผันผวน, กับดักเจ้ามือ, ข้อควรระวังจากคัมภีร์)",\n'
+        '    "rule_triggered": "สรุปชื่อกฎ GEM ทั้งหมดที่นำมาชั่งน้ำหนัก (ถ้าไม่มีให้ตอบว่า ไม่พบเงื่อนไขละเมิด)",\n'
         '    "impact_score": 0.0,\n'
         '    "final_decision": true,\n'
-        '    "final_comment": "สรุปการตัดสินใจขั้นเด็ดขาดจากการชั่งน้ำหนัก Pros และ Cons"\n'
+        '    "final_comment": "บทสรุปแบบเฉียบขาดฉบับผู้จัดการกองทุน ฟันธงว่าคุ้มที่จะเอาเงินไปเสี่ยงหรือไม่"\n'
         "}"
     )
     
