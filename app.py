@@ -706,7 +706,7 @@ with tab2:
                 with st.spinner("The Oracle กำลังสแกนหา 'กับดักราคา' จากประวัติความพ่ายแพ้..."):
                     loss_data_str = loss_logs[['Time', 'Match', 'HDP', 'Target', 'Odds', 'Result', 'Net_Profit']].to_csv(index=False)
                     
-                   prompt_debrief = (
+                    prompt_debrief = (
                         "คุณคือ Chief Risk Officer และ Head of Quant Research ของกองทุน Hedge Fund กีฬาระดับโลก\n"
                         "หน้าที่ของคุณคือการทำ 'Post-Mortem Analysis' (ชันสูตรความพ่ายแพ้) จากประวัติการลงทุนที่ 'ขาดทุน' ด้านล่างนี้\n\n"
                         f"[ข้อมูลการขาดทุน (CSV Format)]\n{loss_data_str}\n\n"
