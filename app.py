@@ -630,7 +630,13 @@ with tab1:
                     c2.metric("Oracle Rule Adjust", f"{ai_verdict.get('impact_score', 0)*100:.2f}%")
                     c3.metric("Net EV", f"{net_ev*100:.2f}%")
                     
-                    with st.expander("📖 รายละเอียดการวิเคราะห์จาก THE ORACLE", expanded=True):
+                   with st.expander("📖 รายละเอียดการวิเคราะห์จาก THE ORACLE", expanded=True):
+                        # 🌟 ดึงค่าดาวออกมาแสดงผล
+                        stars_count = ai_verdict.get('confidence_level', 3)
+                        stars_emoji = "⭐" * stars_count
+                        st.markdown(f"#### 🎯 ระดับความมั่นใจ: {stars_emoji} ({stars_count}/5)")
+                        st.markdown("---")
+                        
                         st.success(f"**✅ ข้อดี (Pros):** {ai_verdict.get('pros_analysis', 'ไม่มี')}")
                         st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_verdict.get('cons_analysis', 'ไม่มี')}")
                         st.info(f"**📜 กฎที่ทำงาน:** {ai_verdict.get('rule_triggered', 'None')}")
@@ -644,8 +650,8 @@ with tab1:
                         save_to_csv([{"Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": target_to_check['hdp'], "Target": target_to_check['n'], "EV_Pct": round(net_ev*100, 2), "Investment": round(inv, 2), "Odds": target_to_check['odds'], "Closing_Odds": 0.0, "Result": ""}])
                     else:
                         st.error(f"🚫 ORACLE REJECTED: {ai_verdict.get('final_comment', 'Pass')}")
-        else:
-            st.warning(f"🛡️ เป้าหมายไม่ถึงเกณฑ์ที่ตั้งไว้ (AH: {ah_threshold}%, O/U: {ou_threshold}%)")
+            else:
+                st.warning(f"🛡️ เป้าหมายไม่ถึงเกณฑ์ที่ตั้งไว้ (AH: {ah_threshold}%, O/U: {ou_threshold}%)")
 
 # --- TAB 2: Dashboard ---
 with tab2:
