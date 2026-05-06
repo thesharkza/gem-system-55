@@ -325,7 +325,7 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     
     for attempt in range(3):
         try:
-            model = genai.GenerativeModel('models/gemini-2.5-flash')
+            model = genai.GenerativeModel('models/gemma-4-31b-it')
             response = model.generate_content(prompt)
             
             # อัปเกรดตัวกรองข้อความขั้นสุด 
