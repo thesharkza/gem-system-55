@@ -138,12 +138,26 @@ def shin_devig(o_h, o_d, o_a):
     low, high = 0.0, 1.0
     for _ in range(100): 
         z = (low + high) / 2
+        # โซนในลูปค้นหาค่า z (Binary Search)
         try:
             p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
-            if sum(p) > 1: low = z
-            else: high = z
-        except: break
-    p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
+            if sum(p) > 1: 
+                low = z
+            else: 
+                high = z
+        except ZeroDivisionError:
+            break # ถ้าหารด้วยศูนย์ให้รีบหนีออกจากลูปทันที
+            
+    # ==========================================
+    # 🛡️ โซนสรุปผลลัพธ์ (ปลอดภัย 100%)
+    # ==========================================
+    try:
+        # พยายามคำนวณครั้งสุดท้ายเพื่อส่งค่ากลับ
+        p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
+    except ZeroDivisionError:
+        # Fallback: ถ้า z เป็น 1 จนสมการ Shin พัง ให้ใช้ความน่าจะเป็นดิบๆ (pi) แทน
+        p = pi 
+        
     sum_p = sum(p) 
     return p[0]/sum_p, p[1]/sum_p, p[2]/sum_p
 
