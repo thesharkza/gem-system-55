@@ -618,40 +618,43 @@ with tab1:
             else:
                 target_to_check = best_ou
 
-            if not api_key: st.warning("⚠️ กรุณาใส่ API Key ให้ AI กรองความเสี่ยง")
+            if not api_key: 
+                st.warning("⚠️ กรุณาใส่ API Key ให้ AI กรองความเสี่ยง")
             else:
+                # 1. ให้ Spinner ครอบแค่ตอนดึงข้อมูล AI
                 with st.spinner("🧠 THE ORACLE กำลังตรวจสอบข้อควรระวัง (Pre-Match Mode)..."):
                     ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'], is_live=False)
                     net_ev = target_to_check['ev'] + ai_verdict.get('impact_score', 0)
-                    
+                
+                # 2. เอาการแสดงผลออกมาอยู่ระดับเดียวกับ with (เยื้องขวา 4 สเต็ปจาก else)
+                st.markdown("---")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Base EV", f"{target_to_check['ev']*100:.2f}%")
+                c2.metric("Oracle Rule Adjust", f"{ai_verdict.get('impact_score', 0)*100:.2f}%")
+                c3.metric("Net EV", f"{net_ev*100:.2f}%")
+                
+                with st.expander("📖 รายละเอียดการวิเคราะห์จาก THE ORACLE", expanded=True):
+                    # ดึงค่าดาวออกมาแสดงผล
+                    stars_count = ai_verdict.get('confidence_level', 3)
+                    stars_emoji = "⭐" * stars_count
+                    st.markdown(f"#### 🎯 ระดับความมั่นใจ: {stars_emoji} ({stars_count}/5)")
                     st.markdown("---")
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Base EV", f"{target_to_check['ev']*100:.2f}%")
-                    c2.metric("Oracle Rule Adjust", f"{ai_verdict.get('impact_score', 0)*100:.2f}%")
-                    c3.metric("Net EV", f"{net_ev*100:.2f}%")
                     
-                 with st.expander("📖 รายละเอียดการวิเคราะห์จาก THE ORACLE", expanded=True):
-                        # 🌟 ดึงค่าดาวออกมาแสดงผล
-                        stars_count = ai_verdict.get('confidence_level', 3)
-                        stars_emoji = "⭐" * stars_count
-                        st.markdown(f"#### 🎯 ระดับความมั่นใจ: {stars_emoji} ({stars_count}/5)")
-                        st.markdown("---")
-                        
-                        st.success(f"**✅ ข้อดี (Pros):** {ai_verdict.get('pros_analysis', 'ไม่มี')}")
-                        st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_verdict.get('cons_analysis', 'ไม่มี')}")
-                        st.info(f"**📜 กฎที่ทำงาน:** {ai_verdict.get('rule_triggered', 'None')}")
-                    
-                    if ai_verdict.get('final_decision', False) and net_ev > 0:
-                        st.balloons()
-                        st.success(f"✅ ORACLE APPROVED: {ai_verdict.get('final_comment', 'Good')}")
-                        limit_for_calc = ah_limit if target_to_check['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else ou_limit
-                        inv = min( (((target_to_check['odds']-1) * ((net_ev+1)/target_to_check['odds']) - (1-((net_ev+1)/target_to_check['odds']))) / (target_to_check['odds']-1)) * 0.25, 0.05) * total_bankroll
-                        tz_th = timezone(timedelta(hours=7))
-                        save_to_csv([{"Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": target_to_check['hdp'], "Target": target_to_check['n'], "EV_Pct": round(net_ev*100, 2), "Investment": round(inv, 2), "Odds": target_to_check['odds'], "Closing_Odds": 0.0, "Result": ""}])
-                    else:
-                        st.error(f"🚫 ORACLE REJECTED: {ai_verdict.get('final_comment', 'Pass')}")
-            else:
-                st.warning(f"🛡️ เป้าหมายไม่ถึงเกณฑ์ที่ตั้งไว้ (AH: {ah_threshold}%, O/U: {ou_threshold}%)")
+                    st.success(f"**✅ ข้อดี (Pros):** {ai_verdict.get('pros_analysis', 'ไม่มี')}")
+                    st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_verdict.get('cons_analysis', 'ไม่มี')}")
+                    st.info(f"**📜 กฎที่ทำงาน:** {ai_verdict.get('rule_triggered', 'None')}")
+                
+                if ai_verdict.get('final_decision', False) and net_ev > 0:
+                    st.balloons()
+                    st.success(f"✅ ORACLE APPROVED: {ai_verdict.get('final_comment', 'Good')}")
+                    limit_for_calc = ah_limit if target_to_check['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else ou_limit
+                    inv = min( (((target_to_check['odds']-1) * ((net_ev+1)/target_to_check['odds']) - (1-((net_ev+1)/target_to_check['odds']))) / (target_to_check['odds']-1)) * 0.25, 0.05) * total_bankroll
+                    tz_th = timezone(timedelta(hours=7))
+                    save_to_csv([{"Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": target_to_check['hdp'], "Target": target_to_check['n'], "EV_Pct": round(net_ev*100, 2), "Investment": round(inv, 2), "Odds": target_to_check['odds'], "Closing_Odds": 0.0, "Result": ""}])
+                else:
+                    st.error(f"🚫 ORACLE REJECTED: {ai_verdict.get('final_comment', 'Pass')}")
+        else:
+            st.warning(f"🛡️ เป้าหมายไม่ถึงเกณฑ์ที่ตั้งไว้ (AH: {ah_threshold}%, O/U: {ou_threshold}%)")
 
 # --- TAB 2: Dashboard ---
 with tab2:
