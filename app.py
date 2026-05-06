@@ -630,7 +630,7 @@ with tab1:
                     c2.metric("Oracle Rule Adjust", f"{ai_verdict.get('impact_score', 0)*100:.2f}%")
                     c3.metric("Net EV", f"{net_ev*100:.2f}%")
                     
-                   with st.expander("📖 รายละเอียดการวิเคราะห์จาก THE ORACLE", expanded=True):
+                 with st.expander("📖 รายละเอียดการวิเคราะห์จาก THE ORACLE", expanded=True):
                         # 🌟 ดึงค่าดาวออกมาแสดงผล
                         stars_count = ai_verdict.get('confidence_level', 3)
                         stars_emoji = "⭐" * stars_count
