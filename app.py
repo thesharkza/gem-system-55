@@ -735,7 +735,31 @@ with tab2:
             fig = go.Figure(go.Scatter(x=logs_s['Time'], y=logs_s['Cumulative_Profit'], mode='lines', fill='tozeroy', line=dict(color='#00FF7F', width=3)))
             fig.update_layout(title="Equity Curve", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
-
+            
+            # ==========================================
+            # 🌟 ส่วนที่เพิ่มใหม่: Advanced Analytics
+            # ==========================================
+            st.markdown("---")
+            st.subheader("🎯 เจาะลึกประสิทธิภาพ (Performance Breakdown)")
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.markdown("#### 📊 กำไรแยกตามเป้าหมาย (Target)")
+                target_stats = logs_s.groupby('Target')['Net_Profit'].sum()
+                st.bar_chart(target_stats)
+                
+            with col_b:
+                st.markdown("#### 🎯 อัตราการชนะแยกตามช่วงค่าน้ำ (%)")
+                # แบ่งค่าน้ำออกเป็น 4 ช่วง (Bins)
+                logs_s['Odds_Bin'] = pd.cut(logs_s['Odds'], bins=[0, 1.8, 2.0, 2.2, 5.0], labels=['<1.8', '1.8-2.0', '2.0-2.2', '>2.2'])
+                # หาจำนวนที่ชนะในแต่ละช่วง
+                wins = logs_s[logs_s['Net_Profit'] > 0].groupby('Odds_Bin', observed=False).size()
+                # หาจำนวนทั้งหมดที่แทงในแต่ละช่วง
+                totals = logs_s.groupby('Odds_Bin', observed=False).size()
+                # คิดเป็นเปอร์เซ็นต์
+                odds_win_rate = (wins / totals * 100).fillna(0)
+                st.bar_chart(odds_win_rate)
+                
         # ==========================================
         # 🤖 AI Daily Debrief (Level 4: Self-Reflection)
         # ==========================================
