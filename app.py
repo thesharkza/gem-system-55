@@ -9,6 +9,8 @@ from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
 from PIL import Image
 import google.generativeai as genai
+import numpy as np
+import pandas as pd
 
 # --- CONFIG ---
 st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
@@ -280,6 +282,38 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
             p_win = sum(p_total.get(k, 0) for k in p_total if k <= floor_line); p_half_loss = p_total.get(floor_line + 1, 0.0); p_loss = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 2)
             return (p_win * b) - (p_half_loss * 0.5) - (p_loss * 1)
     return 0.0
+
+def calculate_rps(prob_home, prob_draw, prob_away, actual_result):
+    """
+    คำนวณ Ranked Probability Score (RPS) สำหรับฟุตบอล 1 แมตช์
+    :param prob_home: ความน่าจะเป็นที่เจ้าบ้านชนะ (0.0 - 1.0)
+    :param prob_draw: ความน่าจะเป็นที่จะเสมอ (0.0 - 1.0)
+    :param prob_away: ความน่าจะเป็นที่ทีมเยือนชนะ (0.0 - 1.0)
+    :param actual_result: ผลลัพธ์ที่เกิดขึ้นจริง ('H', 'D', หรือ 'A')
+    :return: ค่า RPS (ยิ่งต่ำ ยิ่งดี)
+    """
+    # เรียงลำดับโอกาส: [Home, Draw, Away]
+    predictions = np.array([prob_home, prob_draw, prob_away])
+    
+    # แปลงผลลัพธ์จริงเป็น Array ของ 1 และ 0
+    if actual_result == 'H':
+        actuals = np.array([1, 0, 0])
+    elif actual_result == 'D':
+        actuals = np.array([0, 1, 0])
+    elif actual_result == 'A':
+        actuals = np.array([0, 0, 1])
+    else:
+        return np.nan # กรณีข้อมูลผลลัพธ์มีปัญหา
+
+    # 🌟 หัวใจของ RPS: การหาค่าสะสม (Cumulative)
+    cum_preds = np.cumsum(predictions)
+    cum_actuals = np.cumsum(actuals)
+    
+    # คำนวณ RPS: ผลรวมของส่วนต่างยกกำลังสอง หารด้วย (จำนวนหมวดหมู่ - 1)
+    # ฟุตบอลมี 3 หมวดหมู่ (H,D,A) ดังนั้นตัวหารคือ 2
+    rps = np.sum((cum_preds - cum_actuals)**2) / 2.0
+    
+    return rps
 
 # ==========================================
 # 2. ระบบ AI Decision Engine (Chief Risk Officer) + LEVEL 3 Chain of Thought
