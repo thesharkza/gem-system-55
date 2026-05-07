@@ -376,10 +376,13 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
             model = genai.GenerativeModel('models/gemma-4-31b-it')
             response = model.generate_content(prompt)
             
-            # อัปเกรดตัวกรองข้อความขั้นสุด 
             res_text = response.text.strip()
             
-            # ลบ Markdown ออก (ถ้ามี) ป้องกันบั๊กบรรทัดตก
+            # 🌟 1. ดักจับกรณี API ส่งค่าว่างเปล่า (Empty String)
+            if not res_text:
+                raise ValueError("API ของ AI ส่งค่าว่างเปล่ากลับมา")
+            
+            # ลบ Markdown ออก (ถ้ามี)
             bt = chr(96) * 3
             res_text = res_text.replace(bt + "json", "").replace(bt, "").strip()
             
@@ -388,30 +391,36 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
             end_idx = res_text.rfind('}')
             
             if start_idx != -1 and end_idx != -1:
-                res_text = res_text[start_idx:end_idx+1]
+                json_str = res_text[start_idx:end_idx+1]
+                # 🌟 2. ครอบ Try-Except ตรงด่านสุดท้ายก่อนโหลด JSON!
+                try:
+                    import json
+                    return json.loads(json_str)
+                except Exception as json_err:
+                    raise ValueError(f"AI ทำโครงสร้าง JSON พัง: {str(json_err)}")
             else:
-                raise ValueError("ไม่พบโครงสร้าง JSON ในคำตอบของ AI")
+                raise ValueError("ไม่พบปีกกาของ JSON ในคำตอบ AI")
                 
-            return json.loads(res_text)
-            
         except Exception as e:
             error_str = str(e).replace('"', "'")
             
             if "429" in error_str and attempt < 2:
+                import time
                 time.sleep(2)
                 continue
             
             if attempt == 2:
-                # 🌟 อย่าลืมเพิ่ม confidence_level เข้าไปในกรณีที่ AI Error ด้วย ป้องกัน UI พัง
                 return {
-                    "pros_analysis": "ระบบขัดข้อง",
-                    "cons_analysis": "ระบบขัดข้อง",
-                    "rule_triggered": "System Error", 
+                    "pros_analysis": "ระบบ AI ขัดข้องชั่วคราว",
+                    "cons_analysis": f"Error: {error_str}",
+                    "rule_triggered": "System Fallback Activated", 
                     "impact_score": 0.0, 
                     "final_decision": True if base_ev >= 0.08 else False, 
-                    "final_comment": f"AI ล้มเหลว: {error_str}",
-                    "confidence_level": 3 if base_ev >= 0.08 else 1 # ถ้าคณิตศาสตร์ผ่านให้ 3 ดาว ถ้าไม่ผ่านให้ 1 ดาว
+                    "final_comment": "⚠️ AI ล้มเหลว: ยืนยันไม้ด้วยคณิตศาสตร์ (Base EV)",
+                    "confidence_level": 3 if base_ev >= 0.08 else 1
                 }
+            import time
+            time.sleep(2)
 
 # ==========================================
 # UI / UX Components (ระบบวาดหน้าปัดและปุ่ม)
@@ -902,12 +911,27 @@ with tab3:
                             '"live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}'
                         )
                         res = model.generate_content([prompt_live] + imgs)
+                        
+                        # 🌟 อัปเกรดเกราะป้องกัน AI ส่งข้อมูลขยะตอนอ่านรูป
+                        res_text = res.text.strip()
+                        if not res_text:
+                            raise ValueError("AI มองไม่เห็นรูป หรือส่งค่าว่างกลับมา")
+                            
                         bt = chr(96)*3
-                        data = json.loads(res.text.replace(bt+'json', '').replace(bt, '').strip())
+                        cleaned_text = res_text.replace(bt+'json', '').replace(bt, '').strip()
+                        
+                        start_idx = cleaned_text.find('{')
+                        end_idx = cleaned_text.rfind('}')
+                        if start_idx != -1 and end_idx != -1:
+                            cleaned_text = cleaned_text[start_idx:end_idx+1]
+                            
+                        data = json.loads(cleaned_text)
+                        
                         for k, v in data.items(): st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
                         st.success("✅ สำเร็จ!")
                         st.rerun()
-                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
+                    except Exception as e: 
+                        st.error(f"⚠️ พลาด: {e}")
 
     col_l1, col_l2 = st.columns(2)
     with col_l1:
