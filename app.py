@@ -1003,87 +1003,77 @@ with tab3:
         else: st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมายที่ตั้งไว้ AH: {ah_threshold}%, O/U: {ou_threshold}%)")
 
 # ==========================================
-# --- TAB 4: BACKTEST ENGINE (RPS EVALUATION) ---
+# --- TAB 4: BACKTEST ENGINE (REAL DATA EVALUATION) ---
 # ==========================================
 with tab4:
-    st.header("🧪 ระบบทดสอบความแม่นยำย้อนหลัง (RPS Backtest Engine)")
-    st.markdown("ระบบนี้ใช้ประเมินว่าสมการคณิตศาสตร์ของเรา **'มองเห็นอนาคตได้แม่นกว่าเจ้ามือ'** หรือไม่ โดยใช้มาตรฐาน Ranked Probability Score (RPS) ยิ่งคะแนนเข้าใกล้ 0 ยิ่งแปลว่าทายแม่นยำ!")
+    st.header("🧪 ระบบทดสอบความแม่นยำจากข้อมูลจริง (Live Backtest)")
+    st.markdown("ระบบจะดึงข้อมูลบิลการลงทุน **ที่รู้ผลแล้ว (Win/Loss)** จาก Dashboard มาคำนวณย้อนหลัง เพื่อดูว่า AI ของเราประเมิน 'โอกาสชนะ' ได้แม่นยำกว่า 'ราคาของเจ้ามือ' หรือไม่ (ใช้มาตรฐาน Brier Score: ยิ่งใกล้ 0 ยิ่งแปลว่าทายแม่น)")
     
-    # 🌟 1. ฟังก์ชันคำนวณ RPS (Ranked Probability Score)
-    def calculate_rps(prob_home, prob_draw, prob_away, actual_result):
-        import numpy as np
-        predictions = np.array([prob_home, prob_draw, prob_away])
-        if actual_result == 'H': actuals = np.array([1, 0, 0])
-        elif actual_result == 'D': actuals = np.array([0, 1, 0])
-        else: actuals = np.array([0, 0, 1])
-        
-        cum_preds = np.cumsum(predictions)
-        cum_actuals = np.cumsum(actuals)
-        return np.sum((cum_preds - cum_actuals)**2) / 2.0
-
     st.markdown("---")
     
-    if st.button("🚀 รันระบบจำลองข้อมูล (Simulate 100 Matches)", use_container_width=True, type="primary"):
-        with st.spinner("กำลังสร้าง Mock Data และคำนวณประชันผลกับเจ้ามือ..."):
-            import numpy as np
-            import pandas as pd
-            import time
-            time.sleep(1) # หน่วงเวลาให้ดูสมจริง
-            
-            # 🌟 2. สร้างข้อมูลจำลอง (Mock Data) 100 นัด
-            np.random.seed(42)
-            n_matches = 100
-            
-            # สุ่มผลลัพธ์จริง (ชนะ 45%, เสมอ 25%, เยือนชนะ 30%)
-            actuals = np.random.choice(['H', 'D', 'A'], n_matches, p=[0.45, 0.25, 0.30])
-            
-            mock_data = []
-            for i in range(n_matches):
-                # สมมติโอกาสที่โมเดลเราคำนวณได้
-                m_h = np.random.uniform(0.35, 0.55)
-                m_d = np.random.uniform(0.20, 0.28)
-                m_a = 1.0 - m_h - m_d
+    logs = load_logs()
+    if logs is not None and not logs.empty:
+        # 1. กรองเอาเฉพาะบิลที่มีการกรอกผลลัพธ์แล้ว
+        finished_logs = logs[logs['Result'].isin(['Win', 'Half Win', 'Push', 'Half Loss', 'Loss'])].copy()
+        
+        if not finished_logs.empty:
+            # 2. แปลงผลการแข่งให้เป็นคะแนนทางคณิตศาสตร์ (Actual Score)
+            def map_result_to_score(res):
+                if res == 'Win': return 1.0
+                if res == 'Half Win': return 0.75
+                if res == 'Push': return 0.50
+                if res == 'Half Loss': return 0.25
+                if res == 'Loss': return 0.00
+                return np.nan
                 
-                # สมมติโอกาสที่เจ้ามือคิด (โดยใส่ Noise ความคลาดเคลื่อนเข้าไปนิดหน่อย)
-                b_h = np.clip(m_h + np.random.uniform(-0.05, 0.05), 0.1, 0.8)
-                b_d = np.clip(m_d + np.random.uniform(-0.03, 0.03), 0.1, 0.5)
-                b_a = 1.0 - b_h - b_d
-                
-                res = actuals[i]
-                
-                # คำนวณ RPS
-                rps_model = calculate_rps(m_h, m_d, m_a, res)
-                rps_bookie = calculate_rps(b_h, b_d, b_a, res)
-                
-                mock_data.append({
-                    "Match": f"Match {i+1}",
-                    "Result": res,
-                    "Model_RPS": rps_model,
-                    "Bookie_RPS": rps_bookie
-                })
-                
-            df_bt = pd.DataFrame(mock_data)
+            finished_logs['Actual_Score'] = finished_logs['Result'].apply(map_result_to_score)
             
-            # 🌟 3. สรุปผลคะแนน
-            avg_rps_model = df_bt["Model_RPS"].mean()
-            avg_rps_bookie = df_bt["Bookie_RPS"].mean()
-            rps_diff = avg_rps_bookie - avg_rps_model # ถ้าเราน้อยกว่า = เราชนะ (ค่าเป็นบวก)
+            # 3. คำนวณความน่าจะเป็นของบ่อน (Implied Probability)
+            finished_logs['Bookie_Prob'] = 1 / finished_logs['Odds']
             
-            st.subheader("📊 ผลสรุปการประชันความแม่นยำ (RPS Head-to-Head)")
+            # 4. ถอดรหัสความน่าจะเป็นของโมเดลเรา จากค่า EV ที่บันทึกไว้
+            # สมการ: EV = (Prob * Odds) - 1 => Prob = (EV + 1) / Odds
+            finished_logs['Our_Prob'] = ((finished_logs['EV_Pct'] / 100) + 1) / finished_logs['Odds']
+            
+            # 5. คำนวณค่าความผิดพลาด (Brier Score / Error)
+            finished_logs['Our_Error'] = (finished_logs['Our_Prob'] - finished_logs['Actual_Score'])**2
+            finished_logs['Bookie_Error'] = (finished_logs['Bookie_Prob'] - finished_logs['Actual_Score'])**2
+            
+            # สรุปผล
+            avg_our_error = finished_logs['Our_Error'].mean()
+            avg_bookie_error = finished_logs['Bookie_Error'].mean()
+            error_diff = avg_bookie_error - avg_our_error # ถ้าบวกแปลว่าเราแม่นกว่าบ่อน
+            
+            st.subheader(f"📊 ผลประชันความแม่นยำจาก {len(finished_logs)} บิลล่าสุด")
             c1, c2, c3 = st.columns(3)
             
-            c1.metric("🤖 ค่าเฉลี่ย RPS ฝั่งเรา (ยิ่งต่ำยิ่งดี)", f"{avg_rps_model:.4f}", f"{-rps_diff:.4f} vs เจ้ามือ", delta_color="inverse")
-            c2.metric("🎩 ค่าเฉลี่ย RPS ฝั่งเจ้ามือ", f"{avg_rps_bookie:.4f}")
+            c1.metric("🤖 ค่าความคลาดเคลื่อนของเรา (Error)", f"{avg_our_error:.4f}", f"{-error_diff:.4f} vs เจ้ามือ", delta_color="inverse")
+            c2.metric("🎩 ค่าความคลาดเคลื่อนของบ่อน", f"{avg_bookie_error:.4f}")
             
-            if avg_rps_model < avg_rps_bookie:
+            if avg_our_error < avg_bookie_error:
                 c3.success("🏆 กองทุนเราชนะตลาด!")
                 st.balloons()
             else:
-                c3.error("💀 เจ้ามือแม่นกว่า (ต้องจูนสมการเพิ่ม)")
+                c3.error("💀 บ่อนยังแม่นกว่า (ต้องจูนสมการต่อ)")
                 
-            # 🌟 4. พล็อตกราฟเปรียบเทียบ
-            st.markdown("#### 📈 กราฟเปรียบเทียบคะแนน RPS ในแต่ละนัด")
-            st.line_chart(df_bt.set_index("Match")[["Model_RPS", "Bookie_RPS"]])
+            # 6. พล็อตกราฟเปรียบเทียบ
+            st.markdown("#### 📈 กราฟเปรียบเทียบความแม่นยำสะสม (Cumulative Error)")
+            st.caption("เส้นกราฟยิ่งอยู่ต่ำยิ่งดี (สะสมความผิดพลาดน้อยกว่า)")
             
-            with st.expander("🔍 ดูตารางข้อมูลดิบ (Raw Data)"):
-                st.dataframe(df_bt, use_container_width=True)
+            finished_logs = finished_logs.sort_values(by='Time').reset_index(drop=True)
+            finished_logs['Cum_Our_Error'] = finished_logs['Our_Error'].cumsum()
+            finished_logs['Cum_Bookie_Error'] = finished_logs['Bookie_Error'].cumsum()
+            
+            fig_bt = go.Figure()
+            fig_bt.add_trace(go.Scatter(x=finished_logs.index, y=finished_logs['Cum_Our_Error'], mode='lines', name='GEM System Error', line=dict(color='#00FF7F', width=3)))
+            fig_bt.add_trace(go.Scatter(x=finished_logs.index, y=finished_logs['Cum_Bookie_Error'], mode='lines', name='Bookmaker Error', line=dict(color='#FF4500', width=2, dash='dash')))
+            fig_bt.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="จำนวนไม้ที่ลงทุน", yaxis_title="ค่าความผิดพลาดสะสม")
+            st.plotly_chart(fig_bt, use_container_width=True)
+            
+            with st.expander("🔍 ดูข้อมูลเปรียบเทียบเชิงลึก (Raw Data)"):
+                st.dataframe(finished_logs[['Time', 'Match', 'Target', 'Odds', 'Result', 'Bookie_Prob', 'Our_Prob']], use_container_width=True)
+                
+        else:
+            st.info("ℹ️ ยังไม่มีข้อมูลบิลที่ทราบผลลัพธ์ (กรุณาไปอัปเดตผล Win/Loss ใน TAB 2 ก่อนครับ)")
+    else:
+        st.warning("⚠️ ไม่พบฐานข้อมูลการลงทุน กรุณาเริ่มสแกนและบันทึกผลก่อนครับ")
