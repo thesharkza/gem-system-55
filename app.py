@@ -736,6 +736,23 @@ with tab2:
             fig.update_layout(title="Equity Curve", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
 
+        # เพิ่มโค้ดส่วนนี้เข้าไปใน TAB 2 เพื่อดูประสิทธิภาพตามช่วงค่าน้ำ
+        st.subheader("🎯 เจาะลึกประสิทธิภาพ (Performance Breakdown)")
+        col_a, col_b = st.columns(2)
+
+        with col_a:
+        st.markdown("#### กำไรแยกตามประเภท (Target)")
+        # รวมกำไรแยกตามเป้าหมาย (เจ้าบ้าน/ทีมเยือน/สูง/ต่ำ)
+        target_stats = logs.groupby('Target')['Net_Profit'].sum()
+        st.bar_chart(target_stats)
+
+        with col_b:
+        st.markdown("#### อัตราการชนะแยกตามช่วงค่าน้ำ")
+        # แบ่งช่วงค่าน้ำ (Odds Binning)
+        logs['Odds_Bin'] = pd.cut(logs['Odds'], bins=[0, 1.8, 2.0, 2.2, 5.0], labels=['<1.8', '1.8-2.0', '2.0-2.2', '>2.2'])
+        odds_win_rate = logs[logs['Net_Profit'] > 0].groupby('Odds_Bin').size() / logs.groupby('Odds_Bin').size()
+        st.bar_chart(odds_win_rate.fillna(0))
+
         # ==========================================
         # 🤖 AI Daily Debrief (Level 4: Self-Reflection)
         # ==========================================
