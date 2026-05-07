@@ -1025,7 +1025,23 @@ with tab3:
                         st.balloons()
                         st.error(f"🚨 SNIPER ALERT: เป้า '{t_live['n']}' อนุมัติโจมตี!")
                         st.success(f"✅ ORACLE: {ai_live.get('final_comment', 'Good')}")
-                    else: st.warning(f"🚫 ORACLE REJECTED (ทับมือ): {ai_live.get('final_comment', 'Pass')}")
+                        
+                        # 🌟 เพิ่มระบบคำนวณเงินลงทุนและบันทึกลง CSV พร้อมแท็ก [LIVE]
+                        inv = min( (((t_live['odds']-1) * ((net_l_ev+1)/t_live['odds']) - (1-((net_l_ev+1)/t_live['odds']))) / (t_live['odds']-1)) * 0.25, 0.05) * total_bankroll
+                        tz_th = timezone(timedelta(hours=7))
+                        save_to_csv([{
+                            "Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), 
+                            "Match": f"[LIVE] {match_name}", 
+                            "HDP": t_live['hdp'], 
+                            "Target": t_live['n'], 
+                            "EV_Pct": round(net_l_ev*100, 2), 
+                            "Investment": round(inv, 2), 
+                            "Odds": t_live['odds'], 
+                            "Closing_Odds": 0.0, 
+                            "Result": ""
+                        }])
+                    else: 
+                        st.warning(f"🚫 ORACLE REJECTED (ทับมือ): {ai_live.get('final_comment', 'Pass')}")
         else: st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมายที่ตั้งไว้ AH: {ah_threshold}%, O/U: {ou_threshold}%)")
 
 # ==========================================
