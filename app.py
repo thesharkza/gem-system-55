@@ -728,26 +728,42 @@ with tab2:
         
         logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
         logs['CLV_Pct'] = logs.apply(calculate_clv, axis=1)
-        inv_logs = logs[logs['Investment'] > 0]
-        
+        # ==========================================
+        # 🌟 เพิ่มสวิตช์สลับโหมด Dashboard
+        # ==========================================
         st.markdown("---")
+        st.markdown("### 🎛️ โหมดการวิเคราะห์ (Dashboard View)")
+        view_mode = st.radio("เลือกมิติข้อมูล:", ["🌍 ภาพรวมทั้งหมด (All)", "🚀 บอลก่อนเตะ (Pre-Match)", "⚡ บอลสด (In-Play)"], horizontal=True)
+
+        # 🌟 ระบบฟิลเตอร์กรองข้อมูลตามโหมดที่เลือก
+        if view_mode == "⚡ บอลสด (In-Play)":
+            filtered_logs = logs[logs['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
+        elif view_mode == "🚀 บอลก่อนเตะ (Pre-Match)":
+            filtered_logs = logs[~logs['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
+        else:
+            filtered_logs = logs
+
+        inv_logs = filtered_logs[filtered_logs['Investment'] > 0]
+        
+        # แสดงผล KPI โดยใช้ข้อมูลที่ฟิลเตอร์แล้ว (filtered_logs)
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("กำไรสุทธิ", f"{logs['Net_Profit'].sum():,.2f} THB")
+        m1.metric("กำไรสุทธิ", f"{filtered_logs['Net_Profit'].sum():,.2f} THB")
         m2.metric("ลงทุนสะสม", f"{inv_logs['Investment'].sum():,.2f} THB")
         m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
-        m4.metric("ROI", f"{(logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
+        m4.metric("ROI", f"{(filtered_logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
         m5.metric("Average CLV", f"{inv_logs[inv_logs['Closing_Odds']>1.0]['CLV_Pct'].mean():.2f}%" if not inv_logs[inv_logs['Closing_Odds']>1.0].empty else "0.00%")
         
-        if not logs.empty:
-            logs_s = logs.sort_values(by='Time')
+        if not filtered_logs.empty:
+            logs_s = filtered_logs.sort_values(by='Time').copy()
             logs_s['Cumulative_Profit'] = logs_s['Net_Profit'].cumsum()
-            fig = go.Figure(go.Scatter(x=logs_s['Time'], y=logs_s['Cumulative_Profit'], mode='lines', fill='tozeroy', line=dict(color='#00FF7F', width=3)))
-            fig.update_layout(title="Equity Curve", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
+            
+            # เปลี่ยนสีกราฟตามโหมดให้ดู Professional
+            line_color = '#FF8C00' if "In-Play" in view_mode else ('#1E90FF' if "Pre-Match" in view_mode else '#00FF7F')
+            
+            fig = go.Figure(go.Scatter(x=logs_s['Time'], y=logs_s['Cumulative_Profit'], mode='lines', fill='tozeroy', line=dict(color=line_color, width=3)))
+            fig.update_layout(title=f"Equity Curve - {view_mode}", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
             
-            # ==========================================
-            # 🌟 ส่วนที่เพิ่มใหม่: Advanced Analytics
-            # ==========================================
             st.markdown("---")
             st.subheader("🎯 เจาะลึกประสิทธิภาพ (Performance Breakdown)")
             col_a, col_b = st.columns(2)
@@ -755,19 +771,17 @@ with tab2:
             with col_a:
                 st.markdown("#### 📊 กำไรแยกตามเป้าหมาย (Target)")
                 target_stats = logs_s.groupby('Target')['Net_Profit'].sum()
-                st.bar_chart(target_stats)
+                st.bar_chart(target_stats, color=line_color)
                 
             with col_b:
                 st.markdown("#### 🎯 อัตราการชนะแยกตามช่วงค่าน้ำ (%)")
-                # แบ่งค่าน้ำออกเป็น 4 ช่วง (Bins)
                 logs_s['Odds_Bin'] = pd.cut(logs_s['Odds'], bins=[0, 1.8, 2.0, 2.2, 5.0], labels=['<1.8', '1.8-2.0', '2.0-2.2', '>2.2'])
-                # หาจำนวนที่ชนะในแต่ละช่วง
                 wins = logs_s[logs_s['Net_Profit'] > 0].groupby('Odds_Bin', observed=False).size()
-                # หาจำนวนทั้งหมดที่แทงในแต่ละช่วง
                 totals = logs_s.groupby('Odds_Bin', observed=False).size()
-                # คิดเป็นเปอร์เซ็นต์
                 odds_win_rate = (wins / totals * 100).fillna(0)
-                st.bar_chart(odds_win_rate)
+                st.bar_chart(odds_win_rate, color=line_color)
+        else:
+            st.info(f"ℹ️ ยังไม่มีข้อมูลการลงทุนในโหมด {view_mode} ครับ")
                 
         # ==========================================
         # 🤖 AI Daily Debrief (Level 4: Self-Reflection)
