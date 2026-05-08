@@ -966,7 +966,7 @@ with tab3:
     submit_live = c_btn1.button("🎯 ENGAGE SNIPER", use_container_width=True, type="primary")
     c_btn2.button("🗑️ ล้างค่า", use_container_width=True, on_click=clear_inplay_data)
 
-        if submit_live:
+     if submit_live:
         # ฟังก์ชันช่วยปรับค่าน้ำ
         def fix(o): return o + 1.0 if o < 1.1 else o
         
