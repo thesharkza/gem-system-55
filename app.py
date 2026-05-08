@@ -168,9 +168,17 @@ with tab3:
     col_l1, col_l2 = st.columns(2)
     with col_l1:
         st.subheader("🏁 Game State")
+        # แถวที่ 1: ของเจ้าบ้าน
         c_h1, c_h2 = st.columns(2)
         cur_h = c_h1.number_input("Score H", min_value=0, key="lh_s")
+        rc_h = c_h2.checkbox("🟥 เหย้าใบแดง", key="rc_h")
+        
+        # 🌟 แถวที่ 2: ของทีมเยือน (บรรทัดนี้แหละครับที่หายไป!)
+        c_a1, c_a2 = st.columns(2) 
         cur_a = c_a1.number_input("Score A", min_value=0, key="la_s")
+        rc_a = c_a2.checkbox("🟥 เยือนใบแดง", key="rc_a")
+        
+        # แถวที่ 3: เวลา
         cur_min = st.slider("Minute", 0, 120, key="current_min")
     
     # ... (ส่วนประกอบราคา Live HDP/OU) ...
