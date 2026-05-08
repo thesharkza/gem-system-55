@@ -1011,6 +1011,9 @@ with tab3:
                         st.success(f"**✅ ข้อดี (Pros):** {ai_live.get('pros_analysis', 'ไม่มี')}")
                         st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_live.get('cons_analysis', 'ไม่มี')}")
                         st.info(f"**📜 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
+                        
+                    ah_limit -> live_ah_limit และ ou_limit -> live_ou_limit
+                    limit_to_use = live_ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_limit
                     
                     if ai_live.get('final_decision', False) and net_l_ev >= limit_to_use:
                         st.balloons()
