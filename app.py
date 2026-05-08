@@ -11,6 +11,12 @@ from PIL import Image
 import google.generativeai as genai
 import numpy as np
 import pandas as pd
+from supabase import create_client, Client
+
+# เชื่อมต่อกับ Supabase โดยใช้ Secrets
+url: str = st.secrets["SUPABASE_URL"]
+key: str = st.secrets["SUPABASE_KEY"]
+supabase: Client = create_client(url, key)
 
 # --- CONFIG ---
 st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
