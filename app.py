@@ -984,8 +984,8 @@ with tab3:
         with g1: st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", live_ah_threshold), use_container_width=True)
         with g2: st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", live_ou_threshold), use_container_width=True)
         
-        ah_live_passed = b_ah_v >= ah_limit
-        ou_live_passed = b_ou_v >= ou_limit
+        ah_live_passed = b_ah_v >= live_ah_limit
+        ou_live_passed = b_ou_v >= live_ou_limit
 
         if ah_live_passed or ou_live_passed:
             if ah_live_passed and ou_live_passed:
@@ -1012,7 +1012,6 @@ with tab3:
                         st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_live.get('cons_analysis', 'ไม่มี')}")
                         st.info(f"**📜 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
                     
-                    limit_to_use = live_ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_limit
                     if ai_live.get('final_decision', False) and net_l_ev >= limit_to_use:
                         st.balloons()
                         st.error(f"🚨 SNIPER ALERT: เป้า '{t_live['n']}' อนุมัติโจมตี!")
