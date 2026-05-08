@@ -972,63 +972,88 @@ with tab3:
 # ==========================================
 with tab4:
     st.header("🧪 ระบบทดสอบความแม่นยำจากข้อมูลจริง (Live Backtest)")
-    st.markdown("ระบบจะดึงข้อมูลบิลการลงทุน **ที่รู้ผลแล้ว (Win/Loss)** จาก Dashboard มาคำนวณย้อนหลัง เพื่อดูว่า AI ของเราประเมิน 'โอกาสชนะ' ได้แม่นยำกว่า 'ราคาของเจ้ามือ' หรือไม่ (ใช้มาตรฐาน Brier Score: ยิ่งใกล้ 0 ยิ่งแปลว่าทายแม่น)")
+    st.markdown("ระบบจะดึงข้อมูลบิลการลงทุน **ที่รู้ผลแล้ว** จาก Dashboard มาคำนวณย้อนหลัง เพื่อดูว่า AI ของเราประเมิน 'โอกาสชนะ' ได้แม่นยำกว่า 'ราคาของเจ้ามือ' หรือไม่ (ใช้มาตรฐาน Brier Score: ยิ่งใกล้ 0 ยิ่งแปลว่าทายแม่น)")
     
     st.markdown("---")
     
     logs = load_logs()
     if logs is not None and not logs.empty:
-        finished_logs = logs[logs['Result'].isin(['Win', 'Half Win', 'Push', 'Half Loss', 'Loss'])].copy()
+        # 1. คำนวณ Net_Profit ใหม่ใน TAB นี้เพื่อใช้เป็นตัววัดผล
+        logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
+        
+        # 2. กรองเอาเฉพาะบิลที่มีการกรอกผลลัพธ์แล้ว (เช่น มีสกอร์ "2-1")
+        finished_logs = logs[logs['Result'].astype(str).str.strip() != ""].copy()
         
         if not finished_logs.empty:
-            def map_result_to_score(res):
-                if res == 'Win': return 1.0
-                if res == 'Half Win': return 0.75
-                if res == 'Push': return 0.50
-                if res == 'Half Loss': return 0.25
-                if res == 'Loss': return 0.00
-                return np.nan
+            # 3. แปลงจำนวนเงินกำไร/ขาดทุน ให้เป็นคะแนนทางคณิตศาสตร์ (Actual Score) 0.0 - 1.0
+            def map_net_profit_to_score(row):
+                try:
+                    inv = float(row['Investment'])
+                    net = float(row['Net_Profit'])
+                    odds = float(row['Odds'])
+                    if inv <= 0: return np.nan
+                    
+                    max_win = inv * (odds - 1)
+                    if net >= max_win * 0.95: return 1.0       # Win เต็ม
+                    elif net > 0: return 0.75                  # ได้ครึ่ง (Half Win)
+                    elif net == 0: return 0.50                 # เสมอตัว (Push)
+                    elif net <= -inv * 0.95: return 0.0        # เสียเต็ม (Loss)
+                    elif net < 0: return 0.25                  # เสียครึ่ง (Half Loss)
+                    return np.nan
+                except:
+                    return np.nan
+                    
+            finished_logs['Actual_Score'] = finished_logs.apply(map_net_profit_to_score, axis=1)
+            # ตัดข้อมูลที่คำนวณคะแนนไม่ได้ออกไป
+            finished_logs = finished_logs.dropna(subset=['Actual_Score'])
+            
+            if not finished_logs.empty:
+                # 4. คำนวณความน่าจะเป็นของบ่อน (Implied Probability)
+                finished_logs['Bookie_Prob'] = 1 / finished_logs['Odds']
                 
-            finished_logs['Actual_Score'] = finished_logs['Result'].apply(map_result_to_score)
-            finished_logs['Bookie_Prob'] = 1 / finished_logs['Odds']
-            finished_logs['Our_Prob'] = ((finished_logs['EV_Pct'] / 100) + 1) / finished_logs['Odds']
-            
-            finished_logs['Our_Error'] = (finished_logs['Our_Prob'] - finished_logs['Actual_Score'])**2
-            finished_logs['Bookie_Error'] = (finished_logs['Bookie_Prob'] - finished_logs['Actual_Score'])**2
-            
-            avg_our_error = finished_logs['Our_Error'].mean()
-            avg_bookie_error = finished_logs['Bookie_Error'].mean()
-            error_diff = avg_bookie_error - avg_our_error 
-            
-            st.subheader(f"📊 ผลประชันความแม่นยำจาก {len(finished_logs)} บิลล่าสุด")
-            c1, c2, c3 = st.columns(3)
-            
-            c1.metric("🤖 ค่าความคลาดเคลื่อนของเรา (Error)", f"{avg_our_error:.4f}", f"{-error_diff:.4f} vs เจ้ามือ", delta_color="inverse")
-            c2.metric("🎩 ค่าความคลาดเคลื่อนของบ่อน", f"{avg_bookie_error:.4f}")
-            
-            if avg_our_error < avg_bookie_error:
-                c3.success("🏆 กองทุนเราชนะตลาด!")
-                st.balloons()
+                # 5. ถอดรหัสความน่าจะเป็นของโมเดลเรา จากค่า EV ที่บันทึกไว้
+                finished_logs['Our_Prob'] = ((finished_logs['EV_Pct'] / 100) + 1) / finished_logs['Odds']
+                
+                # 6. คำนวณค่าความผิดพลาด (Brier Score / Error)
+                finished_logs['Our_Error'] = (finished_logs['Our_Prob'] - finished_logs['Actual_Score'])**2
+                finished_logs['Bookie_Error'] = (finished_logs['Bookie_Prob'] - finished_logs['Actual_Score'])**2
+                
+                # สรุปผล
+                avg_our_error = finished_logs['Our_Error'].mean()
+                avg_bookie_error = finished_logs['Bookie_Error'].mean()
+                error_diff = avg_bookie_error - avg_our_error 
+                
+                st.subheader(f"📊 ผลประชันความแม่นยำจาก {len(finished_logs)} บิลล่าสุด")
+                c1, c2, c3 = st.columns(3)
+                
+                c1.metric("🤖 ค่าความคลาดเคลื่อนของเรา (Error)", f"{avg_our_error:.4f}", f"{-error_diff:.4f} vs เจ้ามือ", delta_color="inverse")
+                c2.metric("🎩 ค่าความคลาดเคลื่อนของบ่อน", f"{avg_bookie_error:.4f}")
+                
+                if avg_our_error < avg_bookie_error:
+                    c3.success("🏆 กองทุนเราชนะตลาด!")
+                    st.balloons()
+                else:
+                    c3.error("💀 บ่อนยังแม่นกว่า (ต้องจูนสมการต่อ)")
+                    
+                # 7. พล็อตกราฟเปรียบเทียบ
+                st.markdown("#### 📈 กราฟเปรียบเทียบความแม่นยำสะสม (Cumulative Error)")
+                st.caption("เส้นกราฟยิ่งอยู่ต่ำยิ่งดี (สะสมความผิดพลาดน้อยกว่า)")
+                
+                finished_logs = finished_logs.sort_values(by='Time').reset_index(drop=True)
+                finished_logs['Cum_Our_Error'] = finished_logs['Our_Error'].cumsum()
+                finished_logs['Cum_Bookie_Error'] = finished_logs['Bookie_Error'].cumsum()
+                
+                fig_bt = go.Figure()
+                fig_bt.add_trace(go.Scatter(x=finished_logs.index, y=finished_logs['Cum_Our_Error'], mode='lines', name='GEM System Error', line=dict(color='#00FF7F', width=3)))
+                fig_bt.add_trace(go.Scatter(x=finished_logs.index, y=finished_logs['Cum_Bookie_Error'], mode='lines', name='Bookmaker Error', line=dict(color='#FF4500', width=2, dash='dash')))
+                fig_bt.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="จำนวนไม้ที่ลงทุน", yaxis_title="ค่าความผิดพลาดสะสม")
+                st.plotly_chart(fig_bt, use_container_width=True)
+                
+                with st.expander("🔍 ดูข้อมูลเปรียบเทียบเชิงลึก (Raw Data)"):
+                    st.dataframe(finished_logs[['Time', 'Match', 'Target', 'Odds', 'Result', 'Net_Profit', 'Actual_Score', 'Bookie_Prob', 'Our_Prob']], use_container_width=True)
             else:
-                c3.error("💀 บ่อนยังแม่นกว่า (ต้องจูนสมการต่อ)")
-                
-            st.markdown("#### 📈 กราฟเปรียบเทียบความแม่นยำสะสม (Cumulative Error)")
-            st.caption("เส้นกราฟยิ่งอยู่ต่ำยิ่งดี (สะสมความผิดพลาดน้อยกว่า)")
-            
-            finished_logs = finished_logs.sort_values(by='Time').reset_index(drop=True)
-            finished_logs['Cum_Our_Error'] = finished_logs['Our_Error'].cumsum()
-            finished_logs['Cum_Bookie_Error'] = finished_logs['Bookie_Error'].cumsum()
-            
-            fig_bt = go.Figure()
-            fig_bt.add_trace(go.Scatter(x=finished_logs.index, y=finished_logs['Cum_Our_Error'], mode='lines', name='GEM System Error', line=dict(color='#00FF7F', width=3)))
-            fig_bt.add_trace(go.Scatter(x=finished_logs.index, y=finished_logs['Cum_Bookie_Error'], mode='lines', name='Bookmaker Error', line=dict(color='#FF4500', width=2, dash='dash')))
-            fig_bt.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="จำนวนไม้ที่ลงทุน", yaxis_title="ค่าความผิดพลาดสะสม")
-            st.plotly_chart(fig_bt, use_container_width=True)
-            
-            with st.expander("🔍 ดูข้อมูลเปรียบเทียบเชิงลึก (Raw Data)"):
-                st.dataframe(finished_logs[['Time', 'Match', 'Target', 'Odds', 'Result', 'Bookie_Prob', 'Our_Prob']], use_container_width=True)
-                
+                st.info("ℹ️ ยังไม่มีข้อมูลบิลที่คำนวณผลแพ้ชนะได้")
         else:
-            st.info("ℹ️ ยังไม่มีข้อมูลบิลที่ทราบผลลัพธ์ (กรุณาไปอัปเดตผล Win/Loss ใน TAB 2 ก่อนครับ)")
+            st.info("ℹ️ ยังไม่มีข้อมูลบิลที่ทราบผลลัพธ์ (กรุณาไปอัปเดตผลลงในช่อง Result TAB 2 ก่อนครับ)")
     else:
-        st.warning("⚠️ ไม่พบฐานข้อมูลการลงทุน กรุณาเริ่มสแกนและบันทึกผลก่อนครับ")
+        st.warning("⚠️ ไม่พบฐานข้อมูลการลงทุน")
