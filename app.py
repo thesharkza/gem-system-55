@@ -288,7 +288,7 @@ def calculate_rps(prob_home, prob_draw, prob_away, actual_result):
 # ==========================================
 # 2. ระบบ AI Decision Engine (Chief Risk Officer)
 # ==========================================
-def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
+def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0", threshold=0.08):
     raw_database = load_gem_rules()
     try: oracle_database = get_dynamic_rules(target, is_live, raw_database)
     except NameError: oracle_database = raw_database
