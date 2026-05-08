@@ -980,15 +980,19 @@ with tab3:
         b_ah_v = max(ev_h, ev_a); t_ah = "เจ้าบ้าน" if ev_h > ev_a else "ทีมเยือน"
         b_ou_v = max(ev_o, ev_u); t_ou = "สูง" if ev_o > ev_u else "ต่ำ"
         
-        g1, g2 = st.columns(2)
-        with g1: st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", live_ah_threshold), use_container_width=True)
-        with g2: st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", live_ou_threshold), use_container_width=        # --- 1. ตรวจสอบเกณฑ์การผ่าน (ใช้ตัวแปร Live 20%) ---
+                g1, g2 = st.columns(2)
+        with g1: 
+            st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", live_ah_threshold), use_container_width=True)
+        with g2: 
+            st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", live_ou_threshold), use_container_width=True)
+        
+        # --- 1. ตรวจสอบเกณฑ์การผ่าน (ใช้ตัวแปร Live 20%) ---
         ah_live_passed = b_ah_v >= live_ah_limit
         ou_live_passed = b_ou_v >= live_ou_limit
 
-        # --- 2. ส่วนการตัดสินใจ (ตรวจสอบช่องว่างหน้าบรรทัดให้ดี) ---
+        # --- 2. ส่วนการตัดสินใจ ---
         if ah_live_passed or ou_live_passed:
-            # เลือกเป้าหมายที่มี EV สูงที่สุด (อยู่ภายใต้ if ตัวบน)
+            # เลือกเป้าหมายที่มี EV สูงที่สุด
             if ah_live_passed and ou_live_passed:
                 t_live = {"n": t_ah, "ev": b_ah_v, "hdp": live_hdp, "odds": fix(live_hdp_h) if t_ah=="เจ้าบ้าน" else fix(live_hdp_a)} if b_ah_v > b_ou_v else {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
             elif ah_live_passed:
@@ -996,12 +1000,10 @@ with tab3:
             else:
                 t_live = {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
 
-            # ตรวจสอบ API Key (ต้องแนวเดียวกับ if/elif/else ของ t_live ด้านบน)
             if not api_key: 
                 st.warning("⚠️ โปรดใส่ API Key")
             else:
                 with st.spinner("🧠 THE ORACLE กำลังประมวลผล Live สด..."):
-                    # ประกาศเกณฑ์ก่อนเรียก AI
                     limit_to_use = live_ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_limit
                     
                     ai_live = ai_quant_decision_engine(
@@ -1015,6 +1017,9 @@ with tab3:
                         f"{current_score_h}-{current_score_a}",
                         threshold=limit_to_use
                     )
+                    
+                    # ... (โค้ดส่วนที่เหลือเหมือนเดิม) ...
+
                     
                     net_l_ev = t_live['ev'] + ai_live.get('impact_score', 0)
                     
