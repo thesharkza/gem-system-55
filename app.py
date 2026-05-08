@@ -997,14 +997,14 @@ with tab3:
             else:
                 t_live = {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
 
-            if not api_key: 
+                        if not api_key: 
                 st.warning("⚠️ โปรดใส่ API Key")
             else:
                 with st.spinner("🧠 THE ORACLE กำลังประมวลผล Live สด..."):
-                    # 🌟 กำหนดเกณฑ์ที่จะส่งให้ AI รู้จัก (สำหรับใช้ในกรณี Fallback)
+                    # 1. ต้องประกาศตัวแปร limit_to_use ก่อน (ย้ายมาไว้ข้างบน)
                     limit_to_use = live_ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_limit
                     
-                    # 🌟 เรียก AI พร้อมส่งค่า threshold เข้าไปด้วย
+                    # 2. ค่อยส่งตัวแปรเข้าไปในฟังก์ชัน
                     ai_live = ai_quant_decision_engine(
                         "Live", 
                         t_live['n'], 
@@ -1014,7 +1014,7 @@ with tab3:
                         True, 
                         current_min, 
                         f"{current_score_h}-{current_score_a}",
-                        threshold=limit_to_use
+                        threshold=limit_to_use  # ตอนนี้ระบบรู้จัก limit_to_use แล้ว
                     )
                     
                     net_l_ev = t_live['ev'] + ai_live.get('impact_score', 0)
@@ -1030,11 +1030,14 @@ with tab3:
                         st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_live.get('cons_analysis', 'ไม่มี')}")
                         st.info(f"**📜 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
                     
-                    # ตัดสินใจสุดท้าย: AI ต้องอนุมัติ และ Net EV ต้องไม่ต่ำกว่าเกณฑ์ (20%)
+                    # 3. ตรวจสอบเงื่อนไขการอนุมัติ
                     if ai_live.get('final_decision', False) and net_l_ev >= limit_to_use:
                         st.balloons()
                         st.error(f"🚨 SNIPER ALERT: เป้า '{t_live['n']}' อนุมัติโจมตี!")
                         st.success(f"✅ ORACLE: {ai_live.get('final_comment', 'Good')}")
+                        
+                        # ... (โค้ดส่วน save_to_supabase ด้านล่างคงเดิม) ...
+
                         
                         inv = min( (((t_live['odds']-1) * ((net_l_ev+1)/t_live['odds']) - (1-((net_l_ev+1)/t_live['odds']))) / (t_live['odds']-1)) * 0.25, 0.05) * total_bankroll
                         tz_th = timezone(timedelta(hours=7))
