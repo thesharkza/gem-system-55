@@ -687,14 +687,30 @@ with tab2:
         
         st.markdown("---")
         st.markdown("### 🎛️ โหมดการวิเคราะห์ (Dashboard View)")
-        view_mode = st.radio("เลือกมิติข้อมูล:", ["🌍 ภาพรวมทั้งหมด (All)", "🚀 บอลก่อนเตะ (Pre-Match)", "⚡ บอลสด (In-Play)"], horizontal=True)
+        
+        # 🌟 เพิ่มแถบตัวเลือกสำหรับกรองข้อมูล 2 ชั้น (เวลา + ประเภท)
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+            time_filter = st.radio("⏳ ช่วงเวลา:", ["🌍 ทั้งหมด (All Time)", "📅 เฉพาะวันนี้ (Today)"], horizontal=True)
+        with col_f2:
+            view_mode = st.radio("🎯 เลือกมิติข้อมูล:", ["🌍 ภาพรวม (All)", "🚀 ก่อนเตะ (Pre-Match)", "⚡ บอลสด (In-Play)"], horizontal=True)
 
-        if view_mode == "⚡ บอลสด (In-Play)":
-            filtered_logs = logs[logs['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
-        elif view_mode == "🚀 บอลก่อนเตะ (Pre-Match)":
-            filtered_logs = logs[~logs['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
+        # 1. กรองตามช่วงเวลา (เช็คกับเวลาโซนไทย)
+        if time_filter == "📅 เฉพาะวันนี้ (Today)":
+            tz_th = timezone(timedelta(hours=7))
+            today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
+            # ดึงเฉพาะแถวที่มีวันที่ตรงกับวันนี้
+            time_filtered_logs = logs[logs['Time'].astype(str).str.contains(today_str, na=False)].copy()
         else:
-            filtered_logs = logs
+            time_filtered_logs = logs.copy()
+
+        # 2. กรองตามประเภทบอล (เจาะลึกจากช่วงเวลาที่เลือกไว้)
+        if view_mode == "⚡ บอลสด (In-Play)":
+            filtered_logs = time_filtered_logs[time_filtered_logs['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
+        elif view_mode == "🚀 ก่อนเตะ (Pre-Match)":
+            filtered_logs = time_filtered_logs[~time_filtered_logs['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
+        else:
+            filtered_logs = time_filtered_logs
 
         inv_logs = filtered_logs[filtered_logs['Investment'] > 0]
         
