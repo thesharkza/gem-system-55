@@ -664,14 +664,46 @@ with tab1:
 with tab2:
     logs = load_logs()
     if logs is not None and not logs.empty:
+        # 🌟 เพิ่มตัวกรองข้อมูลสำหรับส่วน Data Editor (บันทึกผล)
         st.subheader("📝 บันทึกผล & ราคาปิด (Closing Odds) - Cloud Sync")
-        display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
-        edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result"), "Closing_Odds": st.column_config.NumberColumn("Closing Odds", min_value=0.0, format="%.2f")}, use_container_width=True, num_rows="dynamic")
+        
+        # กรองข้อมูลเบื้องต้นเพื่อใช้ในตารางแก้ไข
+        col_edit1, col_edit2 = st.columns([1, 2])
+        with col_edit1:
+            edit_filter = st.selectbox("🔍 เลือกรายการที่จะแสดงในตาราง:", 
+                                     ["แสดงเฉพาะวันนี้", "แสดงเฉพาะรายการที่ยังไม่ลงผล", "แสดงทั้งหมด"], 
+                                     index=0)
+        
+        # ตรรกะการกรองข้อมูลก่อนเข้า Data Editor
+        df_to_edit = logs.copy()
+        tz_th = timezone(timedelta(hours=7))
+        today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
+
+        if edit_filter == "แสดงเฉพาะวันนี้":
+            df_to_edit = df_to_edit[df_to_edit['Time'].astype(str).str.contains(today_str, na=False)]
+        elif edit_filter == "แสดงเฉพาะรายการที่ยังไม่ลงผล":
+            df_to_edit = df_to_edit[df_to_edit['Result'].astype(str).str.strip() == ""]
+
+        # เรียงลำดับจากใหม่ไปเก่า
+        df_to_edit = df_to_edit.sort_values(by='Time', ascending=False).reset_index(drop=True)
+
+        # 🌟 ตารางแก้ไขข้อมูล (Data Editor)
+        edited_df = st.data_editor(
+            df_to_edit, 
+            column_config={
+                "id": None, # ซ่อน ID ไว้ไม่ให้รกตา
+                "Result": st.column_config.TextColumn("Result (สกอร์)"), 
+                "Closing_Odds": st.column_config.NumberColumn("Closing Odds", min_value=0.0, format="%.2f")
+            }, 
+            use_container_width=True, 
+            num_rows="dynamic"
+        )
         
         c_b1, c_b2 = st.columns(2)
-        if c_b1.button("💾 Save Score to Cloud"): 
+        if c_b1.button("💾 Save Score to Cloud", use_container_width=True, type="primary"): 
             with st.spinner("กำลังอัปเดตข้อมูลบน Cloud..."):
                 for _, row in edited_df.iterrows():
+                    # อัปเดตข้อมูลลง Supabase โดยอ้างอิงตาม id
                     supabase.table("investment_logs").update({
                         "Closing_Odds": float(row['Closing_Odds']),
                         "Result": str(row['Result'])
