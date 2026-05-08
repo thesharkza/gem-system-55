@@ -156,10 +156,17 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, ou_line, ou_over_w, ou_under_w, rho, 
     margin_ou = o_prob + u_prob
     true_o_prob = o_prob / margin_ou
     
-    expected_total = ou_line + ((true_o_prob - 0.5) * 1.30)
+    # 🌟 FIX 1: Poisson Skew Adjustment (แก้โรคชอบแทงต่ำ)
+    # เราดันค่า Mean Expected Goals ให้สูงขึ้น +0.20 เพื่อชดเชยความเบ้ของปัวซง 
+    # และเพิ่มอัตราเร่งเวลาค่าน้ำสูงเทไปฝั่ง Over
+    poisson_skew_adj = 0.20
+    expected_total = ou_line + poisson_skew_adj + ((true_o_prob - 0.5) * 2.5) 
     expected_total = max(0.5, expected_total) 
     
-    supremacy = (p_h - p_a) * (expected_total ** 0.65)
+    # 🌟 FIX 2: Supremacy Calibration (แก้โรคชอบแทงรอง)
+    # ปรับตัวคูณพลังโจมตี (Supremacy) ของบอลต่อให้รุนแรงขึ้น 
+    # จากเดิมยกกำลัง 0.65 เปลี่ยนเป็น 0.85 เพื่อเพิ่มน้ำหนักให้บอลต่อมีโอกาสยิงทะลุเรตแฮนดิแคป
+    supremacy = (p_h - p_a) * (expected_total ** 0.85)
     
     lam_h_base = (expected_total + supremacy) / 2.0
     lam_a_base = (expected_total - supremacy) / 2.0
@@ -177,6 +184,8 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, ou_line, ou_over_w, ou_under_w, rho, 
     if red_card_a: 
         lam_a *= 0.50
         lam_h *= 1.30
+
+    # สร้าง Matrix ต่อจากนี้ (คงโค้ดส่วน for i in range(10): ... ไว้เหมือนเดิมครับ)
 
     matrix = [[0.0 for j in range(10)] for i in range(10)]
     for i in range(10): 
