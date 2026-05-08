@@ -507,11 +507,21 @@ with tab1:
     hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5,step=0.5)
     
     st.sidebar.markdown("---")
-    st.sidebar.subheader("🎯 EV Threshold (เป้าหมายกำไร)")
-    ah_threshold = st.sidebar.slider("เป้าหมาย แฮนดิแคป (AH) %", 1.0, 20.0, 5.0, step=0.5)
-    ou_threshold = st.sidebar.slider("เป้าหมาย สกอร์รวม (O/U) %", 1.0, 20.0, 5.0, step=0.5)
-    ah_limit = ah_threshold / 100.0
-    ou_limit = ou_threshold / 100.0
+    # --- ส่วน Pre-Match Threshold ---
+    st.sidebar.subheader("🎯 Pre-Match EV Threshold")
+    pre_ah_threshold = st.sidebar.slider("เป้า AH (Pre) %", 1.0, 15.0, 5.0, step=0.5)
+    pre_ou_threshold = st.sidebar.slider("เป้า O/U (Pre) %", 1.0, 15.0, 5.0, step=0.5)
+
+    # --- ส่วน In-Play Threshold ---
+    st.sidebar.subheader("⚡ In-Play EV Threshold")
+    live_ah_threshold = st.sidebar.slider("เป้า AH (Live) %", 5.0, 50.0, 20.0, step=1.0)
+    live_ou_threshold = st.sidebar.slider("เป้า O/U (Live) %", 5.0, 50.0, 20.0, step=1.0)
+
+    # แปลงเป็นค่าทศนิยมเพื่อใช้ในสมการ
+    pre_ah_limit = pre_ah_threshold / 100.0
+    pre_ou_limit = pre_ou_threshold / 100.0
+    live_ah_limit = live_ah_threshold / 100.0
+    live_ou_limit = live_ou_threshold / 100.0
 
     st.markdown("---")
     
