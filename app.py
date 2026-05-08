@@ -980,8 +980,8 @@ with tab3:
         b_ou_v = max(ev_o, ev_u); t_ou = "สูง" if ev_o > ev_u else "ต่ำ"
         
         g1, g2 = st.columns(2)
-        with g1: st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", ah_threshold), use_container_width=True)
-        with g2: st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", ou_threshold), use_container_width=True)
+        with g1: st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", live_ah_threshold), use_container_width=True)
+        with g2: st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", live_ou_threshold), use_container_width=True)
         
         ah_live_passed = b_ah_v >= ah_limit
         ou_live_passed = b_ou_v >= ou_limit
