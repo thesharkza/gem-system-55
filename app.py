@@ -629,8 +629,9 @@ with tab1:
             st.markdown("<h4 style='text-align: center; color: #ff9933;'>🟠 ตลาดสกอร์รวม (O/U)</h4>", unsafe_allow_html=True)
             st.plotly_chart(create_ev_gauge(best_ou['ev'], f"เป้าหมาย: {best_ou['n']}", pre_ou_threshold), use_container_width=True)
 
-        ah_passed = best_ah['ev'] >= ah_limit
-        ou_passed = best_ou['ev'] >= ou_limit
+        # ✅ เปลี่ยนเป็นของใหม่ (ใช้ค่า Pre-Match)
+        ah_passed = best_ah['ev'] >= pre_ah_limit
+        ou_passed = best_ou['ev'] >= pre_ou_limit
 
         if ah_passed or ou_passed:
             if ah_passed and ou_passed:
@@ -1011,7 +1012,7 @@ with tab3:
                         st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_live.get('cons_analysis', 'ไม่มี')}")
                         st.info(f"**📜 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
                     
-                    limit_to_use = ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else ou_limit
+                    limit_to_use = live_ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_limit
                     if ai_live.get('final_decision', False) and net_l_ev >= limit_to_use:
                         st.balloons()
                         st.error(f"🚨 SNIPER ALERT: เป้า '{t_live['n']}' อนุมัติโจมตี!")
