@@ -1033,7 +1033,7 @@ with tab3:
                         }])
                     else: 
                         st.warning(f"🚫 ORACLE REJECTED (ทับมือ): {ai_live.get('final_comment', 'Pass')}")
-        else: st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมายที่ตั้งไว้ AH: {ah_threshold}%, O/U: {ou_threshold}%)")
+        else: st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมายที่ตั้งไว้ AH: {live_ah_threshold}%, O/U: {live_ou_threshold}%)")
 
 # ==========================================
 # --- TAB 4: BACKTEST ENGINE (REAL DATA EVALUATION) ---
