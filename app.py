@@ -669,7 +669,7 @@ with tab1:
                 else:
                     st.error(f"🚫 ORACLE REJECTED: {ai_verdict.get('final_comment', 'Pass')}")
         else:
-            st.warning(f"🛡️ เป้าหมายไม่ถึงเกณฑ์ที่ตั้งไว้ (AH: {ah_threshold}%, O/U: {ou_threshold}%)")
+            st.warning(f"🛡️ เป้าหมายไม่ถึงเกณฑ์ที่ตั้งไว้ (AH: {pre_ah_threshold}%, O/U: {pre_ou_threshold}%)")
 
 # --- TAB 2: Dashboard ---
 with tab2:
