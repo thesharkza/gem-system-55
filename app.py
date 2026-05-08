@@ -999,13 +999,14 @@ with tab3:
                 t_live = {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
 
             # 2. ตรวจสอบ API Key และเรียก Oracle (บรรทัดที่เคยมีปัญหา)
-            if not api_key: 
+                        if not api_key: 
                 st.warning("⚠️ โปรดใส่ API Key")
             else:
                 with st.spinner("🧠 THE ORACLE กำลังประมวลผล Live สด..."):
-                    # ประกาศตัวแปรเกณฑ์ที่จะใช้ก่อนเรียก AI
+                    # 🚩 1. ต้องประกาศตัวแปรนี้ก่อนเป็นอันดับแรก!
                     limit_to_use = live_ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_limit
                     
+                    # 🚩 2. ค่อยส่งเข้าไปในฟังก์ชัน
                     ai_live = ai_quant_decision_engine(
                         "Live", 
                         t_live['n'], 
