@@ -1014,6 +1014,10 @@ with tab4:
                 # 5. ถอดรหัสความน่าจะเป็นของโมเดลเรา จากค่า EV ที่บันทึกไว้
                 finished_logs['Our_Prob'] = ((finished_logs['EV_Pct'] / 100) + 1) / finished_logs['Odds']
                 
+                # 🌟 เพิ่มบรรทัดนี้: บังคับให้ความน่าจะเป็นอยู่ระหว่าง 0% ถึง 100% เท่านั้น (แก้ปัญหา EV ทะลุโลก)
+                finished_logs['Our_Prob'] = finished_logs['Our_Prob'].clip(lower=0.0, upper=1.0)
+                finished_logs['Bookie_Prob'] = finished_logs['Bookie_Prob'].clip(lower=0.0, upper=1.0)
+                
                 # 6. คำนวณค่าความผิดพลาด (Brier Score / Error)
                 finished_logs['Our_Error'] = (finished_logs['Our_Prob'] - finished_logs['Actual_Score'])**2
                 finished_logs['Bookie_Error'] = (finished_logs['Bookie_Prob'] - finished_logs['Actual_Score'])**2
