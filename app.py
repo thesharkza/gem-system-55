@@ -988,8 +988,9 @@ with tab3:
         ah_live_passed = b_ah_v >= live_ah_limit
         ou_live_passed = b_ou_v >= live_ou_limit
 
+                # --- ตรวจสอบเกณฑ์การผ่าน (Indentation จัดระเบียบใหม่) ---
         if ah_live_passed or ou_live_passed:
-            # เลือกเป้าหมายที่มี EV สูงที่สุด
+            # 1. เลือกเป้าหมายที่มี EV สูงที่สุด
             if ah_live_passed and ou_live_passed:
                 t_live = {"n": t_ah, "ev": b_ah_v, "hdp": live_hdp, "odds": fix(live_hdp_h) if t_ah=="เจ้าบ้าน" else fix(live_hdp_a)} if b_ah_v > b_ou_v else {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
             elif ah_live_passed:
@@ -997,14 +998,14 @@ with tab3:
             else:
                 t_live = {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
 
-                        if not api_key: 
+            # 2. ตรวจสอบ API Key และเรียก Oracle (บรรทัดที่เคยมีปัญหา)
+            if not api_key: 
                 st.warning("⚠️ โปรดใส่ API Key")
             else:
                 with st.spinner("🧠 THE ORACLE กำลังประมวลผล Live สด..."):
-                    # 1. ต้องประกาศตัวแปร limit_to_use ก่อน (ย้ายมาไว้ข้างบน)
+                    # ประกาศตัวแปรเกณฑ์ที่จะใช้ก่อนเรียก AI
                     limit_to_use = live_ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_limit
                     
-                    # 2. ค่อยส่งตัวแปรเข้าไปในฟังก์ชัน
                     ai_live = ai_quant_decision_engine(
                         "Live", 
                         t_live['n'], 
@@ -1014,7 +1015,7 @@ with tab3:
                         True, 
                         current_min, 
                         f"{current_score_h}-{current_score_a}",
-                        threshold=limit_to_use  # ตอนนี้ระบบรู้จัก limit_to_use แล้ว
+                        threshold=limit_to_use
                     )
                     
                     net_l_ev = t_live['ev'] + ai_live.get('impact_score', 0)
@@ -1030,14 +1031,10 @@ with tab3:
                         st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_live.get('cons_analysis', 'ไม่มี')}")
                         st.info(f"**📜 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
                     
-                    # 3. ตรวจสอบเงื่อนไขการอนุมัติ
                     if ai_live.get('final_decision', False) and net_l_ev >= limit_to_use:
                         st.balloons()
                         st.error(f"🚨 SNIPER ALERT: เป้า '{t_live['n']}' อนุมัติโจมตี!")
                         st.success(f"✅ ORACLE: {ai_live.get('final_comment', 'Good')}")
-                        
-                        # ... (โค้ดส่วน save_to_supabase ด้านล่างคงเดิม) ...
-
                         
                         inv = min( (((t_live['odds']-1) * ((net_l_ev+1)/t_live['odds']) - (1-((net_l_ev+1)/t_live['odds']))) / (t_live['odds']-1)) * 0.25, 0.05) * total_bankroll
                         tz_th = timezone(timedelta(hours=7))
