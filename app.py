@@ -1,49 +1,51 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
+import os
+import re
 import math
 import json
-import os
-import google.generativeai as genai
-from datetime import datetime, timedelta, timezone
-from PIL import Image
+import time
+from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
+from PIL import Image
+import google.generativeai as genai
+import numpy as np
 from supabase import create_client, Client
 
-# ==========================================
-# 0. ระบบตั้งค่าการเชื่อมต่อ (Config & Supabase)
-# ==========================================
-st.set_page_config(page_title="GEM System 55 - Quant Fund", layout="wide")
+@st.cache_resource
+def init_connection():
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
-# เชื่อมต่อ Supabase ผ่าน Secrets
-try:
-    url: str = st.secrets["SUPABASE_URL"]
-    key: str = st.secrets["SUPABASE_KEY"]
-    supabase: Client = create_client(url, key)
-except Exception as e:
-    st.error("⚠️ ไม่สามารถเชื่อมต่อ Supabase ได้ กรุณาตรวจสอบ Secrets (SUPABASE_URL, SUPABASE_KEY)")
+supabase: Client = init_connection()
 
-# ระบบตั้งค่าตัวแปร (Session State Init)
+# --- CONFIG ---
+st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
+RULES_FILE = "gem_rules.txt" 
+
+# ==========================================
+# 0. ระบบตั้งค่าตัวแปร (Session State Init)
+# ==========================================
 def init_session_state():
     defaults = {
         'match_name': "ชื่อคู่แข่งขัน",
         'h1x2_val': 1.0, 'd1x2_val': 1.0, 'a1x2_val': 1.0,
         'hdp_line_val': 0.0, 'hdp_h_w_val': 0.0, 'hdp_a_w_val': 0.0,
         'ou_line_val': 2.5, 'ou_over_w_val': 0.0, 'ou_under_w_val': 0.0,
-        'lh_s': 0, 'la_s': 0, 'rc_h': False, 'rc_a': False, 'current_min': 45,
-        'pre_h': 2.0, 'pre_d': 3.0, 'pre_a': 3.0, 'pre_ou': 2.5,
-        'live_hdp': 0.0, 'live_hdp_h': 0.9, 'live_hdp_a': 0.9,
-        'live_ou': 2.5, 'live_ou_over': 0.9, 'live_ou_under': 0.9
+        'raw_text': "",
+        'live_hdp': 0.0, 'live_ou': 2.50,
+        'lh_s': 0, 'la_s': 0, 'current_min': 45
     }
     for k, v in defaults.items():
-        if k not in st.session_state: st.session_state[k] = v
+        if k not in st.session_state:
+            st.session_state[k] = v
 
 init_session_state()
 
-# ฟังก์ชันสำหรับปุ่มล้างค่าหน้า IN-PLAY
 def clear_inplay_data():
     inplay_defaults = {
-        'lh_s': 0, 'la_s': 0, 'rc_h': False, 'rc_a': False, 'current_min': 45,
+        'lh_s_input': 0, 'la_s_input': 0, 'rc_h': False, 'rc_a': False, 'current_min': 45,
         'pre_h': 2.0, 'pre_d': 3.0, 'pre_a': 3.0, 'pre_ou': 2.5,
         'live_hdp': 0.0, 'live_hdp_h': 0.9, 'live_hdp_a': 0.9,
         'live_ou': 2.5, 'live_ou_over': 0.9, 'live_ou_under': 0.9
@@ -51,138 +53,289 @@ def clear_inplay_data():
     for k, v in inplay_defaults.items():
         st.session_state[k] = v
 
-def adj_hdp(v): st.session_state.live_hdp += v
-def adj_ou(v): st.session_state.live_ou += v
+@st.cache_data(ttl=60)
+def load_gem_rules():
+    if os.path.exists(RULES_FILE):
+        with open(RULES_FILE, "r", encoding="utf-8") as f:
+            return f.read()
+    return "ไม่พบไฟล์คัมภีร์ โปรดสร้างไฟล์ gem_rules.txt และใส่กฎทั้งหมดลงไป"
+    
+def get_dynamic_rules(target, is_live, raw_rules):
+    """ฟังก์ชัน RAG กรองคัมภีร์ GEM ให้เหลือเฉพาะกฎที่เข้ากับหน้างานปัจจุบัน"""
+    rules = raw_rules.split('\n')
+    dynamic_db = []
+    is_ah = target in ["เจ้าบ้าน", "ทีมเยือน"]
+    is_ou = target in ["สูง", "ต่ำ"]
+    
+    for rule in rules:
+        if not rule.strip(): continue
+        rule_lower = rule.lower()
+        if is_ou and any(w in rule_lower for w in ['เจ้าบ้าน', 'ทีมเยือน', 'ต่อ', 'รอง', 'ah']) and not any(w in rule_lower for w in ['สูง', 'ต่ำ', 'สกอร์', 'o/u']):
+            continue
+        if is_ah and any(w in rule_lower for w in ['สูง', 'ต่ำ', 'สกอร์รวม', 'o/u']) and not any(w in rule_lower for w in ['เจ้าบ้าน', 'ทีมเยือน', 'ต่อ', 'รอง', 'ah']):
+            continue
+        if not is_live and any(w in rule_lower for w in ['live', 'สด', 'นาที', 'ใบแดง', 'สกอร์ปัจจุบัน']):
+            continue 
+        if is_live and any(w in rule_lower for w in ['ก่อนเตะ', 'pre-match', 'ราคาเปิด']) and not any(w in rule_lower for w in ['live', 'สด', 'ไหล']):
+            continue
+        dynamic_db.append(rule)
+    return "\n".join(dynamic_db)
 
-# ==========================================
-# 1. ฟังก์ชันจัดการข้อมูล (Supabase Engine)
-# ==========================================
-def load_logs():
+def clear_form_data():
+    st.session_state.raw_text = ""
+    st.session_state.match_name = "ชื่อคู่แข่งขัน"
+    st.session_state.h1x2_val = 1.0; st.session_state.d1x2_val = 1.0; st.session_state.a1x2_val = 1.0
+    st.session_state.hdp_line_val = 0.0; st.session_state.hdp_h_w_val = 0.0; st.session_state.hdp_a_w_val = 0.0
+    st.session_state.ou_line_val = 2.5; st.session_state.ou_over_w_val = 0.0; st.session_state.ou_under_w_val = 0.0
+
+def approve_and_save_rule():
     try:
-        response = supabase.table("investment_logs").select("*").order("Time", desc=True).execute()
-        if response.data:
-            df = pd.DataFrame(response.data)
-            for col in ['EV_Pct', 'Investment', 'Odds', 'Closing_Odds']:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
-            return df
-        return pd.DataFrame(columns=['id', 'Time', 'Match', 'HDP', 'Target', 'EV_Pct', 'Investment', 'Odds', 'Closing_Odds', 'Result'])
-    except: return pd.DataFrame()
+        rule_to_save = st.session_state.get('edited_rule_text', "")
+        if rule_to_save.strip() != "":
+            with open(RULES_FILE, "a", encoding="utf-8") as f:
+                tz_th = timezone(timedelta(hours=7))
+                now_str = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M")
+                f.write(f"\n\n### กฎใหม่ที่เพิ่ม/แก้ไขโดยผู้ใช้ (อัปเดตวันที่ {now_str}) ###\n")
+                f.write(rule_to_save)
+            st.session_state['debrief_result'] = ""
+            st.session_state['save_success'] = True
+            load_gem_rules.clear() 
+        else:
+            st.session_state['save_error'] = "กล่องข้อความว่างเปล่า ไม่สามารถบันทึกได้ครับ"
+    except Exception as e:
+        st.session_state['save_error'] = str(e)
 
-def save_to_supabase(new_data_list):
-    try: supabase.table("investment_logs").insert(new_data_list).execute()
-    except Exception as e: st.error(f"Save Error: {e}")
-
-def calculate_net_profit(row):
+def parse_line(line_str):
+    line_str = str(line_str).replace(' ', '').replace('+', '')
+    is_negative = '-' in line_str
+    line_str = line_str.replace('-', '')
     try:
-        res, inv, odds = str(row['Result']), float(row['Investment']), float(row['Odds'])
-        if res == 'Win': return inv * (odds - 1)
-        if res == 'Half Win': return (inv * (odds - 1)) / 2
-        if res == 'Half Loss': return -inv / 2
-        if res == 'Loss': return -inv
+        if '/' in line_str or ',' in line_str:
+            sep = '/' if '/' in line_str else ','
+            parts = line_str.split(sep)
+            return (-1 if is_negative else 1) * ((float(parts[0]) + float(parts[1])) / 2.0)
+        else:
+            return float(line_str) * (-1 if is_negative else 1)
+    except:
         return 0.0
-    except: return 0.0
-
-def calculate_clv(row):
-    try:
-        if float(row['Closing_Odds']) > 1.0:
-            return ((float(row['Odds']) / float(row['Closing_Odds'])) - 1) * 100
-        return 0.0
-    except: return 0.0
 
 # ==========================================
-# 2. กลไกคณิตศาสตร์ (Quant Engine)
+# 1. ระบบคณิตศาสตร์ขั้นสูง (Syndicate Quant Engine)
 # ==========================================
-def shin_devig(h, d, a):
-    pi = [1/h, 1/d, 1/a]
+def shin_devig(o_h, o_d, o_a):
+    pi = [1/o_h, 1/o_d, 1/o_a]
     sum_pi = sum(pi)
+    if sum_pi <= 1.0: return pi[0]/sum_pi, pi[1]/sum_pi, pi[2]/sum_pi
     low, high = 0.0, 1.0
-    for _ in range(50):
+    for _ in range(100): 
         z = (low + high) / 2
         try:
             p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
             if sum(p) > 1: low = z
             else: high = z
-        except ZeroDivisionError: break
-    
+        except ZeroDivisionError:
+            break 
+            
     try:
         p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
-    except ZeroDivisionError: p = [pi_i / sum_pi for pi_i in pi]
+    except ZeroDivisionError:
+        p = pi 
+        
+    sum_p = sum(p) 
+    return p[0]/sum_p, p[1]/sum_p, p[2]/sum_p
+
+def poisson(k, lam):
+    return (lam**k * math.exp(-lam)) / math.factorial(k)
+
+def calc_dixon_coles_matrix(p_h, p_d, p_a, ou_line, ou_over_w, ou_under_w, rho, current_h=0, current_a=0, minutes_left=90, red_card_h=False, red_card_a=False):
+    o_w = ou_over_w + 1.0 if ou_over_w < 1.1 else ou_over_w
+    u_w = ou_under_w + 1.0 if ou_under_w < 1.1 else ou_under_w
     
-    s_p = sum(p)
-    return p[0]/s_p, p[1]/s_p, p[2]/s_p
+    o_prob = 1.0 / o_w
+    u_prob = 1.0 / u_w
+    margin_ou = o_prob + u_prob
+    true_o_prob = o_prob / margin_ou
+    
+    expected_total = ou_line + ((true_o_prob - 0.5) * 1.30)
+    expected_total = max(0.5, expected_total) 
+    
+    supremacy = (p_h - p_a) * (expected_total ** 0.65)
+    
+    lam_h_base = (expected_total + supremacy) / 2.0
+    lam_a_base = (expected_total - supremacy) / 2.0
+    
+    lam_h_base = max(0.15, lam_h_base)
+    lam_a_base = max(0.15, lam_a_base)
 
-def calc_dixon_coles_matrix(lambda_h, lambda_a, max_goals=9):
-    # ปรับจูนค่า rho สำหรับการแก้ bias สกอร์ต่ำ
-    rho = -0.10 
-    matrix = np.zeros((max_goals + 1, max_goals + 1))
-    for i in range(max_goals + 1):
-        for j in range(max_goals + 1):
-            prob_h = (math.exp(-lambda_h) * (lambda_h**i)) / math.factorial(i)
-            prob_a = (math.exp(-lambda_a) * (lambda_a**j)) / math.factorial(j)
-            prob = prob_h * prob_a
-            
-            # Dixon-Coles Adjustment
-            if i == 0 and j == 0: prob *= (1 - lambda_h * lambda_a * rho)
-            elif i == 0 and j == 1: prob *= (1 + lambda_h * rho)
-            elif i == 1 and j == 0: prob *= (1 + lambda_a * rho)
-            elif i == 1 and j == 1: prob *= (1 - rho)
-            
-            matrix[i, j] = max(prob, 0)
-    return matrix / matrix.sum()
+    time_factor = (minutes_left / 90.0) ** 0.85 
+    lam_h = lam_h_base * time_factor
+    lam_a = lam_a_base * time_factor
 
-def calc_advanced_ah_ev(matrix, hdp, odds, target):
-    # hdp input as float (e.g. -0.25)
-    win_p, half_win_p, push_p, half_loss_p, loss_p = 0.0, 0.0, 0.0, 0.0, 0.0
-    for i in range(matrix.shape[0]):
-        for j in range(matrix.shape[1]):
-            diff = i - j
-            res = diff + hdp
-            if res > 0.25: win_p += matrix[i, j]
-            elif res == 0.25: half_win_p += matrix[i, j]
-            elif res == 0.0: push_p += matrix[i, j]
-            elif res == -0.25: half_loss_p += matrix[i, j]
-            else: loss_p += matrix[i, j]
-            
-    if target == "เจ้าบ้าน":
-        return (win_p * (odds-1)) + (half_win_p * (odds-1)*0.5) - (half_loss_p * 0.5) - loss_p
-    else: # ทีมเยือน (hdp ต้องกลับเครื่องหมาย)
-        # สำหรับทีมเยือน เราใช้ matrix[j, i] หรือกลับค่า diff
-        # แต่เพื่อความง่าย เราคำนวณ win_p ของเจ้าบ้านแล้วหา EV ฝั่งเยือน
-        return (loss_p * (odds-1)) + (half_loss_p * (odds-1)*0.5) - (half_win_p * 0.5) - win_p
+    if red_card_h: 
+        lam_h *= 0.50 
+        lam_a *= 1.30 
+    if red_card_a: 
+        lam_a *= 0.50
+        lam_h *= 1.30
 
-def calc_advanced_ou_ev(matrix, line, odds, target):
-    over_p, push_p, under_p = 0.0, 0.0, 0.0
-    for i in range(matrix.shape[0]):
-        for j in range(matrix.shape[1]):
-            total = i + j
-            if total > line: over_p += matrix[i, j]
-            elif total == line: push_p += matrix[i, j]
-            else: under_p += matrix[i, j]
+    matrix = [[0.0 for j in range(10)] for i in range(10)]
+    for i in range(10): 
+        for j in range(10): 
+            base_prob = poisson(i, lam_h) * poisson(j, lam_a)
+            if i == 0 and j == 0: tau = 1 - (lam_h * lam_a * rho)
+            elif i == 0 and j == 1: tau = 1 + (lam_h * rho)
+            elif i == 1 and j == 0: tau = 1 + (lam_a * rho)
+            elif i == 1 and j == 1: tau = 1 - rho
+            else: tau = 1.0
+            matrix[i][j] = max(0, base_prob * tau)
+
+    total_prob = sum(sum(row) for row in matrix)
+    p_h_win_by_2plus = 0.0; p_h_win_by_1 = 0.0; p_draw = 0.0
+    p_a_win_by_1 = 0.0; p_a_win_by_2plus = 0.0
+    p_total_ou = {} 
+
+    for i in range(10):
+        for j in range(10):
+            prob = matrix[i][j] / total_prob
+            final_h = i + current_h
+            final_a = j + current_a
+            diff = final_h - final_a
             
-    if target == "สูง": return (over_p * (odds-1)) - under_p
-    else: return (under_p * (odds-1)) - over_p
+            if diff >= 2: p_h_win_by_2plus += prob
+            elif diff == 1: p_h_win_by_1 += prob
+            elif diff == 0: p_draw += prob
+            elif diff == -1: p_a_win_by_1 += prob
+            elif diff <= -2: p_a_win_by_2plus += prob
+            
+            total_match_goals = final_h + final_a
+            p_total_ou[total_match_goals] = p_total_ou.get(total_match_goals, 0.0) + prob
+            
+    return (p_h_win_by_2plus, p_h_win_by_1, p_draw, p_a_win_by_1, p_a_win_by_2plus, p_total_ou)
+
+def calc_advanced_ah_ev(hdp_line, w2, w1, d, l1, l2, odds, is_fav_team):
+    b = odds - 1
+    hdp_abs = abs(hdp_line)
+    if hdp_abs == 0: return ((w2 + w1) * b) - ((l1 + l2) * 1)
+    if is_fav_team: 
+        if hdp_abs == 0.25: return ((w2 + w1) * b) - (d * 0.5) - ((l1 + l2) * 1)
+        elif hdp_abs == 0.5: return ((w2 + w1) * b) - ((d + l1 + l2) * 1)
+        elif hdp_abs == 0.75: return (w2 * b) + (w1 * (b/2)) - ((d + l1 + l2) * 1)
+        elif hdp_abs == 1.0: return (w2 * b) + (w1 * 0) - ((d + l1 + l2) * 1)
+        elif hdp_abs == 1.25: return (w2 * b) - (w1 * 0.5) - ((d + l1 + l2) * 1)
+        elif hdp_abs == 1.5: return (w2 * b) - ((w1 + d + l1 + l2) * 1)
+    else: 
+        if hdp_abs == 0.25: return ((w2 + w1) * b) + (d * (b/2)) - ((l1 + l2) * 1)
+        elif hdp_abs == 0.5: return ((w2 + w1 + d) * b) - ((l1 + l2) * 1)
+        elif hdp_abs == 0.75: return ((w2 + w1 + d) * b) - (l1 * 0.5) - (l2 * 1)
+        elif hdp_abs == 1.0: return ((w2 + w1 + d) * b) + (l1 * 0) - (l2 * 1)
+        elif hdp_abs == 1.25: return ((w2 + w1 + d) * b) + (l1 * (b/2)) - (l2 * 1)
+        elif hdp_abs == 1.5: return ((w2 + w1 + d + l1) * b) - (l2 * 1)
+    return 0.0
+
+def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
+    b = odds - 1
+    floor_line = math.floor(ou_line)
+    remainder = ou_line - floor_line
+    if is_over:
+        if remainder == 0.0:
+            p_win = sum(p_total.get(k, 0) for k in p_total if k > floor_line); p_loss = sum(p_total.get(k, 0) for k in p_total if k < floor_line)
+            return (p_win * b) - (p_loss * 1)
+        elif remainder == 0.25:
+            p_win = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1); p_half_loss = p_total.get(floor_line, 0.0); p_loss = sum(p_total.get(k, 0) for k in p_total if k < floor_line)
+            return (p_win * b) - (p_half_loss * 0.5) - (p_loss * 1)
+        elif remainder == 0.5:
+            p_win = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1); p_loss = sum(p_total.get(k, 0) for k in p_total if k <= floor_line)
+            return (p_win * b) - (p_loss * 1)
+        elif remainder == 0.75:
+            p_win = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 2); p_half_win = p_total.get(floor_line + 1, 0.0); p_loss = sum(p_total.get(k, 0) for k in p_total if k <= floor_line)
+            return (p_win * b) + (p_half_win * (b / 2)) - (p_loss * 1)
+    else: 
+        if remainder == 0.0:
+            p_win = sum(p_total.get(k, 0) for k in p_total if k < floor_line); p_loss = sum(p_total.get(k, 0) for k in p_total if k > floor_line)
+            return (p_win * b) - (p_loss * 1)
+        elif remainder == 0.25:
+            p_win = sum(p_total.get(k, 0) for k in p_total if k < floor_line); p_half_win = p_total.get(floor_line, 0.0); p_loss = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1)
+            return (p_win * b) + (p_half_win * (b / 2)) - (p_loss * 1)
+        elif remainder == 0.5:
+            p_win = sum(p_total.get(k, 0) for k in p_total if k <= floor_line); p_loss = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 1)
+            return (p_win * b) - (p_loss * 1)
+        elif remainder == 0.75:
+            p_win = sum(p_total.get(k, 0) for k in p_total if k <= floor_line); p_half_loss = p_total.get(floor_line + 1, 0.0); p_loss = sum(p_total.get(k, 0) for k in p_total if k >= floor_line + 2)
+            return (p_win * b) - (p_half_loss * 0.5) - (p_loss * 1)
+    return 0.0
+
+def calculate_rps(prob_home, prob_draw, prob_away, actual_result):
+    predictions = np.array([prob_home, prob_draw, prob_away])
+    if actual_result == 'H': actuals = np.array([1, 0, 0])
+    elif actual_result == 'D': actuals = np.array([0, 1, 0])
+    elif actual_result == 'A': actuals = np.array([0, 0, 1])
+    else: return np.nan 
+
+    cum_preds = np.cumsum(predictions)
+    cum_actuals = np.cumsum(actuals)
+    rps = np.sum((cum_preds - cum_actuals)**2) / 2.0
+    return rps
 
 # ==========================================
-# 3. AI Quant Decision Engine
+# 2. ระบบ AI Decision Engine (Chief Risk Officer)
 # ==========================================
-def ai_quant_decision_engine(match_info, base_ev, gem_rules):
-    prompt = f"""คุณคือ Chief Risk Officer ของกองทุน Quant
-ข้อมูลคู่: {match_info}
-Base EV (Math): {base_ev*100:.2f}%
-GEM Rules: {gem_rules}
+def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
+    raw_database = load_gem_rules()
+    try: oracle_database = get_dynamic_rules(target, is_live, raw_database)
+    except NameError: oracle_database = raw_database
+    
+    if not is_live:
+        mode_instruction = (
+            "[โหมดการวิเคราะห์: PRE-MATCH (บอลก่อนเตะ)]\n"
+            "คำสั่งเฉพาะกิจสำหรับโหมดนี้ (Pre-Match Strategy):\n"
+            "1. 🧮 Math-First Approach: ให้น้ำหนัก 70% กับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' บอลก่อนเตะคือสงครามของการหา Mispriced Odds (ราคาที่เจ้ามือคำนวณพลาด) หาก Base EV สูง ถือว่าเป็น Value Bet ที่ได้เปรียบ\n"
+            "2. 🛡️ GEM Rules as Risk Filter: ให้น้ำหนัก 30% กับ 'คัมภีร์ GEM' โดยเน้นตรวจจับ 'กับดักราคา (Market Trap)' หรือ 'เรตแปลกประหลาด' หากไม่ใช่การละเมิดกฎขั้นร้ายแรง (Fatal Error) ให้ใช้เป็นแค่ข้อควรระวัง (Warning)\n"
+            "3. ⚖️ Variance & Margin: ประเมินว่าค่าน้ำ (Odds) และเรต (HDP) ที่กำลังจะลงทุน คุ้มค่ากับการแบกรับความผันผวน (Variance) ตลอด 90 นาทีเต็มหรือไม่\n"
+            "- การตัดสินใจ (final_decision): หาก Base EV คุ้มค่า และไม่ชนกฎเหล็กขั้นร้ายแรง ให้ยืนยันการลงทุน (true) เสมอ"
+        )
+    else:
+        mode_instruction = (
+            "[โหมดการวิเคราะห์: IN-PLAY LIVE (บอลสด)]\n"
+            "คำสั่ง: ในโหมดนี้ ให้เปิดใช้งาน 'คัมภีร์ GEM RULES' อย่างเต็มรูปแบบ! แต่อย่าตึงเกินไป ให้ประเมินตามเงื่อนไขต่อไปนี้:\n"
+            "1. หาก Base EV สูงระดับ 'Golden Opportunity' (เช่น +15% ขึ้นไป): \n"
+            "   - อนุญาตให้ 'เพิกเฉย' ต่อกฎ GEM ที่เป็นเพียงคำเตือนระดับต่ำ-กลาง (1-2 ดาว) ได้ \n"
+            "   - หัก impact_score แค่นิดหน่อย (ไม่เกิน -0.05) และยังคงอนุมัติ (final_decision: true)\n"
+            "2. หากละเมิดกฎ GEM ระดับ 'Fatal (อันตรายถึงชีวิต/สั่งห้ามแทง)':\n"
+            "   - ไม่ว่า Base EV จะสูงแค่ไหน ก็ต้องสั่งทับมือทันที! (final_decision: false) พร้อมหัก impact_score หนักๆ (เช่น -0.20)\n"
+            "3. ชั่งน้ำหนักตามบริบท: อธิบายเหตุผลแบบเซียนบอลว่าทำไมถึงกล้าฝืนกฎ หรือทำไมถึงต้องยอมทิ้ง Base EV สวยๆ"
+        )
 
-วิเคราะห์และตอบเป็น JSON เท่านั้น:
-{{"pros_analysis": "...", "cons_analysis": "...", "rule_triggered": "...", "impact_score": 0.0, "final_decision": true/false, "final_comment": "...", "confidence_level": 1-5}}"""
-
+    prompt = (
+        "คุณคือ Chief Risk Officer ประจำกองทุน Quant Sports Betting\n"
+        "วิสัยทัศน์: กองทุนของเราลงทุนโดยใช้หลักการ Expected Value (EV) เพื่อเอาชนะ Margin ของเจ้ามือในระยะยาว\n\n"
+        "[ข้อมูลหน้างานปัจจุบัน]\n"
+        f"- คู่แข่งขัน: {match_name}\n"
+        f"- สถานการณ์: {'Live นาทีที่ ' + str(current_min) + ' สกอร์ ' + str(score) if is_live else 'Pre-Match (ก่อนเตะ)'}\n"
+        f"- เป้าหมายลงทุน: {target} (เรต {hdp_line} ค่าน้ำ {odds})\n"
+        f"- Base EV ทางคณิตศาสตร์: {base_ev * 100:.2f}%\n\n"
+        f"{mode_instruction}\n\n"
+        "[คัมภีร์ THE ORACLE DATABASE]\n"
+        f"{oracle_database}\n\n"
+        "คำสั่งการตอบกลับ:\n"
+        "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่นรอบนอก:\n"
+        "{\n"
+        '    "pros_analysis": "อธิบายข้อได้เปรียบเชิง Quant (เช่น โครงสร้างราคาได้เปรียบ, ค่าน้ำคุ้มความเสี่ยง, EV เป็นบวก)",\n'
+        '    "cons_analysis": "ระบุความเสี่ยงเชิงโครงสร้าง (เช่น ความผันผวน, กับดักเจ้ามือ, ข้อควรระวังจากคัมภีร์)",\n'
+        '    "rule_triggered": "สรุปชื่อกฎ GEM ทั้งหมดที่นำมาชั่งน้ำหนัก (ถ้าไม่มีให้ตอบว่า ไม่พบเงื่อนไขละเมิด)",\n'
+        '    "impact_score": 0.0,\n'
+        '    "final_decision": true,\n'
+        '    "final_comment": "บทสรุปแบบเฉียบขาดฉบับผู้จัดการกองทุน ฟันธงว่าคุ้มที่จะเอาเงินไปเสี่ยงหรือไม่",\n'
+        '    "confidence_level": 3\n'
+        "}"
+    )
+    
     for attempt in range(3):
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('models/gemma-4-31b-it')
             response = model.generate_content(prompt)
             res_text = response.text.strip()
+            if not res_text: raise ValueError("API ของ AI ส่งค่าว่างเปล่ากลับมา")
             
-            if not res_text: raise ValueError("Empty AI Response")
-            
-            # Clean JSON
             bt = chr(96) * 3
             res_text = res_text.replace(bt + "json", "").replace(bt, "").strip()
             start_idx = res_text.find('{')
@@ -191,143 +344,691 @@ GEM Rules: {gem_rules}
             if start_idx != -1 and end_idx != -1:
                 json_str = res_text[start_idx:end_idx+1]
                 try:
+                    import json
                     return json.loads(json_str)
-                except: raise ValueError("Invalid JSON")
-            else: raise ValueError("JSON Brackets not found")
+                except Exception as json_err: raise ValueError(f"AI ทำโครงสร้าง JSON พัง: {str(json_err)}")
+            else: raise ValueError("ไม่พบปีกกาของ JSON ในคำตอบ AI")
+                
         except Exception as e:
+            error_str = str(e).replace('"', "'")
+            if "429" in error_str and attempt < 2:
+                import time
+                time.sleep(2)
+                continue
             if attempt == 2:
-                return {"pros_analysis": "Error", "cons_analysis": str(e), "rule_triggered": "Fallback", "impact_score": 0.0, "final_decision": base_ev >= 0.08, "final_comment": "System Fallback", "confidence_level": 3}
+                return {
+                    "pros_analysis": "ระบบ AI ขัดข้องชั่วคราว",
+                    "cons_analysis": f"Error: {error_str}",
+                    "rule_triggered": "System Fallback Activated", 
+                    "impact_score": 0.0, 
+                    "final_decision": True if base_ev >= 0.08 else False, 
+                    "final_comment": "⚠️ AI ล้มเหลว: ยืนยันไม้ด้วยคณิตศาสตร์ (Base EV)",
+                    "confidence_level": 3 if base_ev >= 0.08 else 1
+                }
             import time
-            time.sleep(1)
+            time.sleep(2)
 
 # ==========================================
-# 4. ส่วนแสดงผล UI
+# UI / UX Components (ระบบวาดหน้าปัดและปุ่ม)
 # ==========================================
-tab1, tab2, tab3, tab4 = st.tabs(["🚀 Pre-Match Terminal", "📊 Dashboard & AI", "⚡ IN-PLAY LIVE", "🧪 Backtest (RPS)"])
+def create_ev_gauge(ev_value, title, threshold=8.0):
+    ev_pct = ev_value * 100
+    if ev_pct >= threshold: color = "#00FF7F" 
+    elif ev_pct > 0: color = "#FFD700" 
+    else: color = "#FF4500" 
+        
+    fig = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = ev_pct,
+        number = {'suffix': "%", 'font': {'color': color, 'size': 30}},
+        title = {'text': title, 'font': {'size': 16, 'color': 'white'}},
+        gauge = {
+            'axis': {'range': [-20, 20], 'tickwidth': 1, 'tickcolor': "white"},
+            'bar': {'color': color},
+            'bgcolor': "rgba(0,0,0,0.1)",
+            'borderwidth': 1,
+            'bordercolor': "gray",
+            'steps': [
+                {'range': [-20, 0], 'color': "rgba(255, 69, 0, 0.15)"},
+                {'range': [0, threshold], 'color': "rgba(255, 215, 0, 0.15)"},
+                {'range': [threshold, 20], 'color': "rgba(0, 255, 127, 0.15)"}
+            ],
+            'threshold': {'line': {'color': "white", 'width': 3}, 'thickness': 0.75, 'value': ev_pct}
+        }
+    ))
+    fig.update_layout(height=200, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
+    return fig
+
+def adj_hdp(val): st.session_state['live_hdp'] += val
+def adj_ou(val): st.session_state['live_ou'] += val
+
+# ==========================================
+# 3. ระบบจัดการประวัติ (Supabase Cloud Engine)
+# ==========================================
+def save_to_supabase(data_list):
+    if not data_list: return
+    try:
+        supabase.table("investment_logs").insert(data_list).execute()
+    except Exception as e:
+        st.error(f"Error saving to Cloud: {e}")
+
+def load_logs():
+    try:
+        response = supabase.table("investment_logs").select("*").order("Time", desc=True).execute()
+        if response.data:
+            df_logs = pd.DataFrame(response.data)
+            df_logs['Time'] = pd.to_datetime(df_logs['Time'], errors='coerce')
+            for col in ['EV_Pct', 'Investment', 'Odds', 'Closing_Odds']:
+                df_logs[col] = pd.to_numeric(df_logs[col], errors='coerce').fillna(0.0)
+            if 'Result' in df_logs.columns: df_logs['Result'] = df_logs['Result'].fillna("")
+            return df_logs.dropna(subset=['Time'])
+        return pd.DataFrame(columns=['id', 'Time', 'Match', 'HDP', 'Target', 'EV_Pct', 'Investment', 'Odds', 'Closing_Odds', 'Result'])
+    except Exception as e:
+        return None
+
+def calculate_net_profit(row):
+    try:
+        if pd.isna(row['Result']) or str(row['Result']).strip() == "" or float(row['Investment']) <= 0: return 0.0
+        result_str = str(row['Result']).strip()
+        
+        if "00:00:00" in result_str or len(re.findall(r'-', result_str)) > 1:
+            date_parts = re.findall(r'\d+', result_str.split(' ')[0])
+            if len(date_parts) >= 3:
+                h_score = int(date_parts[1]) if int(date_parts[1]) < 2000 else int(date_parts[0])
+                a_score = int(date_parts[2]) if int(date_parts[2]) < 2000 else int(date_parts[1])
+            else: return 0.0
+        else:
+            scores = re.findall(r'\d+', result_str)
+            if len(scores) < 2: return 0.0
+            h_score, a_score = int(scores[0]), int(scores[1])
+            
+        hdp, target, odds, invest = float(row['HDP']), str(row['Target']).strip(), float(row['Odds']), float(row['Investment'])
+        diff = h_score - a_score
+        
+        if target == "เจ้าบ้าน": net_margin = diff - hdp
+        elif target == "ทีมเยือน": net_margin = (a_score - h_score) + hdp
+        elif target == "สูง": net_margin = (h_score + a_score) - hdp
+        elif target == "ต่ำ": net_margin = hdp - (h_score + a_score)
+        else: return 0.0
+        
+        if net_margin > 0.25: return invest * (odds - 1)
+        elif net_margin == 0.25: return (invest * (odds - 1)) / 2
+        elif net_margin == 0: return 0.0
+        elif net_margin == -0.25: return -(invest / 2)
+        else: return -invest
+    except: return 0.0
+
+def calculate_clv(row):
+    try:
+        if pd.isna(row['Closing_Odds']) or float(row['Closing_Odds']) <= 1.0: return 0.0
+        return ((float(row['Odds']) / float(row['Closing_Odds'])) - 1.0) * 100.0
+    except: return 0.0
+
+# ==========================================
+# 4. UI - Main Layout
+# ==========================================
+st.title("🎯 GEM System 10.0: The Oracle")
+
+st.sidebar.header("🔑 AI Oracle Integration")
+if "GEMINI_API_KEY" in st.secrets:
+    api_key = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=api_key)
+    st.sidebar.success("✅ AI Connected (Auto Secrets)")
+else:
+    api_key = st.sidebar.text_input("ใส่ Gemini API Key:", type="password")
+    if api_key:
+        genai.configure(api_key=api_key)
+        st.sidebar.success("✅ AI Connected")
+    else:
+        st.sidebar.warning("⚠️ โปรดใส่ API Key")
+
+if os.path.exists(RULES_FILE):
+    file_size = os.path.getsize(RULES_FILE) / 1024
+    st.sidebar.info(f"📚 โหลดคัมภีร์แล้ว: {RULES_FILE} ({file_size:.1f} KB)")
+else:
+    st.sidebar.error(f"❌ ไม่พบไฟล์ '{RULES_FILE}' โปรดสร้างไฟล์และใส่กฎลงไป!")
+
+tab1, tab2, tab3, tab4 = st.tabs(["🚀 Pre-Match Terminal", "📊 Dashboard & AI Debrief", "⚡ IN-PLAY LIVE", "🧪 Backtest Engine (RPS)"])
 
 # --- TAB 1: Pre-Match ---
 with tab1:
-    st.title("🏹 GEM System Sniper Terminal")
-    # ... (ส่วนกรอกข้อมูล Pre-match ของคุณ) ...
+    st.sidebar.header("💰 Portfolio & Parameters")
+    total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0)
+    dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho", -0.30, 0.0, -0.10, step=0.01)
+    hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5,step=0.5)
+    
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("🎯 EV Threshold (เป้าหมายกำไร)")
+    ah_threshold = st.sidebar.slider("เป้าหมาย แฮนดิแคป (AH) %", 1.0, 20.0, 9.0, step=0.5)
+    ou_threshold = st.sidebar.slider("เป้าหมาย สกอร์รวม (O/U) %", 1.0, 20.0, 9.0, step=0.5)
+    ah_limit = ah_threshold / 100.0
+    ou_limit = ou_threshold / 100.0
 
-# --- TAB 2: Dashboard (Cloud & Advanced Analytics) ---
-with tab2:
-    logs = load_logs()
-    if not logs.empty:
-        st.subheader("📝 บันทึกผลบน Cloud (Supabase)")
-        display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
-        edited_df = st.data_editor(display_df, column_config={
-            "Closing_Odds": st.column_config.NumberColumn("Closing Odds", format="%.2f"),
-            "Result": st.column_config.SelectboxColumn("Result", options=["Win", "Half Win", "Push", "Half Loss", "Loss", ""])
-        }, use_container_width=True, key="dashboard_editor")
+    st.markdown("---")
+    
+    with st.expander("👁️ AI Vision: สกัดราคาจากภาพ", expanded=False):
+        if not api_key: st.warning("⚠️ ต้องการ API Key")
+        else:
+            uploaded_file = st.file_uploader("อัปโหลดรูปตารางราคา", type=['png', 'jpg'])
+            if uploaded_file and st.button("🪄 สกัดข้อมูลจากรูปภาพ", use_container_width=True):
+                with st.spinner('กำลังอ่านรูป...'):
+                    try:
+                        img = Image.open(uploaded_file)
+                        model = genai.GenerativeModel('models/gemma-4-31b-it')
+                        prompt_img = (
+                            'สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,'
+                            '"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,'
+                            '"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
+                        )
+                        res = model.generate_content([prompt_img, img])
+                        bt = chr(96) * 3
+                        data = json.loads(res.text.replace(bt+'json', '').replace(bt, '').strip())
+                        for k, v in data.items(): st.session_state[k] = v
+                        st.success("✅ สำเร็จ!")
+                        st.rerun()
+                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
+    with st.expander("⚡ Text Parser: วางข้อความดิบ", expanded=False):
+        st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=100, key="raw_text")
         c_b1, c_b2 = st.columns(2)
-        if c_b1.button("💾 Sync to Cloud"):
-            with st.spinner("Updating..."):
-                for _, row in edited_df.iterrows():
-                    supabase.table("investment_logs").update({
-                        "Closing_Odds": float(row['Closing_Odds']), 
-                        "Result": str(row['Result'])
-                    }).eq("id", row['id']).execute()
-                st.success("Cloud Updated!")
-                st.rerun()
-            
-        if c_b2.button("🗑️ Clear Local Cache"): st.rerun()
+        with c_b1:
+            if st.button("🪄 สกัดข้อมูลจากข้อความ", use_container_width=True):
+                try:
+                    raw = st.session_state.raw_text
+                    m_vs = re.search(r'(.*VS.*)', raw)
+                    if m_vs: st.session_state.match_name = m_vs.group(1).strip()
+                    h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
+                    if len(h_matches)>=1: st.session_state.h1x2_val=float(h_matches[0]) 
+                    if len(h_matches)>=2: st.session_state.hdp_h_w_val=float(h_matches[1]) 
+                    d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
+                    if len(d_matches)>=1: st.session_state.d1x2_val=float(d_matches[0])
+                    a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
+                    if len(a_matches)>=1: st.session_state.a1x2_val=float(a_matches[0]) 
+                    if len(a_matches)>=2: st.session_state.hdp_a_w_val=float(a_matches[1]) 
+                    ah_match = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
+                    if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
+                    ou_match = re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)', raw, re.MULTILINE)
+                    if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
+                    o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
+                    if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
+                    u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
+                    if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
+                    st.success("✅ สำเร็จ!")
+                except Exception as e: st.error(f"⚠️ Error: {e}")
+        with c_b2: st.button("🗑️ ล้างฟอร์ม", use_container_width=True, on_click=clear_form_data)
 
-        logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
-        logs['CLV_Pct'] = logs.apply(calculate_clv, axis=1)
+    st.markdown("---")
+    match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("1. พูล & AH")
+        h1x2 = st.number_input("เหย้า (1X2)", format="%.2f", key="h1x2_val")
+        d1x2 = st.number_input("เสมอ (1X2)", format="%.2f", key="d1x2_val")
+        a1x2 = st.number_input("เยือน (1X2)", format="%.2f", key="a1x2_val")
+        hdp_line = st.number_input("เรต (HDP)", format="%.2f", step=0.25, key="hdp_line_val")
+        hdp_h_w = st.number_input("น้ำเจ้าบ้าน", format="%.2f", key="hdp_h_w_val")
+        hdp_a_w = st.number_input("น้ำทีมเยือน", format="%.2f", key="hdp_a_w_val")
+    with col2:
+        st.subheader("2. ตลาด O/U")
+        ou_line = st.number_input("เรต (O/U)", format="%.2f", step=0.25, key="ou_line_val")
+        ou_over_w = st.number_input("น้ำสูง (Over)", format="%.2f", key="ou_over_w_val")
+        ou_under_w = st.number_input("น้ำต่ำ (Under)", format="%.2f", key="ou_under_w_val")
+
+    if st.button("🚀 ANALYZE PRE-MATCH", use_container_width=True):
+        def fix(o): return o + 1.0 if o < 1.1 else o
+        h_o, d_o, a_o = fix(h1x2), fix(d1x2), fix(a1x2)
+        hw_o, aw_o, ow_o, uw_o = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
+        prob_h, prob_d, prob_a = shin_devig(h_o, d_o, a_o)
+        hw2, hw1, d_exact, aw1, aw2, p_total = calc_dixon_coles_matrix(prob_h, prob_d, prob_a, ou_line, ow_o, uw_o, dc_rho)
+        is_h_fav = prob_h >= prob_a
+        ev_h = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, hw_o, is_fav_team=is_h_fav)
+        ev_a = calc_advanced_ah_ev(hdp_line, aw2, aw1, d_exact, hw1, hw2, aw_o, is_fav_team=not is_h_fav) - (hdba_val/100)
+        ev_over = calc_advanced_ou_ev(ou_line, p_total, ow_o, True)
+        ev_under = calc_advanced_ou_ev(ou_line, p_total, uw_o, False)
+
+        best_ah = max([{"n": "เจ้าบ้าน", "ev": ev_h, "odds": hw_o, "hdp": hdp_line}, {"n": "ทีมเยือน", "ev": ev_a, "odds": aw_o, "hdp": hdp_line}], key=lambda x: x['ev'])
+        best_ou = max([{"n": "สูง", "ev": ev_over, "odds": ow_o, "hdp": ou_line}, {"n": "ต่ำ", "ev": ev_under, "odds": uw_o, "hdp": ou_line}], key=lambda x: x['ev'])
 
         st.markdown("---")
-        view_mode = st.radio("Analytics View:", ["🌍 All", "🚀 Pre-Match", "⚡ In-Play"], horizontal=True)
+        st.markdown("<h3 style='text-align: center;'>📊 ANALYZE PRE-MATCH (ผลวิเคราะห์คณิตศาสตร์)</h3>", unsafe_allow_html=True)
+        st.write("") 
+
+        st.markdown("<h5 style='text-align: center; color: #aaaaaa;'>📈 สถิติความน่าจะเป็น (Implied Probabilities)</h5>", unsafe_allow_html=True)
         
-        if view_mode == "⚡ In-Play": f_logs = logs[logs['Match'].str.contains(r'\[LIVE\]', na=False)]
-        elif view_mode == "🚀 Pre-Match": f_logs = logs[~logs['Match'].str.contains(r'\[LIVE\]', na=False)]
-        else: f_logs = logs
+        try:
+            col1, col2, col3 = st.columns(3)
+            with col1: st.metric(label="🏠 โอกาสเจ้าบ้านชนะ", value=f"{prob_h*100:.1f}%")
+            with col2: st.metric(label="🤝 โอกาสเสมอ", value=f"{prob_d*100:.1f}%")
+            with col3: st.metric(label="✈️ โอกาสเยือนชนะ", value=f"{prob_a*100:.1f}%")
+        except: pass 
+        g1, g2 = st.columns(2)
+        with g1: 
+            st.markdown("<h4 style='text-align: center; color: #4db8ff;'>🔵 ตลาดแฮนดิแคป (AH)</h4>", unsafe_allow_html=True)
+            st.plotly_chart(create_ev_gauge(best_ah['ev'], f"เป้าหมาย: {best_ah['n']}", ah_threshold), use_container_width=True)
+            
+        with g2: 
+            st.markdown("<h4 style='text-align: center; color: #ff9933;'>🟠 ตลาดสกอร์รวม (O/U)</h4>", unsafe_allow_html=True)
+            st.plotly_chart(create_ev_gauge(best_ou['ev'], f"เป้าหมาย: {best_ou['n']}", ou_threshold), use_container_width=True)
 
-        inv_logs = f_logs[f_logs['Investment'] > 0]
+        ah_passed = best_ah['ev'] >= ah_limit
+        ou_passed = best_ou['ev'] >= ou_limit
+
+        if ah_passed or ou_passed:
+            if ah_passed and ou_passed:
+                target_to_check = best_ah if best_ah['ev'] > best_ou['ev'] else best_ou
+            elif ah_passed: target_to_check = best_ah
+            else: target_to_check = best_ou
+
+            if not api_key: st.warning("⚠️ กรุณาใส่ API Key ให้ AI กรองความเสี่ยง")
+            else:
+                with st.spinner("🧠 THE ORACLE กำลังตรวจสอบข้อควรระวัง (Pre-Match Mode)..."):
+                    ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'], is_live=False)
+                    net_ev = target_to_check['ev'] + ai_verdict.get('impact_score', 0)
+                
+                st.markdown("---")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Base EV", f"{target_to_check['ev']*100:.2f}%")
+                c2.metric("Oracle Rule Adjust", f"{ai_verdict.get('impact_score', 0)*100:.2f}%")
+                c3.metric("Net EV", f"{net_ev*100:.2f}%")
+                
+                with st.expander("📖 รายละเอียดการวิเคราะห์จาก THE ORACLE", expanded=True):
+                    stars_count = ai_verdict.get('confidence_level', 3)
+                    stars_emoji = "⭐" * stars_count
+                    st.markdown(f"#### 🎯 ระดับความมั่นใจ: {stars_emoji} ({stars_count}/5)")
+                    st.markdown("---")
+                    st.success(f"**✅ ข้อดี (Pros):** {ai_verdict.get('pros_analysis', 'ไม่มี')}")
+                    st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_verdict.get('cons_analysis', 'ไม่มี')}")
+                    st.info(f"**📜 กฎที่ทำงาน:** {ai_verdict.get('rule_triggered', 'None')}")
+                
+                if ai_verdict.get('final_decision', False) and net_ev > 0:
+                    st.balloons()
+                    st.success(f"✅ ORACLE APPROVED: {ai_verdict.get('final_comment', 'Good')}")
+                    inv = min( (((target_to_check['odds']-1) * ((net_ev+1)/target_to_check['odds']) - (1-((net_ev+1)/target_to_check['odds']))) / (target_to_check['odds']-1)) * 0.25, 0.05) * total_bankroll
+                    tz_th = timezone(timedelta(hours=7))
+                    save_to_supabase([{"Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), "Match": match_name, "HDP": target_to_check['hdp'], "Target": target_to_check['n'], "EV_Pct": round(net_ev*100, 2), "Investment": round(inv, 2), "Odds": target_to_check['odds'], "Closing_Odds": 0.0, "Result": ""}])
+                else:
+                    st.error(f"🚫 ORACLE REJECTED: {ai_verdict.get('final_comment', 'Pass')}")
+        else:
+            st.warning(f"🛡️ เป้าหมายไม่ถึงเกณฑ์ที่ตั้งไว้ (AH: {ah_threshold}%, O/U: {ou_threshold}%)")
+
+# --- TAB 2: Dashboard ---
+with tab2:
+    logs = load_logs()
+    if logs is not None and not logs.empty:
+        st.subheader("📝 บันทึกผล & ราคาปิด (Closing Odds) - Cloud Sync")
+        display_df = logs.sort_values(by='Time', ascending=False).reset_index(drop=True)
+        edited_df = st.data_editor(display_df, column_config={"Result": st.column_config.TextColumn("Result"), "Closing_Odds": st.column_config.NumberColumn("Closing Odds", min_value=0.0, format="%.2f")}, use_container_width=True, num_rows="dynamic")
+        
+        c_b1, c_b2 = st.columns(2)
+        if c_b1.button("💾 Save Score to Cloud"): 
+            with st.spinner("กำลังอัปเดตข้อมูลบน Cloud..."):
+                for _, row in edited_df.iterrows():
+                    supabase.table("investment_logs").update({
+                        "Closing_Odds": float(row['Closing_Odds']),
+                        "Result": str(row['Result'])
+                    }).eq("id", row['id']).execute()
+            st.success("อัปเดตเรียบร้อย!")
+            st.rerun()
+            
+        if c_b2.button("🗑️ Clear Local Cache"): 
+            st.rerun()
+        
+        logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
+        logs['CLV_Pct'] = logs.apply(calculate_clv, axis=1)
+        
+        st.markdown("---")
+        st.markdown("### 🎛️ โหมดการวิเคราะห์ (Dashboard View)")
+        view_mode = st.radio("เลือกมิติข้อมูล:", ["🌍 ภาพรวมทั้งหมด (All)", "🚀 บอลก่อนเตะ (Pre-Match)", "⚡ บอลสด (In-Play)"], horizontal=True)
+
+        if view_mode == "⚡ บอลสด (In-Play)":
+            filtered_logs = logs[logs['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
+        elif view_mode == "🚀 บอลก่อนเตะ (Pre-Match)":
+            filtered_logs = logs[~logs['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
+        else:
+            filtered_logs = logs
+
+        inv_logs = filtered_logs[filtered_logs['Investment'] > 0]
+        
         m1, m2, m3, m4, m5 = st.columns(5)
-        m1.metric("Net Profit", f"{f_logs['Net_Profit'].sum():,.2f} THB")
-        m2.metric("Accumulated", f"{inv_logs['Investment'].sum():,.2f} THB")
+        m1.metric("กำไรสุทธิ", f"{filtered_logs['Net_Profit'].sum():,.2f} THB")
+        m2.metric("ลงทุนสะสม", f"{inv_logs['Investment'].sum():,.2f} THB")
         m3.metric("Win Rate", f"{(len(inv_logs[inv_logs['Net_Profit']>0])/len(inv_logs)*100 if not inv_logs.empty else 0):.1f}%")
-        m4.metric("ROI", f"{(f_logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
-        m5.metric("Avg CLV", f"{inv_logs['CLV_Pct'].mean():.2f}%" if not inv_logs.empty else "0.00%")
-
-        if not f_logs.empty:
-            l_s = f_logs.sort_values(by='Time')
-            l_s['Cum_Profit'] = l_s['Net_Profit'].cumsum()
-            color = '#FF8C00' if "In" in view_mode else '#00FF7F'
-            fig = go.Figure(go.Scatter(x=l_s['Time'], y=l_s['Cum_Profit'], mode='lines', fill='tozeroy', line=dict(color=color, width=3)))
+        m4.metric("ROI", f"{(filtered_logs['Net_Profit'].sum()/inv_logs['Investment'].sum()*100 if not inv_logs.empty and inv_logs['Investment'].sum()>0 else 0):.2f}%")
+        m5.metric("Average CLV", f"{inv_logs[inv_logs['Closing_Odds']>1.0]['CLV_Pct'].mean():.2f}%" if not inv_logs[inv_logs['Closing_Odds']>1.0].empty else "0.00%")
+        
+        if not filtered_logs.empty:
+            logs_s = filtered_logs.sort_values(by='Time').copy()
+            logs_s['Cumulative_Profit'] = logs_s['Net_Profit'].cumsum()
+            line_color = '#FF8C00' if "In-Play" in view_mode else ('#1E90FF' if "Pre-Match" in view_mode else '#00FF7F')
+            
+            fig = go.Figure(go.Scatter(x=logs_s['Time'], y=logs_s['Cumulative_Profit'], mode='lines', fill='tozeroy', line=dict(color=line_color, width=3)))
             fig.update_layout(title=f"Equity Curve - {view_mode}", plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)')
             st.plotly_chart(fig, use_container_width=True)
             
             st.markdown("---")
+            st.subheader("🎯 เจาะลึกประสิทธิภาพ (Performance Breakdown)")
             col_a, col_b = st.columns(2)
             with col_a:
-                st.markdown("#### 📊 Profit by Target")
-                st.bar_chart(l_s.groupby('Target')['Net_Profit'].sum(), color=color)
+                st.markdown("#### 📊 กำไรแยกตามเป้าหมาย (Target)")
+                target_stats = logs_s.groupby('Target')['Net_Profit'].sum()
+                st.bar_chart(target_stats, color=line_color)
             with col_b:
-                st.markdown("#### 🎯 Win Rate by Odds Range")
-                l_s['Odds_Bin'] = pd.cut(l_s['Odds'], bins=[0, 1.8, 2.0, 2.2, 5.0], labels=['<1.8', '1.8-2.0', '2.0-2.2', '>2.2'])
-                wr = (l_s[l_s['Net_Profit']>0].groupby('Odds_Bin', observed=False).size() / l_s.groupby('Odds_Bin', observed=False).size() * 100).fillna(0)
-                st.bar_chart(wr, color=color)
+                st.markdown("#### 🎯 อัตราการชนะแยกตามช่วงค่าน้ำ (%)")
+                logs_s['Odds_Bin'] = pd.cut(logs_s['Odds'], bins=[0, 1.8, 2.0, 2.2, 5.0], labels=['<1.8', '1.8-2.0', '2.0-2.2', '>2.2'])
+                wins = logs_s[logs_s['Net_Profit'] > 0].groupby('Odds_Bin', observed=False).size()
+                totals = logs_s.groupby('Odds_Bin', observed=False).size()
+                odds_win_rate = (wins / totals * 100).fillna(0)
+                st.bar_chart(odds_win_rate, color=line_color)
+        else:
+            st.info(f"ℹ️ ยังไม่มีข้อมูลการลงทุนในโหมด {view_mode} ครับ")
+                
+        # ==========================================
+        # 🤖 AI Daily Debrief (Level 4: Self-Reflection)
+        # ==========================================
+        st.markdown("---")
+        st.subheader("🤖 AI Daily Debrief (วิเคราะห์หาจุดอ่อนของระบบ)")
+        loss_logs = logs[logs['Net_Profit'] < 0]
+        if 'debrief_result' not in st.session_state: st.session_state['debrief_result'] = ""
+            
+        if len(loss_logs) > 0:
+            st.info(f"🔍 พบประวัติการลงทุนที่ขาดทุนจำนวน {len(loss_logs)} รายการ")
+            if st.button("🧠 สั่ง AI วิเคราะห์ความผิดพลาด (Post-Mortem)", use_container_width=True):
+                with st.spinner("The Oracle กำลังสแกนหา 'กับดักราคา' จากประวัติความพ่ายแพ้..."):
+                    loss_data_str = loss_logs[['Time', 'Match', 'HDP', 'Target', 'Odds', 'Result', 'Net_Profit']].to_csv(index=False)
+                    prompt_debrief = (
+                        "คุณคือ Chief Risk Officer และ Head of Quant Research ของกองทุน Hedge Fund กีฬาระดับโลก\n"
+                        "หน้าที่ของคุณคือการทำ 'Post-Mortem Analysis' (ชันสูตรความพ่ายแพ้) จากประวัติการลงทุนที่ 'ขาดทุน' ด้านล่างนี้\n\n"
+                        f"[ข้อมูลการขาดทุน (CSV Format)]\n{loss_data_str}\n\n"
+                        "คำสั่ง: ให้วิเคราะห์ข้อมูลอย่างละเอียดแบบนักคณิตศาสตร์ประกันภัย และตอบกลับในรูปแบบ Markdown ตามหัวข้อต่อไปนี้:\n\n"
+                        "### 🔍 1. Post-Mortem Analysis (เจาะลึกรากเหง้าของปัญหา)\n"
+                        "- มองหา 'Pattern' หรือจุดร่วมของการขาดทุน (เช่น ชอบเสียเงินในเรต HDP แบบไหน, ค่าน้ำ Odds ทรงไหน, หรือเสียในบอลสดช่วงนาทีที่เท่าไหร่)\n"
+                        "- เจ้ามือ (Bookmaker) วางกับดัก (Market Trap) อะไรซ่อนไว้ในโครงสร้างราคาของแมตช์เหล่านี้?\n\n"
+                        "### ⚠️ 2. Market Loopholes (ช่องโหว่ของระบบที่ต้องปิด)\n"
+                        "- อธิบายว่าทำไมสมการ Base EV ของเราถึงโดนหลอกได้ในกรณีนี้? (เช่น โมเดลอาจจะละเลยเรื่องเวลาที่เหลืออยู่ หรือหลงกลค่าน้ำล้นๆ)\n\n"
+                        "### 💎 3. New GEM Rules (คัมภีร์ใหม่เพื่อปกป้องเงินทุน)\n"
+                        "ให้สร้างกฎเหล็กข้อใหม่ (New GEM Rules) จาก 'ทุกช่องโหว่' ที่คุณวิเคราะห์เจอ (ไม่จำกัดจำนวนข้อ) เพื่ออุดรอยรั่วทั้งหมด\n"
+                        "⚠️ คำเตือน (Anti-Overfitting Policy): กฎทุกข้อต้องเป็น 'Pattern ระดับโครงสร้างตลาด' ที่สามารถนำไปใช้ได้ในระยะยาว (Robustness) ห้ามสร้างกฎที่เจาะจงเหตุการณ์ใดเหตุการณ์หนึ่งมากเกินไปจนทำให้ระบบเกิดอาการ 'ไม่กล้าลงทุน' (Analysis Paralysis) เด็ดขาด!\n\n"
+                        "เขียนกฎแต่ละข้อตาม Format นี้:\n"
+                        "Gem : [หมวดหมู่] (ชื่อกฎ) | เงื่อนไขที่ชัดเจน (เช่น นาที, เรตราคา) -> การตัดสินใจ (เช่น สั่งทับมือ, ลดไม้)\n"
+                    )
+                    
+                    for attempt in range(3):
+                        try:
+                            if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
+                                model = genai.GenerativeModel('models/gemini-1.5-flash')
+                                res_debrief = model.generate_content(prompt_debrief)
+                                st.session_state['debrief_result'] = res_debrief.text
+                                break 
+                            else:
+                                st.error("⚠️ ไม่พบ API Key กรุณาใส่ API Key ใน Sidebar")
+                                break
+                        except Exception as e:
+                            if ("500" in str(e) or "429" in str(e)) and attempt < 2:
+                                time.sleep(2) 
+                                continue
+                            else:
+                                st.error(f"❌ ระบบขัดข้อง: {e}")
+                                break
+
+            if st.session_state.get('save_success', False):
+                st.success("🎉 บันทึกกฎใหม่ลงคัมภีร์สำเร็จเรียบร้อยแล้ว!")
+                try:
+                    import os
+                    current_dir = os.path.dirname(os.path.abspath(__file__))
+                    abs_rule_path = os.path.join(current_dir, RULES_FILE)
+                    with open(abs_rule_path, "r", encoding="utf-8") as f:
+                        file_content = f.read()
+                    st.download_button(
+                        label="⬇️ ดาวน์โหลดไฟล์คัมภีร์ที่อัปเดตแล้ว (gem_rules.txt) ลงคอมพิวเตอร์",
+                        data=file_content,
+                        file_name="gem_rules.txt",
+                        mime="text/plain",
+                        type="primary"
+                    )
+                except Exception as e:
+                    st.error(f"โหลดไฟล์ไม่สำเร็จ: {e}")
+                if st.button("ปิดหน้าต่างแจ้งเตือน"):
+                    st.session_state['save_success'] = False
+                    st.rerun()
+
+            if st.session_state.get('debrief_result', "") != "":
+                st.success("✅ การวิเคราะห์เสร็จสิ้น!")
+                st.warning("✏️ คุณสามารถแก้ไข กฎที่ AI เสนอมาได้ในกล่องด้านล่างนี้ เมื่อพอใจแล้วค่อยกดบันทึก")
+                with st.form(key="save_rule_form"):
+                    edited_text = st.text_area("ตรวจสอบและปรับแต่งกฎของคุณที่นี่:", value=st.session_state['debrief_result'], height=250)
+                    submit_save = st.form_submit_button("💾 บันทึกข้อความในกล่องนี้ลงคัมภีร์", type="primary", use_container_width=True)
+                    if submit_save:
+                        if edited_text.strip() != "":
+                            try:
+                                import os
+                                current_dir = os.path.dirname(os.path.abspath(__file__))
+                                abs_rule_path = os.path.join(current_dir, RULES_FILE)
+                                with open(abs_rule_path, "a", encoding="utf-8") as f:
+                                    tz_th = timezone(timedelta(hours=7))
+                                    now_str = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M")
+                                    f.write(f"\n\n### กฎใหม่ที่เพิ่ม/แก้ไขโดยผู้ใช้ (อัปเดตวันที่ {now_str}) ###\n")
+                                    f.write(edited_text)
+                                st.session_state['debrief_result'] = ""
+                                st.session_state['save_success'] = True
+                                load_gem_rules.clear() 
+                                st.rerun() 
+                            except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
+                        else: st.error("⚠️ กล่องข้อความว่างเปล่า ไม่สามารถบันทึกได้ครับ")
+        else:
+            st.success("🌟 ยอดเยี่ยม! ระบบยังไม่พบประวัติการแทงเสีย AI จึงยังไม่ต้องวิเคราะห์จุดอ่อน")
 
 # --- TAB 3: IN-PLAY LIVE ---
 with tab3:
+    st.header("📺 Live Sniper Command Center")
+    
     with st.expander("👁️ AI Live Vision", expanded=False):
-        # AI Vision logic here (ดักจับ JSON Error ตามที่แก้ให้ก่อนหน้า)
-        pass
+        if not api_key: st.warning("⚠️ ต้องการ API Key")
+        else:
+            live_images = st.file_uploader("อัปโหลดรูป (สูงสุด 3 รูป)", type=['png', 'jpg'], accept_multiple_files=True)
+            if live_images and st.button("🪄 สกัดข้อมูล", use_container_width=True):
+                with st.spinner("กวาดสายตา..."):
+                    try:
+                        imgs = [Image.open(f) for f in live_images]
+                        model = genai.GenerativeModel('models/gemma-4-31b-it')
+                        prompt_live = (
+                            'สกัดเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, '
+                            '"pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, '
+                            '"live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}'
+                        )
+                        res = model.generate_content([prompt_live] + imgs)
+                        
+                        res_text = res.text.strip()
+                        if not res_text: raise ValueError("AI มองไม่เห็นรูป หรือส่งค่าว่างกลับมา")
+                        bt = chr(96)*3
+                        cleaned_text = res_text.replace(bt+'json', '').replace(bt, '').strip()
+                        
+                        start_idx = cleaned_text.find('{')
+                        end_idx = cleaned_text.rfind('}')
+                        if start_idx != -1 and end_idx != -1:
+                            cleaned_text = cleaned_text[start_idx:end_idx+1]
+                        data = json.loads(cleaned_text)
+                        
+                        for k, v in data.items(): st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
+                        st.success("✅ สำเร็จ!")
+                        st.rerun()
+                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
     col_l1, col_l2 = st.columns(2)
     with col_l1:
-        st.subheader("🏁 Game State")
+        st.subheader("🏁 สถานะเกมปัจจุบัน")
         c_h1, c_h2 = st.columns(2)
-        cur_h = c_h1.number_input("Score H", min_value=0, key="lh_s")
-        rc_h = c_h2.checkbox("🟥 Home RC", key="rc_h")
-        c_a1, c_a2 = st.columns(2) # 🌟 Fix: เพิ่ม c_a1, c_a2
-        cur_a = c_a1.number_input("Score A", min_value=0, key="la_s")
-        rc_a = c_a2.checkbox("🟥 Away RC", key="rc_a")
-        cur_min = st.slider("Minute", 0, 120, key="current_min")
+        current_score_h = c_h1.number_input("สกอร์เหย้า", min_value=0, value=st.session_state.get('lh_s_input', 0), key="lh_s_input")
+        red_card_h = c_h2.checkbox("🟥 เหย้าใบแดง", key="rc_h")
+        c_a1, c_a2 = st.columns(2)
+        current_score_a = c_a1.number_input("สกอร์เยือน", min_value=0, value=st.session_state.get('la_s_input', 0), key="la_s_input")
+        red_card_a = c_a2.checkbox("🟥 เยือนใบแดง", key="rc_a")
+        current_min = st.slider("นาทีแข่งขัน", 0, 120, st.session_state.get('current_min', 45))
     with col_l2:
-        st.subheader("💡 Pre-match Odds")
-        p_h = st.number_input("H(Pre)", key="pre_h")
-        p_d = st.number_input("D(Pre)", key="pre_d")
-        p_a = st.number_input("A(Pre)", key="pre_a")
-        p_ou = st.number_input("OU(Pre)", key="pre_ou")
+        st.subheader("💡 ราคาเปิด (Pre-match)")
+        pre_h = st.number_input("เหย้า(เปิด)", value=st.session_state.get('pre_h', 2.0), format="%.2f", key="pre_h")
+        pre_d = st.number_input("เสมอ(เปิด)", value=st.session_state.get('pre_d', 3.0), format="%.2f", key="pre_d")
+        pre_a = st.number_input("เยือน(เปิด)", value=st.session_state.get('pre_a', 3.0), format="%.2f", key="pre_a")
+        pre_ou = st.number_input("O/U(เปิด)", value=st.session_state.get('pre_ou', 2.5), format="%.2f", step=0.25, key="pre_ou")
 
     st.markdown("---")
-    st.subheader("💰 Live Prices")
-    cl1, cl2 = st.columns(2)
-    with cl1:
-        st.markdown("Live HDP")
-        bh1, bh2, bh3 = st.columns([1,2,1])
-        bh1.button("-0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
-        l_hdp = bh2.number_input("HDP", key="live_hdp", label_visibility="collapsed")
-        bh3.button("+0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
-        st.number_input("Water H", key="live_hdp_h")
-        st.number_input("Water A", key="live_hdp_a")
-    with cl2:
-        st.markdown("Live O/U")
-        bo1, bo2, bo3 = st.columns([1,2,1])
-        bo1.button("-0.25", key="o_sub", on_click=adj_ou, args=(-0.25,))
-        l_ou = bo2.number_input("OU", key="live_ou", label_visibility="collapsed")
-        bo3.button("+0.25", key="o_add", on_click=adj_ou, args=(0.25,))
-        st.number_input("Water Over", key="live_ou_over")
-        st.number_input("Water Under", key="live_ou_under")
+    st.subheader("💰 ราคา Live ปัจจุบัน (Sniper Adjust)")
+    col_live1, col_live2 = st.columns(2)
+    
+    with col_live1:
+        st.markdown("**Live HDP (เรตแฮนดิแคป)**")
+        btn_h1, btn_h2, btn_h3 = st.columns([1, 2, 1])
+        btn_h1.button("➖ 0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
+        live_hdp = btn_h2.number_input("Live HDP", value=st.session_state['live_hdp'], step=0.25, key="live_hdp", label_visibility="collapsed", format="%.2f")
+        btn_h3.button("➕ 0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
+        c_w1, c_w2 = st.columns(2)
+        live_hdp_h = c_w1.number_input("น้ำเหย้า", value=st.session_state.get('live_hdp_h', 0.9), format="%.2f", key="live_hdp_h")
+        live_hdp_a = c_w2.number_input("น้ำเยือน", value=st.session_state.get('live_hdp_a', 0.9), format="%.2f", key="live_hdp_a")
+
+    with col_live2:
+        st.markdown("**Live O/U (เรตสกอร์รวม)**")
+        btn_o1, btn_o2, btn_o3 = st.columns([1, 2, 1])
+        btn_o1.button("➖ 0.25", key="o_sub", on_click=adj_ou, args=(-0.25,))
+        live_ou = btn_o2.number_input("Live O/U", value=st.session_state['live_ou'], step=0.25, key="live_ou", label_visibility="collapsed", format="%.2f")
+        btn_o3.button("➕ 0.25", key="o_add", on_click=adj_ou, args=(0.25,))
+        c_w3, c_w4 = st.columns(2)
+        live_ou_over = c_w3.number_input("น้ำสูง", value=st.session_state.get('live_ou_over', 0.9), format="%.2f", key="live_ou_over")
+        live_ou_under = c_w4.number_input("น้ำต่ำ", value=st.session_state.get('live_ou_under', 0.9), format="%.2f", key="live_ou_under")
 
     c_btn1, c_btn2 = st.columns([4, 1])
     submit_live = c_btn1.button("🎯 ENGAGE SNIPER", use_container_width=True, type="primary")
-    c_btn2.button("🗑️ Clear", use_container_width=True, on_click=clear_inplay_data)
+    c_btn2.button("🗑️ ล้างค่า", use_container_width=True, on_click=clear_inplay_data)
 
     if submit_live:
-        # 1. Devig Pre-match to get Lambda
-        prob_h, prob_d, prob_a = shin_devig(st.session_state.pre_h, st.session_state.pre_d, st.session_state.pre_a)
-        # 2. Logic to calculate In-play EV & AI Approval (บันทึกลง Supabase พร้อม [LIVE])
-        # [แทรกส่วนคำนวณและบันทึกข้อมูลที่นี่]
-        st.info("Sniper calculations and saving to Supabase would proceed here.")
+        def fix(o): return o + 1.0 if o < 1.1 else o
+        p_h, p_d, p_a = shin_devig(fix(pre_h), fix(pre_d), fix(pre_a))
+        m_left = max(90 - current_min, 1)
+        hw2, hw1, d_ex, aw1, aw2, p_tot = calc_dixon_coles_matrix(p_h, p_d, p_a, live_ou, fix(live_ou_over), fix(live_ou_under), dc_rho, current_score_h, current_score_a, m_left, red_card_h, red_card_a)
+        is_fav = p_h >= p_a
+        ev_h = calc_advanced_ah_ev(live_hdp, hw2, hw1, d_ex, aw1, aw2, fix(live_hdp_h), is_fav)
+        ev_a = calc_advanced_ah_ev(live_hdp, aw2, aw1, d_ex, hw1, hw2, fix(live_hdp_a), not is_fav) - (hdba_val/100)
+        ev_o = calc_advanced_ou_ev(live_ou, p_tot, fix(live_ou_over), True)
+        ev_u = calc_advanced_ou_ev(live_ou, p_tot, fix(live_ou_under), False)
 
-# --- TAB 4: Backtest ---
+        b_ah_v = max(ev_h, ev_a); t_ah = "เจ้าบ้าน" if ev_h > ev_a else "ทีมเยือน"
+        b_ou_v = max(ev_o, ev_u); t_ou = "สูง" if ev_o > ev_u else "ต่ำ"
+        
+        g1, g2 = st.columns(2)
+        with g1: st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", ah_threshold), use_container_width=True)
+        with g2: st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", ou_threshold), use_container_width=True)
+        
+        ah_live_passed = b_ah_v >= ah_limit
+        ou_live_passed = b_ou_v >= ou_limit
+
+        if ah_live_passed or ou_live_passed:
+            if ah_live_passed and ou_live_passed:
+                t_live = {"n": t_ah, "ev": b_ah_v, "hdp": live_hdp, "odds": fix(live_hdp_h) if t_ah=="เจ้าบ้าน" else fix(live_hdp_a)} if b_ah_v > b_ou_v else {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
+            elif ah_live_passed:
+                t_live = {"n": t_ah, "ev": b_ah_v, "hdp": live_hdp, "odds": fix(live_hdp_h) if t_ah=="เจ้าบ้าน" else fix(live_hdp_a)}
+            else:
+                t_live = {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
+
+            if not api_key: st.warning("⚠️ โปรดใส่ API Key")
+            else:
+                with st.spinner("🧠 THE ORACLE กำลังประมวลผล Live สด..."):
+                    ai_live = ai_quant_decision_engine("Live", t_live['n'], t_live['ev'], t_live['hdp'], t_live['odds'], True, current_min, f"{current_score_h}-{current_score_a}")
+                    net_l_ev = t_live['ev'] + ai_live.get('impact_score', 0)
+                    
+                    st.markdown("---")
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Live EV", f"{t_live['ev']*100:.2f}%")
+                    c2.metric("Oracle Adjust", f"{ai_live.get('impact_score', 0)*100:.2f}%")
+                    c3.metric("Net Live EV", f"{net_l_ev*100:.2f}%")
+                    
+                    with st.expander("📖 รายละเอียดการวิเคราะห์ (Live Mode)", expanded=True):
+                        st.success(f"**✅ ข้อดี (Pros):** {ai_live.get('pros_analysis', 'ไม่มี')}")
+                        st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_live.get('cons_analysis', 'ไม่มี')}")
+                        st.info(f"**📜 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
+                    
+                    limit_to_use = ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else ou_limit
+                    if ai_live.get('final_decision', False) and net_l_ev >= limit_to_use:
+                        st.balloons()
+                        st.error(f"🚨 SNIPER ALERT: เป้า '{t_live['n']}' อนุมัติโจมตี!")
+                        st.success(f"✅ ORACLE: {ai_live.get('final_comment', 'Good')}")
+                        
+                        inv = min( (((t_live['odds']-1) * ((net_l_ev+1)/t_live['odds']) - (1-((net_l_ev+1)/t_live['odds']))) / (t_live['odds']-1)) * 0.25, 0.05) * total_bankroll
+                        tz_th = timezone(timedelta(hours=7))
+                        save_to_supabase([{
+                            "Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), 
+                            "Match": f"[LIVE] {match_name}", 
+                            "HDP": t_live['hdp'], 
+                            "Target": t_live['n'], 
+                            "EV_Pct": round(net_l_ev*100, 2), 
+                            "Investment": round(inv, 2), 
+                            "Odds": t_live['odds'], 
+                            "Closing_Odds": 0.0, 
+                            "Result": ""
+                        }])
+                    else: 
+                        st.warning(f"🚫 ORACLE REJECTED (ทับมือ): {ai_live.get('final_comment', 'Pass')}")
+        else: st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมายที่ตั้งไว้ AH: {ah_threshold}%, O/U: {ou_threshold}%)")
+
+# ==========================================
+# --- TAB 4: BACKTEST ENGINE (REAL DATA EVALUATION) ---
+# ==========================================
 with tab4:
-    st.header("🧪 Backtest Evaluation")
-    if not logs.empty:
-        # Brier Score & Accuracy logic
-        pass
+    st.header("🧪 ระบบทดสอบความแม่นยำจากข้อมูลจริง (Live Backtest)")
+    st.markdown("ระบบจะดึงข้อมูลบิลการลงทุน **ที่รู้ผลแล้ว (Win/Loss)** จาก Dashboard มาคำนวณย้อนหลัง เพื่อดูว่า AI ของเราประเมิน 'โอกาสชนะ' ได้แม่นยำกว่า 'ราคาของเจ้ามือ' หรือไม่ (ใช้มาตรฐาน Brier Score: ยิ่งใกล้ 0 ยิ่งแปลว่าทายแม่น)")
+    
+    st.markdown("---")
+    
+    logs = load_logs()
+    if logs is not None and not logs.empty:
+        finished_logs = logs[logs['Result'].isin(['Win', 'Half Win', 'Push', 'Half Loss', 'Loss'])].copy()
+        
+        if not finished_logs.empty:
+            def map_result_to_score(res):
+                if res == 'Win': return 1.0
+                if res == 'Half Win': return 0.75
+                if res == 'Push': return 0.50
+                if res == 'Half Loss': return 0.25
+                if res == 'Loss': return 0.00
+                return np.nan
+                
+            finished_logs['Actual_Score'] = finished_logs['Result'].apply(map_result_to_score)
+            finished_logs['Bookie_Prob'] = 1 / finished_logs['Odds']
+            finished_logs['Our_Prob'] = ((finished_logs['EV_Pct'] / 100) + 1) / finished_logs['Odds']
+            
+            finished_logs['Our_Error'] = (finished_logs['Our_Prob'] - finished_logs['Actual_Score'])**2
+            finished_logs['Bookie_Error'] = (finished_logs['Bookie_Prob'] - finished_logs['Actual_Score'])**2
+            
+            avg_our_error = finished_logs['Our_Error'].mean()
+            avg_bookie_error = finished_logs['Bookie_Error'].mean()
+            error_diff = avg_bookie_error - avg_our_error 
+            
+            st.subheader(f"📊 ผลประชันความแม่นยำจาก {len(finished_logs)} บิลล่าสุด")
+            c1, c2, c3 = st.columns(3)
+            
+            c1.metric("🤖 ค่าความคลาดเคลื่อนของเรา (Error)", f"{avg_our_error:.4f}", f"{-error_diff:.4f} vs เจ้ามือ", delta_color="inverse")
+            c2.metric("🎩 ค่าความคลาดเคลื่อนของบ่อน", f"{avg_bookie_error:.4f}")
+            
+            if avg_our_error < avg_bookie_error:
+                c3.success("🏆 กองทุนเราชนะตลาด!")
+                st.balloons()
+            else:
+                c3.error("💀 บ่อนยังแม่นกว่า (ต้องจูนสมการต่อ)")
+                
+            st.markdown("#### 📈 กราฟเปรียบเทียบความแม่นยำสะสม (Cumulative Error)")
+            st.caption("เส้นกราฟยิ่งอยู่ต่ำยิ่งดี (สะสมความผิดพลาดน้อยกว่า)")
+            
+            finished_logs = finished_logs.sort_values(by='Time').reset_index(drop=True)
+            finished_logs['Cum_Our_Error'] = finished_logs['Our_Error'].cumsum()
+            finished_logs['Cum_Bookie_Error'] = finished_logs['Bookie_Error'].cumsum()
+            
+            fig_bt = go.Figure()
+            fig_bt.add_trace(go.Scatter(x=finished_logs.index, y=finished_logs['Cum_Our_Error'], mode='lines', name='GEM System Error', line=dict(color='#00FF7F', width=3)))
+            fig_bt.add_trace(go.Scatter(x=finished_logs.index, y=finished_logs['Cum_Bookie_Error'], mode='lines', name='Bookmaker Error', line=dict(color='#FF4500', width=2, dash='dash')))
+            fig_bt.update_layout(plot_bgcolor='rgba(0,0,0,0)', paper_bgcolor='rgba(0,0,0,0)', xaxis_title="จำนวนไม้ที่ลงทุน", yaxis_title="ค่าความผิดพลาดสะสม")
+            st.plotly_chart(fig_bt, use_container_width=True)
+            
+            with st.expander("🔍 ดูข้อมูลเปรียบเทียบเชิงลึก (Raw Data)"):
+                st.dataframe(finished_logs[['Time', 'Match', 'Target', 'Odds', 'Result', 'Bookie_Prob', 'Our_Prob']], use_container_width=True)
+                
+        else:
+            st.info("ℹ️ ยังไม่มีข้อมูลบิลที่ทราบผลลัพธ์ (กรุณาไปอัปเดตผล Win/Loss ใน TAB 2 ก่อนครับ)")
+    else:
+        st.warning("⚠️ ไม่พบฐานข้อมูลการลงทุน กรุณาเริ่มสแกนและบันทึกผลก่อนครับ")
