@@ -1002,7 +1002,21 @@ with tab3:
         c_a1, c_a2 = st.columns(2)
         current_score_a = c_a1.number_input("สกอร์เยือน", min_value=0, value=st.session_state.get('la_s_input', 0), key="la_s_input")
         red_card_a = c_a2.checkbox("🟥 เยือนใบแดง", key="rc_a")
-        current_min = st.slider("นาทีแข่งขัน", 0, 120, st.session_state.get('current_min', 45))
+        raw_min = st.session_state.get('current_min', 45)
+        try:
+            # 1. บังคับให้เป็นตัวเลขจำนวนเต็ม (int) เสมอ ป้องกัน AI ส่งข้อความหรือทศนิยมมา
+            safe_min = int(float(raw_min))
+            # 2. บังคับค่าไม่ให้หลุดกรอบ 0 ถึง 120
+            safe_min = max(0, min(120, safe_min))
+        except (ValueError, TypeError):
+            # ถ้าพังไปเลย ให้กลับไปใช้ค่าเริ่มต้นที่ 45
+            safe_min = 45
+        
+        # 3. อัปเดตค่าที่สะอาดแล้วกลับเข้า Session State เพื่อไม่ให้เกิด Error ชนกัน
+        st.session_state['current_min'] = safe_min
+
+        # 4. เรียกใช้ Slider ด้วยค่าที่ปลอดภัย 100%
+        current_min = st.slider("นาทีแข่งขัน", 0, 120, safe_min, key="current_min_slider")
 
     with col_l2:
         st.subheader("💡 ราคาเปิด (Pre-match)")
