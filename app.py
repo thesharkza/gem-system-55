@@ -555,7 +555,7 @@ with tab1:
                         base64_image = base64.b64encode(uploaded_file.read()).decode('utf-8')
                         
                         response = client.chat.completions.create(
-                            model="typhoon-v1.5-vision-instruct", # แนะนำให้ใช้รุ่น v1.5 เพื่อความเสถียร
+                            model="typhoon-ocr", # แนะนำให้ใช้รุ่น v1.5 เพื่อความเสถียร
                             messages=[{
                                 "role": "user",
                                 "content": [
@@ -570,12 +570,9 @@ with tab1:
                         )
                         
                         res_content = response.choices[0].message.content
-                        import re
-                        match = re.search(r'\{.*\}', res_content, re.DOTALL)
-                        clean_json = match.group(0) if match else res_content.strip()
-
-                        try: # <--- บล็อก try ตัวใน (สำหรับ JSON)
-                            data = json.loads(clean_json)
+                            try:
+                                data = safe_json_loads(res_content)
+                                if not data: raise ValueError("AI ไม่ได้ส่ง JSON กลับมา")
                             for k, v in data.items(): 
                                 st.session_state[k] = v
                             st.success("✅ สำเร็จ!")
@@ -962,7 +959,9 @@ with tab3:
                         )
                         
                         res_text = response.choices[0].message.content.strip()
-                        data = json.loads(res_text)
+                        data = safe_json_loads(res_text) # ใช้ฟังก์ชันพระเอกของเรา
+                        if not data:
+                            raise ValueError("สกัด JSON ไม่สำเร็จ รูปแบบอาจผิดเพี้ยน")
                         
                         for k, v in data.items(): 
                             st.session_state[k] = v
