@@ -46,7 +46,7 @@ supabase: Client = init_connection()
 
 # --- CONFIG ---
 st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
-RULES_FILE = "gem_rules.txt" 
+
 
 # ==========================================
 # 0. ระบบตั้งค่าตัวแปร (Session State Init)
@@ -77,25 +77,24 @@ def clear_inplay_data():
     for k, v in inplay_defaults.items():
         st.session_state[k] = v
 
-@st.cache_data(ttl=300) # แคชไว้ 5 นาทีเพื่อไม่ให้ดึงบ่อยเกินไป
+@st.cache_data(ttl=60) # โหลดซ้ำทุกๆ 1 นาที เผื่อมีการอัปเดตกฎใหม่
 def load_gem_rules():
     if not supabase:
-        return "ระบบเชื่อมต่อฐานข้อมูลล้มเหลว"
+        return "⚠️ ระบบไม่สามารถเชื่อมต่อฐานข้อมูล Supabase ได้"
     
     try:
-        # ดึงเฉพาะกฎที่สถานะเป็น Active
-        response = supabase.table("gem_knowledge") \
-            .select("rule_text") \
-            .eq("is_active", True) \
-            .execute()
+        # วิ่งไปดึงข้อมูลจาก Supabase ทันที ไม่ต้องง้อไฟล์ .txt อีกต่อไป
+        response = supabase.table("gem_knowledge").select("rule_id, category, rule_text").eq("is_active", True).execute()
         
         if response.data:
-            # รวมกฎทุกข้อเป็นข้อความก้อนเดียวเหมือนในไฟล์ .txtเดิม
-            rules_list = [item['rule_text'] for item in response.data]
+            # นำข้อมูลมาจัดเรียงให้ AI อ่านง่าย (ใส่ ID และหมวดหมู่เข้าไปด้วย)
+            rules_list = [f"[{item['rule_id']} - หมวด {item['category']}] {item['rule_text']}" for item in response.data]
             return "\n".join(rules_list)
-        return "ไม่พบข้อมูลกฎในฐานข้อมูล"
+            
+        return "ยังไม่มีข้อมูลกฎในระบบฐานข้อมูล"
+        
     except Exception as e:
-        return f"Error loading rules from Supabase: {e}"
+        return f"Error loading rules from Cloud: {e}"
     
 def get_dynamic_rules(target, is_live, raw_rules):
     """ฟังก์ชัน RAG กรองคัมภีร์ GEM ให้เหลือเฉพาะกฎที่เข้ากับหน้างานปัจจุบัน"""
