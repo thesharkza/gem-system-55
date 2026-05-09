@@ -14,6 +14,17 @@ from supabase import create_client, Client
 import base64  # เพิ่มส่วนนี้
 from openai import OpenAI  # เพิ่มส่วนนี้
 
+# ระบบกรองตัวเลขป้องกัน StreamlitJSNumberBoundsError
+def safe_float(v, default=0.0):
+    try:
+        f = float(v)
+        # ตรวจสอบว่าห้ามเป็น NaN, Infinity และต้องเป็นตัวเลขที่อยู่ในกรอบความเป็นจริง
+        if math.isnan(f) or math.isinf(f) or f > 10000 or f < -10000:
+            return default
+        return f
+    except:
+        return default
+
 # --- ฟังก์ชันช่วยทำความสะอาด JSON (วางไว้ด้านบนของไฟล์) ---
 def safe_json_loads(text):
     try:
