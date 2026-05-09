@@ -547,7 +547,7 @@ def ai_daily_debrief(logs_df):
 
     for attempt in range(3):
         try:
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
             response = model.generate_content(prompt)
             data = safe_json_loads(response.text)
             if data: return data
@@ -897,7 +897,7 @@ with tab2:
                         try:
                             if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
                                 # แนะนำให้ใช้ gemini-1.5-flash เพื่อความเสถียรที่สุดในการใช้งานผ่าน API
-                                model = genai.GenerativeModel('gemini-1.5-flash')
+                                model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
                                 res_debrief = model.generate_content(prompt_debrief)
                                 st.session_state['debrief_result'] = res_debrief.text
                                 break 
