@@ -512,6 +512,50 @@ else:
 
 tab1, tab2, tab3, tab4 = st.tabs(["🚀 Pre-Match Terminal", "📊 Dashboard & AI Debrief", "⚡ IN-PLAY LIVE", "🧪 Backtest Engine (RPS)"])
 
+# ==========================================
+# 5. UI - AI Daily Debrief
+# ==========================================
+def ai_daily_debrief(logs_df):
+    if logs_df.empty:
+        return {"summary": "ไม่มีข้อมูลสำหรับการวิเคราะห์", "weaknesses": []}
+
+    # 1. ดึงข้อมูลกฎทั้งหมดจาก Supabase (พร้อม ID และ Category)
+    try:
+        rules_res = supabase.table("gem_knowledge").select("rule_id, category, rule_text").eq("is_active", True).execute()
+        rules_data = rules_res.data if rules_res.data else []
+        rules_str = "\n".join([f"[{r['rule_id']} - {r['category']}] {r['rule_text']}" for r in rules_data])
+    except:
+        rules_str = "ไม่สามารถโหลดกฎจากฐานข้อมูลได้"
+
+    # 2. คัดกรองเฉพาะไม้ที่ "แพ้" หรือ "เสียครึ่ง" มาให้ AI วิเคราะห์
+    loss_logs = logs_df[logs_df['Result'].str.contains(r'-', na=False)] # กรองคร่าวๆ ให้ AI ไปคำนวณต่อ
+    logs_str = loss_logs[['Time', 'Match', 'Target', 'HDP', 'Odds', 'Closing_Odds', 'Result']].to_string()
+
+    # 3. สร้าง Prompt สั่งการระดับผู้บัญชาการ
+    prompt = (
+        "คุณคือ Chief Risk Officer (CRO) ของกองทุน Quant Hedge Fund หน้าที่ของคุณคือทำ 'Daily Debrief'\n"
+        "วิเคราะห์ประวัติการลงทุนที่ผิดพลาด (Losses) ของระบบ ด้านล่างนี้เทียบกับคัมภีร์ GEM RULES\n\n"
+        f"📋 [ประวัติการลงทุน (Logs)]\n{logs_str}\n\n"
+        f"📖 [คัมภีร์ GEM RULES]\n{rules_str}\n\n"
+        "คำสั่ง:\n"
+        "1. วิเคราะห์หาจุดอ่อน หรือสาเหตุที่ทำให้แพ้ในไม้เหล่านั้น\n"
+        "2. หากการแพ้เกิดจากการละเมิดกฎในคัมภีร์ ให้ระบุ 'rule_id' และ 'category' ให้ชัดเจน\n"
+        "3. หากแพ้โดยไม่ได้ละเมิดกฎ ให้จัดอยู่ในหมวด 'Variance' (ความผันผวนของสถิติ)\n"
+        "ตอบกลับเป็นรูปแบบ JSON เท่านั้น:\n"
+        '{"executive_summary": "สรุปภาพรวม...", "critical_weaknesses": [{"match": "ชื่อคู่", "reason": "เหตุผล", "gem_violated": "GEM_01", "gem_category": "Risk Management", "action_plan": "ข้อเสนอแนะ"}]}'
+    )
+
+    for attempt in range(3):
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            response = model.generate_content(prompt)
+            data = safe_json_loads(response.text)
+            if data: return data
+        except Exception as e:
+            time.sleep(2)
+            
+    return {"executive_summary": "AI Debrief ขัดข้อง", "critical_weaknesses": []}
+
 # --- TAB 1: Pre-Match ---
 with tab1:
     st.sidebar.header("💰 Portfolio & Parameters")
@@ -803,40 +847,57 @@ with tab2:
         else:
             st.info(f"ℹ️ ยังไม่มีข้อมูลการลงทุนในโหมด {view_mode} ครับ")
                 
-        # ==========================================
-        # 🤖 AI Daily Debrief (Level 4: Self-Reflection)
+ # ==========================================
+        # 🤖 AI Daily Debrief (Level 4: Self-Reflection & Supabase Sync)
         # ==========================================
         st.markdown("---")
         st.subheader("🤖 AI Daily Debrief (วิเคราะห์หาจุดอ่อนของระบบ)")
-        loss_logs = logs[logs['Net_Profit'] < 0]
+        
+        # กรองเฉพาะไม้ที่ขาดทุน
+        loss_logs = logs[logs['Net_Profit'] < 0] if 'Net_Profit' in logs.columns else logs[logs['Result'].str.contains(r'-', na=False)]
+        
         if 'debrief_result' not in st.session_state: st.session_state['debrief_result'] = ""
             
         if len(loss_logs) > 0:
             st.info(f"🔍 พบประวัติการลงทุนที่ขาดทุนจำนวน {len(loss_logs)} รายการ")
             if st.button("🧠 สั่ง AI วิเคราะห์ความผิดพลาด (Post-Mortem)", use_container_width=True):
-                with st.spinner("The Oracle กำลังสแกนหา 'กับดักราคา' จากประวัติความพ่ายแพ้..."):
-                    loss_data_str = loss_logs[['Time', 'Match', 'HDP', 'Target', 'Odds', 'Result', 'Net_Profit']].to_csv(index=False)
+                with st.spinner("The Oracle กำลังสแกนหา 'กับดักราคา' และเทียบกับกฎในฐานข้อมูล..."):
+                    loss_data_str = loss_logs[['Time', 'Match', 'HDP', 'Target', 'Odds', 'Result']].to_csv(index=False)
+                    
+                    # 1. ดึงกฎปัจจุบันจาก Supabase มาให้ AI ตรวจสอบ
+                    try:
+                        rules_res = supabase.table("gem_knowledge").select("rule_id, category, rule_text").eq("is_active", True).execute()
+                        rules_data = rules_res.data if rules_res.data else []
+                        rules_str = "\n".join([f"[{r['rule_id']} - หมวด {r['category']}] {r['rule_text']}" for r in rules_data])
+                    except:
+                        rules_str = "ไม่สามารถโหลดกฎจากฐานข้อมูลได้"
+
+                    # 2. อัปเดต Prompt ให้ฉลาดและระบุข้อมูลได้แม่นยำขึ้น
                     prompt_debrief = (
                         "คุณคือ Chief Risk Officer และ Head of Quant Research ของกองทุน Hedge Fund กีฬาระดับโลก\n"
                         "หน้าที่ของคุณคือการทำ 'Post-Mortem Analysis' (ชันสูตรความพ่ายแพ้) จากประวัติการลงทุนที่ 'ขาดทุน' ด้านล่างนี้\n\n"
-                        f"[ข้อมูลการขาดทุน (CSV Format)]\n{loss_data_str}\n\n"
+                        f"📋 [ข้อมูลการขาดทุน (CSV Format)]\n{loss_data_str}\n\n"
+                        f"📖 [คัมภีร์ GEM RULES ปัจจุบันในระบบ]\n{rules_str}\n\n"
                         "คำสั่ง: ให้วิเคราะห์ข้อมูลอย่างละเอียดแบบนักคณิตศาสตร์ประกันภัย และตอบกลับในรูปแบบ Markdown ตามหัวข้อต่อไปนี้:\n\n"
                         "### 🔍 1. Post-Mortem Analysis (เจาะลึกรากเหง้าของปัญหา)\n"
-                        "- มองหา 'Pattern' หรือจุดร่วมของการขาดทุน (เช่น ชอบเสียเงินในเรต HDP แบบไหน, ค่าน้ำ Odds ทรงไหน, หรือเสียในบอลสดช่วงนาทีที่เท่าไหร่)\n"
-                        "- เจ้ามือ (Bookmaker) วางกับดัก (Market Trap) อะไรซ่อนไว้ในโครงสร้างราคาของแมตช์เหล่านี้?\n\n"
+                        "- มองหา 'Pattern' หรือจุดร่วมของการขาดทุน (เช่น ชอบเสียเงินในเรต HDP แบบไหน, ค่าน้ำ Odds ทรงไหน)\n"
+                        "- ⚠️ **สำคัญมาก:** ตรวจสอบว่าการขาดทุนเหล่านี้ มีการ 'ละเมิด' กฎข้อใดในคัมภีร์ปัจจุบันหรือไม่?\n"
+                        "  -> หากมีการละเมิด ให้ระบุ **[รหัสกฎ (Rule ID)]** และ **[หมวดหมู่ (Category)]** ให้ชัดเจน!\n"
+                        "  -> หากแพ้โดยไม่ได้ละเมิดกฎใดๆ ให้ระบุว่าเป็น Market Trap แบบไหน หรือเป็นแค่ Variance ของสถิติ\n\n"
                         "### ⚠️ 2. Market Loopholes (ช่องโหว่ของระบบที่ต้องปิด)\n"
-                        "- อธิบายว่าทำไมสมการ Base EV ของเราถึงโดนหลอกได้ในกรณีนี้? (เช่น โมเดลอาจจะละเลยเรื่องเวลาที่เหลืออยู่ หรือหลงกลค่าน้ำล้นๆ)\n\n"
+                        "- อธิบายว่าทำไมสมการ Base EV ของเราถึงโดนหลอกได้ในกรณีนี้?\n\n"
                         "### 💎 3. New GEM Rules (คัมภีร์ใหม่เพื่อปกป้องเงินทุน)\n"
-                        "ให้สร้างกฎเหล็กข้อใหม่ (New GEM Rules) จาก 'ทุกช่องโหว่' ที่คุณวิเคราะห์เจอ (ไม่จำกัดจำนวนข้อ) เพื่ออุดรอยรั่วทั้งหมด\n"
-                        "⚠️ คำเตือน (Anti-Overfitting Policy): กฎทุกข้อต้องเป็น 'Pattern ระดับโครงสร้างตลาด' ที่สามารถนำไปใช้ได้ในระยะยาว (Robustness) ห้ามสร้างกฎที่เจาะจงเหตุการณ์ใดเหตุการณ์หนึ่งมากเกินไปจนทำให้ระบบเกิดอาการ 'ไม่กล้าลงทุน' (Analysis Paralysis) เด็ดขาด!\n\n"
+                        "ให้สร้างกฎเหล็กข้อใหม่ (New GEM Rules) จาก 'ช่องโหว่' ที่วิเคราะห์เจอ เพื่ออุดรอยรั่วทั้งหมด\n"
+                        "⚠️ คำเตือน (Anti-Overfitting Policy): กฎทุกข้อต้องเป็น 'Pattern ระดับโครงสร้างตลาด' ที่สามารถนำไปใช้ได้ในระยะยาว ห้ามเจาะจงเหตุการณ์ใดเหตุการณ์หนึ่งมากเกินไป\n\n"
                         "เขียนกฎแต่ละข้อตาม Format นี้:\n"
-                        "Gem : [หมวดหมู่] (ชื่อกฎ) | เงื่อนไขที่ชัดเจน (เช่น นาที, เรตราคา) -> การตัดสินใจ (เช่น สั่งทับมือ, ลดไม้)\n"
+                        "Gem : [หมวดหมู่] (ชื่อกฎ) | เงื่อนไขที่ชัดเจน -> การตัดสินใจ\n"
                     )
                     
                     for attempt in range(3):
                         try:
                             if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
-                                model = genai.GenerativeModel('models/gemini-3.1-flash-lite-preview')
+                                # แนะนำให้ใช้ gemini-1.5-flash เพื่อความเสถียรที่สุดในการใช้งานผ่าน API
+                                model = genai.GenerativeModel('gemini-1.5-flash')
                                 res_debrief = model.generate_content(prompt_debrief)
                                 st.session_state['debrief_result'] = res_debrief.text
                                 break 
@@ -851,50 +912,49 @@ with tab2:
                                 st.error(f"❌ ระบบขัดข้อง: {e}")
                                 break
 
+            # 3. จัดการ UI การแจ้งเตือนเมื่อบันทึกลง Supabase สำเร็จ
             if st.session_state.get('save_success', False):
-                st.success("🎉 บันทึกกฎใหม่ลงคัมภีร์สำเร็จเรียบร้อยแล้ว!")
-                try:
-                    import os
-                    current_dir = os.path.dirname(os.path.abspath(__file__))
-                    abs_rule_path = os.path.join(current_dir, RULES_FILE)
-                    with open(abs_rule_path, "r", encoding="utf-8") as f:
-                        file_content = f.read()
-                    st.download_button(
-                        label="⬇️ ดาวน์โหลดไฟล์คัมภีร์ที่อัปเดตแล้ว (gem_rules.txt) ลงคอมพิวเตอร์",
-                        data=file_content,
-                        file_name="gem_rules.txt",
-                        mime="text/plain",
-                        type="primary"
-                    )
-                except Exception as e:
-                    st.error(f"โหลดไฟล์ไม่สำเร็จ: {e}")
+                st.success("🎉 บันทึกกฎใหม่ลงฐานข้อมูล (Supabase) สำเร็จเรียบร้อยแล้ว กฎเริ่มใช้งานทันทีในไม้ถัดไป!")
                 if st.button("ปิดหน้าต่างแจ้งเตือน"):
                     st.session_state['save_success'] = False
                     st.rerun()
 
+            # 4. ฟอร์มสำหรับตรวจสอบและบันทึกกฎลง Supabase
             if st.session_state.get('debrief_result', "") != "":
                 st.success("✅ การวิเคราะห์เสร็จสิ้น!")
                 st.warning("✏️ คุณสามารถแก้ไข กฎที่ AI เสนอมาได้ในกล่องด้านล่างนี้ เมื่อพอใจแล้วค่อยกดบันทึก")
                 with st.form(key="save_rule_form"):
-                    edited_text = st.text_area("ตรวจสอบและปรับแต่งกฎของคุณที่นี่:", value=st.session_state['debrief_result'], height=250)
-                    submit_save = st.form_submit_button("💾 บันทึกข้อความในกล่องนี้ลงคัมภีร์", type="primary", use_container_width=True)
+                    edited_text = st.text_area("ตรวจสอบและปรับแต่งกฎของคุณที่นี่:", value=st.session_state['debrief_result'], height=350)
+                    submit_save = st.form_submit_button("💾 บันทึกข้อความในกล่องนี้ลงฐานข้อมูล (Supabase)", type="primary", use_container_width=True)
+                    
                     if submit_save:
                         if edited_text.strip() != "":
                             try:
-                                import os
-                                current_dir = os.path.dirname(os.path.abspath(__file__))
-                                abs_rule_path = os.path.join(current_dir, RULES_FILE)
-                                with open(abs_rule_path, "a", encoding="utf-8") as f:
-                                    tz_th = timezone(timedelta(hours=7))
-                                    now_str = datetime.now(tz_th).strftime("%Y-%m-%d %H:%M")
-                                    f.write(f"\n\n### กฎใหม่ที่เพิ่ม/แก้ไขโดยผู้ใช้ (อัปเดตวันที่ {now_str}) ###\n")
-                                    f.write(edited_text)
+                                # สร้าง ID ไม่ซ้ำกันด้วย Timestamp
+                                tz_th = timezone(timedelta(hours=7))
+                                now_str = datetime.now(tz_th).strftime("%Y%m%d_%H%M")
+                                new_rule_id = f"GEM_DEBRIEF_{now_str}"
+                                
+                                # Insert ลงตาราง gem_knowledge
+                                supabase.table("gem_knowledge").insert({
+                                    "rule_id": new_rule_id,
+                                    "rule_text": edited_text,
+                                    "category": "Debrief Insights" # เก็บหมวดหมู่เป็น Debrief
+                                }).execute()
+                                
                                 st.session_state['debrief_result'] = ""
                                 st.session_state['save_success'] = True
-                                load_gem_rules.clear() 
+                                
+                                # เคลียร์แคชฟังก์ชันโหลดกฎ เพื่อให้แอปดึงข้อมูลใหม่ทันที
+                                if 'load_gem_rules' in globals():
+                                    try: load_gem_rules.clear()
+                                    except: pass
+                                    
                                 st.rerun() 
-                            except Exception as e: st.error(f"❌ เกิดข้อผิดพลาดในการบันทึก: {e}")
-                        else: st.error("⚠️ กล่องข้อความว่างเปล่า ไม่สามารถบันทึกได้ครับ")
+                            except Exception as e: 
+                                st.error(f"❌ เกิดข้อผิดพลาดในการบันทึกฐานข้อมูล: {e}")
+                        else: 
+                            st.error("⚠️ กล่องข้อความว่างเปล่า ไม่สามารถบันทึกได้ครับ")
         else:
             st.success("🌟 ยอดเยี่ยม! ระบบยังไม่พบประวัติการแทงเสีย AI จึงยังไม่ต้องวิเคราะห์จุดอ่อน")
 
