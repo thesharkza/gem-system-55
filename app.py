@@ -11,34 +11,6 @@ from PIL import Image
 import google.generativeai as genai
 import numpy as np
 from supabase import create_client, Client
-import base64  # เพิ่มส่วนนี้
-from openai import OpenAI  # เพิ่มส่วนนี้
-
-# ระบบกรองตัวเลขและบังคับขอบเขต ป้องกัน Streamlit Error
-def safe_float(v, default=0.0, min_v=-100.0, max_v=100.0):
-    try:
-        f = float(v)
-        if math.isnan(f) or math.isinf(f):
-            f = default
-    except:
-        f = default
-    # บังคับค่าให้อยู่ในกรอบที่กำหนดเสมอ (ถ้าต่ำกว่า min จะปัดเป็น min ทันที)
-    return max(min_v, min(f, max_v))
-
-# --- ฟังก์ชันช่วยทำความสะอาด JSON (วางไว้ด้านบนของไฟล์) ---
-def safe_json_loads(text):
-    try:
-        # 1. ค้นหาตำแหน่งปีกกาตัวแรก { และตัวสุดท้าย }
-        start_idx = text.find('{')
-        end_idx = text.rfind('}')
-        if start_idx != -1 and end_idx != -1:
-            clean_text = text[start_idx:end_idx+1]
-            return json.loads(clean_text)
-        return json.loads(text)
-    except Exception:
-        # หากยังไม่ได้ ให้ลองลบ Markdown blocks ออก
-        clean = text.replace("```json", "").replace("```", "").strip()
-        return json.loads(clean)
 
 @st.cache_resource
 def init_connection():
@@ -316,7 +288,7 @@ def calculate_rps(prob_home, prob_draw, prob_away, actual_result):
 # ==========================================
 # 2. ระบบ AI Decision Engine (Chief Risk Officer)
 # ==========================================
-def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0", threshold=0.08):
+def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
     raw_database = load_gem_rules()
     try: oracle_database = get_dynamic_rules(target, is_live, raw_database)
     except NameError: oracle_database = raw_database
@@ -553,49 +525,27 @@ with tab1:
 
     st.markdown("---")
     
-    with st.expander("👁️ AI Vision: สกัดราคาจากภาพ (Typhoon)", expanded=False):
-        typhoon_key = st.secrets.get("TYPHOON_API_KEY", "") 
-        if not typhoon_key: 
-            st.warning("⚠️ โปรดตั้งค่า TYPHOON_API_KEY ใน Secrets")
+    with st.expander("👁️ AI Vision: สกัดราคาจากภาพ", expanded=False):
+        if not api_key: st.warning("⚠️ ต้องการ API Key")
         else:
             uploaded_file = st.file_uploader("อัปโหลดรูปตารางราคา", type=['png', 'jpg'])
-            if uploaded_file and st.button("🪄 สกัดข้อมูลด้วย Typhoon", use_container_width=True):
-                with st.spinner('พายุกำลังอ่านรูป...'):
+            if uploaded_file and st.button("🪄 สกัดข้อมูลจากรูปภาพ", use_container_width=True):
+                with st.spinner('กำลังอ่านรูป...'):
                     try:
-                        # --- เชื่อมต่อและส่งข้อมูลให้ Typhoon ---
-                        client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
-                        base64_image = base64.b64encode(uploaded_file.read()).decode('utf-8')
-                        
-                        response = client.chat.completions.create(
-                            model="typhoon-v1.5-vision-instruct", 
-                            messages=[{
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": "สกัดข้อมูลจากภาพแปลงเป็น JSON เท่านั้น: "
-                                     '{"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,'
-                                     '"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,'
-                                     '"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'},
-                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                                ]
-                            }],
-                            response_format={"type": "json_object"}
+                        img = Image.open(uploaded_file)
+                        model = genai.GenerativeModel('models/gemma-4-31b-it')
+                        prompt_img = (
+                            'สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,'
+                            '"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,'
+                            '"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
                         )
-                        
-                        # --- จัดการผลลัพธ์ JSON ---
-                        res_content = response.choices[0].message.content
-                        data = safe_json_loads(res_content)
-                        
-                        if not data: 
-                            raise ValueError(f"AI ไม่ได้ส่ง JSON กลับมา\nข้อความที่ส่งมา: {res_content}")
-                            
-                        for k, v in data.items(): 
-                            st.session_state[k] = v
-                            
+                        res = model.generate_content([prompt_img, img])
+                        bt = chr(96) * 3
+                        data = json.loads(res.text.replace(bt+'json', '').replace(bt, '').strip())
+                        for k, v in data.items(): st.session_state[k] = v
                         st.success("✅ สำเร็จ!")
                         st.rerun()
-                        
-                    except Exception as e:
-                        st.error(f"⚠️ ระบบพบข้อผิดพลาด: {e}")
+                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
     with st.expander("⚡ Text Parser: วางข้อความดิบ", expanded=False):
         st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=100, key="raw_text")
@@ -606,36 +556,25 @@ with tab1:
                     raw = st.session_state.raw_text
                     m_vs = re.search(r'(.*VS.*)', raw)
                     if m_vs: st.session_state.match_name = m_vs.group(1).strip()
-                    
                     h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) 
-                    if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) 
-                    
+                    if len(h_matches)>=1: st.session_state.h1x2_val=float(h_matches[0]) 
+                    if len(h_matches)>=2: st.session_state.hdp_h_w_val=float(h_matches[1]) 
                     d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(d_matches) >= 1: st.session_state.d1x2_val = float(d_matches[0])
-                    
+                    if len(d_matches)>=1: st.session_state.d1x2_val=float(d_matches[0])
                     a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) 
-                    if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) 
-                    
+                    if len(a_matches)>=1: st.session_state.a1x2_val=float(a_matches[0]) 
+                    if len(a_matches)>=2: st.session_state.hdp_a_w_val=float(a_matches[1]) 
                     ah_match = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
                     if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
-                    
                     ou_match = re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)', raw, re.MULTILINE)
                     if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
-                    
                     o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
                     if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
-                    
                     u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
                     if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
-                    
                     st.success("✅ สำเร็จ!")
-                except Exception as e: 
-                    st.error(f"⚠️ Error: {e}")
-                    
-        with c_b2: 
-            st.button("🗑️ ล้างฟอร์ม", use_container_width=True, on_click=clear_form_data)
+                except Exception as e: st.error(f"⚠️ Error: {e}")
+        with c_b2: st.button("🗑️ ล้างฟอร์ม", use_container_width=True, on_click=clear_form_data)
 
     st.markdown("---")
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
@@ -950,73 +889,37 @@ with tab2:
 with tab3:
     st.header("📺 Live Sniper Command Center")
     
-    with st.expander("👁️ AI Live Vision (Typhoon Power)", expanded=False):
-        if not typhoon_key: 
-            st.warning("ต้องการ Typhoon Key")
+    with st.expander("👁️ AI Live Vision", expanded=False):
+        if not api_key: st.warning("⚠️ ต้องการ API Key")
         else:
-            live_imgs = st.file_uploader("รูปหน้าจอบอลสด (อัปโหลดได้สูงสุด 3 รูป)", type=['png', 'jpg'], accept_multiple_files=True, key="live_img")
-            
-            if live_imgs and st.button("🪄 สกัดข้อมูล Live", use_container_width=True):
-                
-                # 🛡️ ตัดให้เหลือสูงสุดแค่ 3 รูป เพื่อป้องกัน Token ของ AI ล้น
-                if len(live_imgs) > 3:
-                    st.warning("⚠️ คุณอัปโหลดเกิน 3 รูป ระบบจะประมวลผลแค่ 3 รูปแรกนะครับ")
-                    live_imgs = live_imgs[:3]
-                    
-                with st.spinner(f"พายุกำลังวิเคราะห์ภาพทั้ง {len(live_imgs)} รูป..."):
+            live_images = st.file_uploader("อัปโหลดรูป (สูงสุด 3 รูป)", type=['png', 'jpg'], accept_multiple_files=True)
+            if live_images and st.button("🪄 สกัดข้อมูล", use_container_width=True):
+                with st.spinner("กวาดสายตา..."):
                     try:
-                        client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
-                        
-                        # 1. เขียน Prompt ให้ฉลาดขึ้น สอน AI อ่านตารางเว็บพนันไทย
+                        imgs = [Image.open(f) for f in live_images]
+                        model = genai.GenerativeModel('models/gemma-4-31b-it')
                         prompt_live = (
-                            "สกัดข้อมูลจากรูปภาพตารางราคาฟุตบอลเหล่านี้ (มีหลายแท็บ) ให้อยู่ในรูปแบบ JSON เท่านั้น โดยมีเงื่อนไขดังนี้:\n"
-                            "1. สกอร์และเวลา: สกัดนาทีปัจจุบัน (current_min), สกอร์เจ้าบ้าน (current_score_h), สกอร์เยือน (current_score_a)\n"
-                            "2. การแปลงเรตราคา (Line): หากเจอ '0.5/1' ให้แปลงเป็น 0.75, '1/1.5' ให้แปลงเป็น 1.25, '1.5/2' เป็น 1.75\n"
-                            "3. คอลัมน์ 'ต้น' คือราคาเปิด (pre_) / คอลัมน์ 'วันนี้/สด' คือราคาปัจจุบัน (live_)\n"
-                            "4. ห้ามมีข้อความอื่นนอกจาก JSON\n\n"
-                            '{"current_min":0, "current_score_h":0, "current_score_a":0, '
-                            '"pre_h":0.0, "pre_d":0.0, "pre_a":0.0, "pre_ou":0.0, "live_hdp":0.0, '
-                            '"live_hdp_h":0.0, "live_hdp_a":0.0, "live_ou":0.0, "live_ou_over":0.0, "live_ou_under":0.0}'
+                            'สกัดเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, '
+                            '"pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, '
+                            '"live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}'
                         )
+                        res = model.generate_content([prompt_live] + imgs)
                         
-                        # 2. ยัดรูปภาพ "ทุกรูป" ที่อัปโหลด ส่งไปให้ AI ดูพร้อมกัน
-                        content_list = [{"type": "text", "text": prompt_live}]
-                        for img_file in live_imgs:
-                            # รีเซ็ตตำแหน่งไฟล์ก่อนอ่าน เผื่อถูกอ่านไปแล้ว
-                            img_file.seek(0)
-                            base64_image = base64.b64encode(img_file.read()).decode('utf-8')
-                            content_list.append({
-                                "type": "image_url", 
-                                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-                            })
+                        res_text = res.text.strip()
+                        if not res_text: raise ValueError("AI มองไม่เห็นรูป หรือส่งค่าว่างกลับมา")
+                        bt = chr(96)*3
+                        cleaned_text = res_text.replace(bt+'json', '').replace(bt, '').strip()
                         
-                        # 3. ส่งคำสั่ง
-                        response = client.chat.completions.create(
-                            model="typhoon-ocr", # อย่าลืมเช็คชื่อโมเดลให้ตรงกับที่คุณใช้รันผ่าน
-                            messages=[{
-                                "role": "user",
-                                "content": content_list
-                            }],
-                            response_format={"type": "json_object"}
-                        )
+                        start_idx = cleaned_text.find('{')
+                        end_idx = cleaned_text.rfind('}')
+                        if start_idx != -1 and end_idx != -1:
+                            cleaned_text = cleaned_text[start_idx:end_idx+1]
+                        data = json.loads(cleaned_text)
                         
-                        res_text = response.choices[0].message.content
-                        data = safe_json_loads(res_text)
-                        
-                        # 4. บันทึกลง Session State
-                        for k, v in data.items(): 
-                            try:
-                                if 'score' in k or 'min' in k:
-                                    st.session_state[k] = int(float(v))
-                                else:
-                                    st.session_state[k] = float(v)
-                            except: pass
-                            
-                        st.success("✅ พายุสกัดข้อมูลครบทุกแท็บสำเร็จ!")
+                        for k, v in data.items(): st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
+                        st.success("✅ สำเร็จ!")
                         st.rerun()
-                        
-                    except Exception as e:
-                        st.error(f"⚠️ Typhoon Error: {e}")
+                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
     col_l1, col_l2 = st.columns(2)
     with col_l1:
@@ -1024,105 +927,67 @@ with tab3:
         c_h1, c_h2 = st.columns(2)
         current_score_h = c_h1.number_input("สกอร์เหย้า", min_value=0, value=st.session_state.get('lh_s_input', 0), key="lh_s_input")
         red_card_h = c_h2.checkbox("🟥 เหย้าใบแดง", key="rc_h")
-        
         c_a1, c_a2 = st.columns(2)
         current_score_a = c_a1.number_input("สกอร์เยือน", min_value=0, value=st.session_state.get('la_s_input', 0), key="la_s_input")
         red_card_a = c_a2.checkbox("🟥 เยือนใบแดง", key="rc_a")
-        
-        raw_min = st.session_state.get('current_min', 45)
-        try:
-            # 1. บังคับให้เป็นตัวเลขจำนวนเต็ม (int) เสมอ
-            safe_min = int(float(raw_min))
-            # 2. บังคับค่าไม่ให้หลุดกรอบ 0 ถึง 120
-            safe_min = max(0, min(120, safe_min))
-        except (ValueError, TypeError):
-            safe_min = 45
-        
-        # 3. อัปเดตค่าที่สะอาดแล้วกลับเข้า Session State
-        st.session_state['current_min'] = safe_min
-
-        # 4. เรียกใช้ Slider (ใช้ safe_min เป็น value ได้เลยเพราะไม่ได้ใช้ key ซ้ำกับชื่อตัวแปรนี้)
-        current_min = st.slider("นาทีแข่งขัน", 0, 120, safe_min, key="current_min_slider")
-
+        current_min = st.slider("นาทีแข่งขัน", 0, 120, st.session_state.get('current_min', 45))
     with col_l2:
-        st.subheader("💡 ราคาเปิด")
-        
-        # ✅ 1. ซ่อมแซมค่าในหน่วยความจำให้เข้ากรอบที่ถูกต้องก่อน
-        st.session_state['pre_h'] = safe_float(st.session_state.get('pre_h', 2.0), 2.0, 1.01, 100.0)
-        st.session_state['pre_d'] = safe_float(st.session_state.get('pre_d', 3.0), 3.0, 1.01, 100.0)
-        st.session_state['pre_a'] = safe_float(st.session_state.get('pre_a', 3.0), 3.0, 1.01, 100.0)
-        st.session_state['pre_ou'] = safe_float(st.session_state.get('pre_ou', 2.5), 2.5, 0.5, 20.0)
-
-        # ✅ 2. สร้าง Widget (ไม่ต้องใส่ value= แล้ว Streamlit จะดึงจาก key อัตโนมัติ)
-        p_h = st.number_input("เหย้า(เปิด)", min_value=1.01, format="%.2f", key="pre_h")
-        p_d = st.number_input("เสมอ(เปิด)", min_value=1.01, format="%.2f", key="pre_d")
-        p_a = st.number_input("เยือน(เปิด)", min_value=1.01, format="%.2f", key="pre_a")
-        p_ou = st.number_input("O/U(เปิด)", min_value=0.5, format="%.2f", key="pre_ou")
+        st.subheader("💡 ราคาเปิด (Pre-match)")
+        pre_h = st.number_input("เหย้า(เปิด)", value=st.session_state.get('pre_h', 2.0), format="%.2f", key="pre_h")
+        pre_d = st.number_input("เสมอ(เปิด)", value=st.session_state.get('pre_d', 3.0), format="%.2f", key="pre_d")
+        pre_a = st.number_input("เยือน(เปิด)", value=st.session_state.get('pre_a', 3.0), format="%.2f", key="pre_a")
+        pre_ou = st.number_input("O/U(เปิด)", value=st.session_state.get('pre_ou', 2.5), format="%.2f", step=0.25, key="pre_ou")
 
     st.markdown("---")
     st.subheader("💰 ราคา Live ปัจจุบัน (Sniper Adjust)")
-    cl1, cl2 = st.columns(2)
+    col_live1, col_live2 = st.columns(2)
     
-    with cl1:
-        # ✅ ซ่อมแซมค่า HDP และค่าน้ำ
-        st.session_state['live_hdp'] = safe_float(st.session_state.get('live_hdp', 0.0), 0.0, -10.0, 10.0)
-        st.session_state['live_hdp_h'] = safe_float(st.session_state.get('live_hdp_h', 0.9), 0.9, -2.0, 10.0)
-        st.session_state['live_hdp_a'] = safe_float(st.session_state.get('live_hdp_a', 0.9), 0.9, -2.0, 10.0)
-        
-        # ✅ สร้าง Widget
-        l_hdp = st.number_input("Live HDP", min_value=-10.0, step=0.25, format="%.2f", key="live_hdp")
-        l_hdp_h = st.number_input("น้ำเหย้า(Live)", min_value=-2.0, format="%.2f", key="live_hdp_h")
-        l_hdp_a = st.number_input("น้ำเยือน(Live)", min_value=-2.0, format="%.2f", key="live_hdp_a")
-        
-    with cl2:
-        # ✅ ซ่อมแซมค่า O/U
-        st.session_state['live_ou'] = safe_float(st.session_state.get('live_ou', 2.5), 2.5, 0.5, 20.0)
-        st.session_state['live_ou_over'] = safe_float(st.session_state.get('live_ou_over', 0.9), 0.9, -2.0, 10.0)
-        st.session_state['live_ou_under'] = safe_float(st.session_state.get('live_ou_under', 0.9), 0.9, -2.0, 10.0)
-        
-        # ✅ สร้าง Widget
-        l_ou = st.number_input("Live O/U", min_value=0.5, step=0.25, format="%.2f", key="live_ou")
-        l_ou_o = st.number_input("น้ำสูง(Live)", min_value=-2.0, format="%.2f", key="live_ou_over")
-        l_ou_u = st.number_input("น้ำต่ำ(Live)", min_value=-2.0, format="%.2f", key="live_ou_under")
-        
+    with col_live1:
+        st.markdown("**Live HDP (เรตแฮนดิแคป)**")
+        btn_h1, btn_h2, btn_h3 = st.columns([1, 2, 1])
+        btn_h1.button("➖ 0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
+        live_hdp = btn_h2.number_input("Live HDP", value=st.session_state['live_hdp'], step=0.25, key="live_hdp", label_visibility="collapsed", format="%.2f")
+        btn_h3.button("➕ 0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
+        c_w1, c_w2 = st.columns(2)
+        live_hdp_h = c_w1.number_input("น้ำเหย้า", value=st.session_state.get('live_hdp_h', 0.9), format="%.2f", key="live_hdp_h")
+        live_hdp_a = c_w2.number_input("น้ำเยือน", value=st.session_state.get('live_hdp_a', 0.9), format="%.2f", key="live_hdp_a")
+
+    with col_live2:
+        st.markdown("**Live O/U (เรตสกอร์รวม)**")
+        btn_o1, btn_o2, btn_o3 = st.columns([1, 2, 1])
+        btn_o1.button("➖ 0.25", key="o_sub", on_click=adj_ou, args=(-0.25,))
+        live_ou = btn_o2.number_input("Live O/U", value=st.session_state['live_ou'], step=0.25, key="live_ou", label_visibility="collapsed", format="%.2f")
+        btn_o3.button("➕ 0.25", key="o_add", on_click=adj_ou, args=(0.25,))
+        c_w3, c_w4 = st.columns(2)
+        live_ou_over = c_w3.number_input("น้ำสูง", value=st.session_state.get('live_ou_over', 0.9), format="%.2f", key="live_ou_over")
+        live_ou_under = c_w4.number_input("น้ำต่ำ", value=st.session_state.get('live_ou_under', 0.9), format="%.2f", key="live_ou_under")
+
     c_btn1, c_btn2 = st.columns([4, 1])
     submit_live = c_btn1.button("🎯 ENGAGE SNIPER", use_container_width=True, type="primary")
     c_btn2.button("🗑️ ล้างค่า", use_container_width=True, on_click=clear_inplay_data)
 
     if submit_live:
-        # ฟังก์ชันช่วยปรับค่าน้ำ
         def fix(o): return o + 1.0 if o < 1.1 else o
-        
-        # 1. คำนวณความน่าจะเป็นและ Matrix
         p_h, p_d, p_a = shin_devig(fix(pre_h), fix(pre_d), fix(pre_a))
         m_left = max(90 - current_min, 1)
         hw2, hw1, d_ex, aw1, aw2, p_tot = calc_dixon_coles_matrix(p_h, p_d, p_a, live_ou, fix(live_ou_over), fix(live_ou_under), dc_rho, current_score_h, current_score_a, m_left, red_card_h, red_card_a)
-        
-        # 2. คำนวณ EV
         is_fav = p_h >= p_a
         ev_h = calc_advanced_ah_ev(live_hdp, hw2, hw1, d_ex, aw1, aw2, fix(live_hdp_h), is_fav)
         ev_a = calc_advanced_ah_ev(live_hdp, aw2, aw1, d_ex, hw1, hw2, fix(live_hdp_a), not is_fav) - (hdba_val/100)
         ev_o = calc_advanced_ou_ev(live_ou, p_tot, fix(live_ou_over), True)
         ev_u = calc_advanced_ou_ev(live_ou, p_tot, fix(live_ou_under), False)
 
-        b_ah_v = max(ev_h, ev_a)
-        t_ah = "เจ้าบ้าน" if ev_h > ev_a else "ทีมเยือน"
-        b_ou_v = max(ev_o, ev_u)
-        t_ou = "สูง" if ev_o > ev_u else "ต่ำ"
+        b_ah_v = max(ev_h, ev_a); t_ah = "เจ้าบ้าน" if ev_h > ev_a else "ทีมเยือน"
+        b_ou_v = max(ev_o, ev_u); t_ou = "สูง" if ev_o > ev_u else "ต่ำ"
         
-        # 3. แสดงผลกราฟ Gauge
         g1, g2 = st.columns(2)
-        with g1: 
-            st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", live_ah_threshold), use_container_width=True)
-        with g2: 
-            st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", live_ou_threshold), use_container_width=True)
+        with g1: st.plotly_chart(create_ev_gauge(b_ah_v, f"AH: {t_ah}", live_ah_threshold), use_container_width=True)
+        with g2: st.plotly_chart(create_ev_gauge(b_ou_v, f"O/U: {t_ou}", live_ou_threshold), use_container_width=True)
         
-        # 4. ตรวจสอบเกณฑ์ 20%
-        ah_live_passed = b_ah_v >= live_ah_limit
-        ou_live_passed = b_ou_v >= live_ou_limit
+        ah_live_passed = b_ah_v >= ah_limit
+        ou_live_passed = b_ou_v >= ou_limit
 
         if ah_live_passed or ou_live_passed:
-            # คัดเป้าหมายที่มี EV สูงที่สุด
             if ah_live_passed and ou_live_passed:
                 t_live = {"n": t_ah, "ev": b_ah_v, "hdp": live_hdp, "odds": fix(live_hdp_h) if t_ah=="เจ้าบ้าน" else fix(live_hdp_a)} if b_ah_v > b_ou_v else {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
             elif ah_live_passed:
@@ -1130,48 +995,34 @@ with tab3:
             else:
                 t_live = {"n": t_ou, "ev": b_ou_v, "hdp": live_ou, "odds": fix(live_ou_over) if t_ou=="สูง" else fix(live_ou_under)}
 
-            if not api_key: 
-                st.warning("⚠️ โปรดใส่ API Key")
+            if not api_key: st.warning("⚠️ โปรดใส่ API Key")
             else:
-                with st.spinner("🧠 THE ORACLE กำลังวิเคราะห์ข้อมูล Live..."):
-                    # กำหนดเกณฑ์ตามประเภทตลาด
-                    limit_to_use = live_ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_limit
-                    
-                    # เรียก AI Oracle
-                    ai_live = ai_quant_decision_engine(
-                        "Live", t_live['n'], t_live['ev'], t_live['hdp'], t_live['odds'], 
-                        True, current_min, f"{current_score_h}-{current_score_a}", 
-                        threshold=limit_to_use
-                    )
-                    
+                with st.spinner("🧠 THE ORACLE กำลังประมวลผล Live สด..."):
+                    ai_live = ai_quant_decision_engine("Live", t_live['n'], t_live['ev'], t_live['hdp'], t_live['odds'], True, current_min, f"{current_score_h}-{current_score_a}")
                     net_l_ev = t_live['ev'] + ai_live.get('impact_score', 0)
                     
-                    # --- ส่วนแสดงผลที่หายไป กลับมาแล้วครับ ---
                     st.markdown("---")
                     c1, c2, c3 = st.columns(3)
                     c1.metric("Live EV", f"{t_live['ev']*100:.2f}%")
                     c2.metric("Oracle Adjust", f"{ai_live.get('impact_score', 0)*100:.2f}%")
                     c3.metric("Net Live EV", f"{net_l_ev*100:.2f}%")
                     
-                    with st.expander("📖 รายละเอียดการวิเคราะห์จาก THE ORACLE", expanded=True):
+                    with st.expander("📖 รายละเอียดการวิเคราะห์ (Live Mode)", expanded=True):
                         st.success(f"**✅ ข้อดี (Pros):** {ai_live.get('pros_analysis', 'ไม่มี')}")
                         st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_live.get('cons_analysis', 'ไม่มี')}")
                         st.info(f"**📜 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
                     
-                    # การตัดสินใจสุดท้าย
+                    limit_to_use = live_ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_limit
                     if ai_live.get('final_decision', False) and net_l_ev >= limit_to_use:
                         st.balloons()
                         st.error(f"🚨 SNIPER ALERT: เป้า '{t_live['n']}' อนุมัติโจมตี!")
-                        st.success(f"✅ ORACLE: {ai_live.get('final_comment', 'ผ่านเกณฑ์คณิตศาสตร์')}")
+                        st.success(f"✅ ORACLE: {ai_live.get('final_comment', 'Good')}")
                         
-                        # คำนวณเงินลงทุน (Kelly Criterion)
                         inv = min( (((t_live['odds']-1) * ((net_l_ev+1)/t_live['odds']) - (1-((net_l_ev+1)/t_live['odds']))) / (t_live['odds']-1)) * 0.25, 0.05) * total_bankroll
-                        
-                        # บันทึกลง Supabase
                         tz_th = timezone(timedelta(hours=7))
                         save_to_supabase([{
                             "Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), 
-                            "Match": f"[LIVE] {st.session_state.get('match_name', 'Live Match')}", 
+                            "Match": f"[LIVE] {match_name}", 
                             "HDP": t_live['hdp'], 
                             "Target": t_live['n'], 
                             "EV_Pct": round(net_l_ev*100, 2), 
@@ -1181,9 +1032,8 @@ with tab3:
                             "Result": ""
                         }])
                     else: 
-                        st.warning(f"🚫 ORACLE REJECTED: {ai_live.get('final_comment', 'ยังไม่คุ้มค่าความเสี่ยง')}")
-        else: 
-            st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมาย {live_ah_threshold}%)")
+                        st.warning(f"🚫 ORACLE REJECTED (ทับมือ): {ai_live.get('final_comment', 'Pass')}")
+        else: st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมายที่ตั้งไว้ AH: {live_ah_threshold}%, O/U: {live_ou_threshold}%)")
 
 # ==========================================
 # --- TAB 4: BACKTEST ENGINE (REAL DATA EVALUATION) ---
