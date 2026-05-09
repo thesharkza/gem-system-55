@@ -354,7 +354,7 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     for attempt in range(3):
         try:
             # แนะนำให้ใช้ gemini-1.5-flash เพื่อความเสถียรในการประมวลผล JSON
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
             response = model.generate_content(prompt)
             res_text = response.text.strip()
             
@@ -879,7 +879,7 @@ with tab2:
                     
                     try:
                         if "GEMINI_API_KEY" in st.secrets or ('api_key' in locals() and api_key):
-                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
                             res_debrief = model.generate_content(prompt_debrief)
                             
                             # แปลงข้อความเป็น JSON
