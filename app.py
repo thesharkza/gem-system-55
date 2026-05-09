@@ -1010,47 +1010,66 @@ with tab3:
         c_h1, c_h2 = st.columns(2)
         current_score_h = c_h1.number_input("สกอร์เหย้า", min_value=0, value=st.session_state.get('lh_s_input', 0), key="lh_s_input")
         red_card_h = c_h2.checkbox("🟥 เหย้าใบแดง", key="rc_h")
+        
         c_a1, c_a2 = st.columns(2)
         current_score_a = c_a1.number_input("สกอร์เยือน", min_value=0, value=st.session_state.get('la_s_input', 0), key="la_s_input")
         red_card_a = c_a2.checkbox("🟥 เยือนใบแดง", key="rc_a")
+        
         raw_min = st.session_state.get('current_min', 45)
         try:
-            # 1. บังคับให้เป็นตัวเลขจำนวนเต็ม (int) เสมอ ป้องกัน AI ส่งข้อความหรือทศนิยมมา
+            # 1. บังคับให้เป็นตัวเลขจำนวนเต็ม (int) เสมอ
             safe_min = int(float(raw_min))
             # 2. บังคับค่าไม่ให้หลุดกรอบ 0 ถึง 120
             safe_min = max(0, min(120, safe_min))
         except (ValueError, TypeError):
-            # ถ้าพังไปเลย ให้กลับไปใช้ค่าเริ่มต้นที่ 45
             safe_min = 45
         
-        # 3. อัปเดตค่าที่สะอาดแล้วกลับเข้า Session State เพื่อไม่ให้เกิด Error ชนกัน
+        # 3. อัปเดตค่าที่สะอาดแล้วกลับเข้า Session State
         st.session_state['current_min'] = safe_min
 
-        # 4. เรียกใช้ Slider ด้วยค่าที่ปลอดภัย 100%
+        # 4. เรียกใช้ Slider (ใช้ safe_min เป็น value ได้เลยเพราะไม่ได้ใช้ key ซ้ำกับชื่อตัวแปรนี้)
         current_min = st.slider("นาทีแข่งขัน", 0, 120, safe_min, key="current_min_slider")
 
     with col_l2:
         st.subheader("💡 ราคาเปิด")
-        # ราคา 1X2 ไม่มีทางต่ำกว่า 1.01
-        p_h = st.number_input("เหย้า(เปิด)", value=safe_float(st.session_state.get('pre_h', 2.0), 2.0, 1.01, 100.0), min_value=1.01, format="%.2f", key="pre_h")
-        p_d = st.number_input("เสมอ(เปิด)", value=safe_float(st.session_state.get('pre_d', 3.0), 3.0, 1.01, 100.0), min_value=1.01, format="%.2f", key="pre_d")
-        p_a = st.number_input("เยือน(เปิด)", value=safe_float(st.session_state.get('pre_a', 3.0), 3.0, 1.01, 100.0), min_value=1.01, format="%.2f", key="pre_a")
-        # เรตสูง/ต่ำ ไม่มีทางต่ำกว่า 0.5 ลูก
-        p_ou = st.number_input("O/U(เปิด)", value=safe_float(st.session_state.get('pre_ou', 2.5), 2.5, 0.5, 20.0), min_value=0.5, format="%.2f", key="pre_ou")
+        
+        # ✅ 1. ซ่อมแซมค่าในหน่วยความจำให้เข้ากรอบที่ถูกต้องก่อน
+        st.session_state['pre_h'] = safe_float(st.session_state.get('pre_h', 2.0), 2.0, 1.01, 100.0)
+        st.session_state['pre_d'] = safe_float(st.session_state.get('pre_d', 3.0), 3.0, 1.01, 100.0)
+        st.session_state['pre_a'] = safe_float(st.session_state.get('pre_a', 3.0), 3.0, 1.01, 100.0)
+        st.session_state['pre_ou'] = safe_float(st.session_state.get('pre_ou', 2.5), 2.5, 0.5, 20.0)
+
+        # ✅ 2. สร้าง Widget (ไม่ต้องใส่ value= แล้ว Streamlit จะดึงจาก key อัตโนมัติ)
+        p_h = st.number_input("เหย้า(เปิด)", min_value=1.01, format="%.2f", key="pre_h")
+        p_d = st.number_input("เสมอ(เปิด)", min_value=1.01, format="%.2f", key="pre_d")
+        p_a = st.number_input("เยือน(เปิด)", min_value=1.01, format="%.2f", key="pre_a")
+        p_ou = st.number_input("O/U(เปิด)", min_value=0.5, format="%.2f", key="pre_ou")
 
     st.markdown("---")
     st.subheader("💰 ราคา Live ปัจจุบัน (Sniper Adjust)")
     cl1, cl2 = st.columns(2)
+    
     with cl1:
-        # HDP ติดลบได้
-        l_hdp = st.number_input("Live HDP", value=safe_float(st.session_state.get('live_hdp', 0.0), 0.0, -10.0, 10.0), min_value=-10.0, step=0.25, format="%.2f")
-        l_hdp_h = st.number_input("น้ำเหย้า(Live)", value=safe_float(st.session_state.get('live_hdp_h', 0.9), 0.9, -2.0, 10.0), min_value=-2.0, format="%.2f")
-        l_hdp_a = st.number_input("น้ำเยือน(Live)", value=safe_float(st.session_state.get('live_hdp_a', 0.9), 0.9, -2.0, 10.0), min_value=-2.0, format="%.2f")
+        # ✅ ซ่อมแซมค่า HDP และค่าน้ำ
+        st.session_state['live_hdp'] = safe_float(st.session_state.get('live_hdp', 0.0), 0.0, -10.0, 10.0)
+        st.session_state['live_hdp_h'] = safe_float(st.session_state.get('live_hdp_h', 0.9), 0.9, -2.0, 10.0)
+        st.session_state['live_hdp_a'] = safe_float(st.session_state.get('live_hdp_a', 0.9), 0.9, -2.0, 10.0)
+        
+        # ✅ สร้าง Widget
+        l_hdp = st.number_input("Live HDP", min_value=-10.0, step=0.25, format="%.2f", key="live_hdp")
+        l_hdp_h = st.number_input("น้ำเหย้า(Live)", min_value=-2.0, format="%.2f", key="live_hdp_h")
+        l_hdp_a = st.number_input("น้ำเยือน(Live)", min_value=-2.0, format="%.2f", key="live_hdp_a")
+        
     with cl2:
-        # O/U ต่ำสุด 0.5 ลูก
-        l_ou = st.number_input("Live O/U", value=safe_float(st.session_state.get('live_ou', 2.5), 2.5, 0.5, 20.0), min_value=0.5, step=0.25, format="%.2f")
-        l_ou_o = st.number_input("น้ำสูง(Live)", value=safe_float(st.session_state.get('live_ou_over', 0.9), 0.9, -2.0, 10.0), min_value=-2.0, format="%.2f")
-        l_ou_u = st.number_input("น้ำต่ำ(Live)", value=safe_float(st.session_state.get('live_ou_under', 0.9), 0.9, -2.0, 10.0), min_value=-2.0, format="%.2f")
+        # ✅ ซ่อมแซมค่า O/U
+        st.session_state['live_ou'] = safe_float(st.session_state.get('live_ou', 2.5), 2.5, 0.5, 20.0)
+        st.session_state['live_ou_over'] = safe_float(st.session_state.get('live_ou_over', 0.9), 0.9, -2.0, 10.0)
+        st.session_state['live_ou_under'] = safe_float(st.session_state.get('live_ou_under', 0.9), 0.9, -2.0, 10.0)
+        
+        # ✅ สร้าง Widget
+        l_ou = st.number_input("Live O/U", min_value=0.5, step=0.25, format="%.2f", key="live_ou")
+        l_ou_o = st.number_input("น้ำสูง(Live)", min_value=-2.0, format="%.2f", key="live_ou_over")
+        l_ou_u = st.number_input("น้ำต่ำ(Live)", min_value=-2.0, format="%.2f", key="live_ou_under")
         
     c_btn1, c_btn2 = st.columns([4, 1])
     submit_live = c_btn1.button("🎯 ENGAGE SNIPER", use_container_width=True, type="primary")
