@@ -939,38 +939,59 @@ with tab2:
 with tab3:
     st.header("📺 Live Sniper Command Center")
     
-    with st.expander("👁️ AI Vision (Typhoon Power)", expanded=False):
+    with st.expander("👁️ AI Live Vision (Typhoon Power)", expanded=False):
         if not typhoon_key: 
             st.warning("ต้องการ Typhoon Key")
         else:
-            up_file = st.file_uploader("อัปโหลดรูปราคาเปิด", type=['png', 'jpg'], key="pre_img")
-            if up_file and st.button("🪄 สกัดข้อมูลตารางราคา", use_container_width=True):
-                with st.spinner("Typhoon กำลังอ่านตาราง..."):
+            live_imgs = st.file_uploader("รูปหน้าจอบอลสด (อัปโหลดได้สูงสุด 3 รูป)", type=['png', 'jpg'], accept_multiple_files=True, key="live_img")
+            
+            if live_imgs and st.button("🪄 สกัดข้อมูล Live", use_container_width=True):
+                
+                # 🛡️ ตัดให้เหลือสูงสุดแค่ 3 รูป เพื่อป้องกัน Token ของ AI ล้น
+                if len(live_imgs) > 3:
+                    st.warning("⚠️ คุณอัปโหลดเกิน 3 รูป ระบบจะประมวลผลแค่ 3 รูปแรกนะครับ")
+                    live_imgs = live_imgs[:3]
+                    
+                with st.spinner(f"พายุกำลังวิเคราะห์ภาพทั้ง {len(live_imgs)} รูป..."):
                     try:
                         client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
-                        b64 = base64.b64encode(up_file.read()).decode('utf-8')
+                        
+                        # 1. เตรียมคำสั่งหลัก (Prompt)
+                        content_data = [
+                            {"type": "text", "text": "สกัดข้อมูลจากภาพบอลสดทั้งหมดที่แนบมานี้เป็น JSON: current_min, current_score_h, current_score_a, pre_h, pre_d, pre_a, pre_ou, live_hdp, live_hdp_h, live_hdp_a, live_ou, live_ou_over, live_ou_under"}
+                        ]
+                        
+                        # 2. วนลูปนำรูปภาพทั้ง 1-3 รูปแปลงเป็น Base64 แล้วยัดใส่ Array คำสั่ง
+                        for img_file in live_imgs:
+                            b64 = base64.b64encode(img_file.read()).decode('utf-8')
+                            content_data.append({
+                                "type": "image_url", 
+                                "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
+                            })
+
+                        # 3. ส่งข้อมูลทั้งหมดให้ Typhoon
                         resp = client.chat.completions.create(
-                            model="typhoon-ocr",
-                            messages=[
-                                {
-                                    "role": "user", 
-                                    "content": [
-                                        {"type": "text", "text": "สกัด JSON: match_name, h1x2_val, d1x2_val, a1x2_val, hdp_line_val, hdp_h_w_val, hdp_a_w_val, ou_line_val, ou_over_w_val, ou_under_w_val"}, 
-                                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-                                    ]
-                                }
-                            ],
+                            model="typhoon-v1.5-vision-instruct",
+                            messages=[{
+                                "role": "user", 
+                                "content": content_data # ส่งก้อนข้อมูลที่มีทั้งข้อความและรูปหลายรูป
+                            }],
                             response_format={"type": "json_object"}
                         )
-                        data = safe_json_loads(resp.choices[0].message.content)
                         
+                        # 4. แปลงผลลัพธ์
+                        data = safe_json_loads(resp.choices[0].message.content)
+                        if not data:
+                            raise ValueError("สกัด JSON ไม่สำเร็จ")
+                            
                         for k, v in data.items(): 
                             st.session_state[k] = v
                             
-                        st.success("✅ สกัดข้อมูลสำเร็จ!")
+                        st.success("✅ ข้อมูล Live อัปเดตแล้ว!")
                         st.rerun()
+                        
                     except Exception as e: 
-                        st.error(f"Error: {e}")
+                        st.error(f"Typhoon Error: {e}")
 
     col_l1, col_l2 = st.columns(2)
     with col_l1:
