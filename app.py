@@ -299,97 +299,85 @@ def calculate_rps(prob_home, prob_draw, prob_away, actual_result):
     return rps
 
 # ==========================================
-# 2. ระบบ AI Decision Engine (Chief Risk Officer)
+# 2. ระบบ AI Decision Engine (Chief Risk Officer) - Cloud Sync Edition
 # ==========================================
-def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0"):
-    raw_database = load_gem_rules()
-    try: oracle_database = get_dynamic_rules(target, is_live, raw_database)
-    except NameError: oracle_database = raw_database
+def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0", threshold=0.08):
+    # ดึงกฎจาก Supabase (ผ่านฟังก์ชัน load_gem_rules ที่แก้แล้ว)
+    raw_database = load_gem_rules() 
+    
+    try:
+        # กรองกฎให้ตรงกับสถานะเพื่อลด Noise
+        oracle_database = get_dynamic_rules(target, is_live, raw_database)
+    except NameError:
+        oracle_database = raw_database
     
     if not is_live:
         mode_instruction = (
-            "[โหมดการวิเคราะห์: PRE-MATCH (บอลก่อนเตะ)]\n"
-            "คำสั่งเฉพาะกิจสำหรับโหมดนี้ (Pre-Match Strategy):\n"
-            "1. 🧮 Math-First Approach: ให้น้ำหนัก 70% กับ 'ความคุ้มค่าทางคณิตศาสตร์ (Base EV)' บอลก่อนเตะคือสงครามของการหา Mispriced Odds (ราคาที่เจ้ามือคำนวณพลาด) หาก Base EV สูง ถือว่าเป็น Value Bet ที่ได้เปรียบ\n"
-            "2. 🛡️ GEM Rules as Risk Filter: ให้น้ำหนัก 30% กับ 'คัมภีร์ GEM' โดยเน้นตรวจจับ 'กับดักราคา (Market Trap)' หรือ 'เรตแปลกประหลาด' หากไม่ใช่การละเมิดกฎขั้นร้ายแรง (Fatal Error) ให้ใช้เป็นแค่ข้อควรระวัง (Warning)\n"
-            "3. ⚖️ Variance & Margin: ประเมินว่าค่าน้ำ (Odds) และเรต (HDP) ที่กำลังจะลงทุน คุ้มค่ากับการแบกรับความผันผวน (Variance) ตลอด 90 นาทีเต็มหรือไม่\n"
-            "- การตัดสินใจ (final_decision): หาก Base EV คุ้มค่า และไม่ชนกฎเหล็กขั้นร้ายแรง ให้ยืนยันการลงทุน (true) เสมอ"
+            "[โหมดการวิเคราะห์: PRE-MATCH]\n"
+            "เน้นการหา Mispriced Odds โดยใช้ Math-First Approach (70%) และใช้ GEM Rules เป็น Risk Filter (30%)\n"
+            "ตรวจสอบ 'กับดักราคา' หรือ 'เรตแปลกประหลาด' หากไม่ใช่ Fatal Error ให้เน้นยืนยันตาม Base EV"
         )
     else:
         mode_instruction = (
-            "[โหมดการวิเคราะห์: IN-PLAY LIVE (บอลสด)]\n"
-            "คำสั่ง: ในโหมดนี้ ให้เปิดใช้งาน 'คัมภีร์ GEM RULES' อย่างเต็มรูปแบบ! แต่อย่าตึงเกินไป ให้ประเมินตามเงื่อนไขต่อไปนี้:\n"
-            "1. หาก Base EV สูงระดับ 'Golden Opportunity' (เช่น +15% ขึ้นไป): \n"
-            "   - อนุญาตให้ 'เพิกเฉย' ต่อกฎ GEM ที่เป็นเพียงคำเตือนระดับต่ำ-กลาง (1-2 ดาว) ได้ \n"
-            "   - หัก impact_score แค่นิดหน่อย (ไม่เกิน -0.05) และยังคงอนุมัติ (final_decision: true)\n"
-            "2. หากละเมิดกฎ GEM ระดับ 'Fatal (อันตรายถึงชีวิต/สั่งห้ามแทง)':\n"
-            "   - ไม่ว่า Base EV จะสูงแค่ไหน ก็ต้องสั่งทับมือทันที! (final_decision: false) พร้อมหัก impact_score หนักๆ (เช่น -0.20)\n"
-            "3. ชั่งน้ำหนักตามบริบท: อธิบายเหตุผลแบบเซียนบอลว่าทำไมถึงกล้าฝืนกฎ หรือทำไมถึงต้องยอมทิ้ง Base EV สวยๆ"
+            "[โหมดการวิเคราะห์: IN-PLAY LIVE]\n"
+            "ตรวจสอบสถานการณ์ในสนามแบบ Real-time ร่วมกับ GEM RULES อย่างเต็มรูปแบบ\n"
+            "หากละเมิดกฎระดับ Fatal ให้ Reject ทันที แต่ถ้า Base EV สูงมาก (+15% ขึ้นไป) และชนกฎระดับ Warning ให้ปรับ Impact Score และพิจารณาอนุมัติได้"
         )
 
+    # ปรับ Prompt ให้ AI ระบุ ID และ Category อย่างชัดเจน
     prompt = (
-        "คุณคือ Chief Risk Officer ประจำกองทุน Quant Sports Betting\n"
-        "วิสัยทัศน์: กองทุนของเราลงทุนโดยใช้หลักการ Expected Value (EV) เพื่อเอาชนะ Margin ของเจ้ามือในระยะยาว\n\n"
-        "[ข้อมูลหน้างานปัจจุบัน]\n"
-        f"- คู่แข่งขัน: {match_name}\n"
-        f"- สถานการณ์: {'Live นาทีที่ ' + str(current_min) + ' สกอร์ ' + str(score) if is_live else 'Pre-Match (ก่อนเตะ)'}\n"
-        f"- เป้าหมายลงทุน: {target} (เรต {hdp_line} ค่าน้ำ {odds})\n"
-        f"- Base EV ทางคณิตศาสตร์: {base_ev * 100:.2f}%\n\n"
+        f"คุณคือ Chief Risk Officer (CRO) ประจำกองทุน Quant Sports Betting\n"
+        f"วิสัยทัศน์: ลงทุนเพื่อเอาชนะ Margin ของเจ้ามือด้วยหลักการ Expected Value (EV)\n\n"
+        f"[ข้อมูลหน้างาน]\n"
+        f"- คู่: {match_name}\n"
+        f"- สถานการณ์: {'Live ' + str(current_min) + ' min (' + score + ')' if is_live else 'Pre-Match'}\n"
+        f"- เป้าหมาย: {target} (เรต {hdp_line}, Odds {odds})\n"
+        f"- Base EV: {base_ev * 100:.2f}%\n\n"
         f"{mode_instruction}\n\n"
-        "[คัมภีร์ THE ORACLE DATABASE]\n"
+        f"[คัมภีร์ GEM RULES จาก CLOUD]\n"
         f"{oracle_database}\n\n"
-        "คำสั่งการตอบกลับ:\n"
-        "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น! ห้ามมีตัวอักษรอื่นรอบนอก:\n"
+        "คำสั่งพิเศษ:\n"
+        "1. หากมีการละเมิดกฎ หรือนำกฎข้อใดมาพิจารณา 'ต้อง' ระบุ [Rule ID] และ [Category] ที่ปรากฏในฐานข้อมูลด้านบนให้ชัดเจน\n"
+        "2. หากไม่พบกฎที่ตรงกันเป๊ะ แต่มีความเสี่ยง ให้ระบุเป็นหมวด 'Variance' หรือ 'Market Trap' แทน\n\n"
+        "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น:\n"
         "{\n"
-        '    "pros_analysis": "อธิบายข้อได้เปรียบเชิง Quant (เช่น โครงสร้างราคาได้เปรียบ, ค่าน้ำคุ้มความเสี่ยง, EV เป็นบวก)",\n'
-        '    "cons_analysis": "ระบุความเสี่ยงเชิงโครงสร้าง (เช่น ความผันผวน, กับดักเจ้ามือ, ข้อควรระวังจากคัมภีร์)",\n'
-        '    "rule_triggered": "สรุปชื่อกฎ GEM ทั้งหมดที่นำมาชั่งน้ำหนัก (ถ้าไม่มีให้ตอบว่า ไม่พบเงื่อนไขละเมิด)",\n'
+        '    "pros_analysis": "วิเคราะห์ข้อดีทางคณิตศาสตร์และโครงสร้างราคา",\n'
+        '    "cons_analysis": "ระบุความเสี่ยงและกฎที่ตรวจพบ (ระบุ ID และ Category ที่นี่)",\n'
+        '    "rule_triggered": "ระบุเฉพาะ Rule ID และหมวดหมู่ เช่น [GEM_01 - Strategy], [GEM_LIVE_05 - Risk]",\n'
         '    "impact_score": 0.0,\n'
         '    "final_decision": true,\n'
-        '    "final_comment": "บทสรุปแบบเฉียบขาดฉบับผู้จัดการกองทุน ฟันธงว่าคุ้มที่จะเอาเงินไปเสี่ยงหรือไม่",\n'
+        '    "final_comment": "บทสรุปฟันธงจาก CRO",\n'
         '    "confidence_level": 3\n'
         "}"
     )
     
     for attempt in range(3):
         try:
-            model = genai.GenerativeModel('models/gemma-4-31b-it')
+            # แนะนำให้ใช้ gemini-1.5-flash เพื่อความเสถียรในการประมวลผล JSON
+            model = genai.GenerativeModel('gemini-1.5-flash')
             response = model.generate_content(prompt)
             res_text = response.text.strip()
-            if not res_text: raise ValueError("API ของ AI ส่งค่าว่างเปล่ากลับมา")
             
-            bt = chr(96) * 3
-            res_text = res_text.replace(bt + "json", "").replace(bt, "").strip()
-            start_idx = res_text.find('{')
-            end_idx = res_text.rfind('}')
-            
-            if start_idx != -1 and end_idx != -1:
-                json_str = res_text[start_idx:end_idx+1]
-                try:
-                    import json
-                    return json.loads(json_str)
-                except Exception as json_err: raise ValueError(f"AI ทำโครงสร้าง JSON พัง: {str(json_err)}")
-            else: raise ValueError("ไม่พบปีกกาของ JSON ในคำตอบ AI")
+            # ระบบทำความสะอาด JSON (ใช้ safe_json_loads ที่สร้างไว้จะปลอดภัยกว่า)
+            data = safe_json_loads(res_text)
+            if data:
+                return data
+            else:
+                raise ValueError("JSON Decoding Failed")
                 
         except Exception as e:
-            error_str = str(e).replace('"', "'")
-            if "429" in error_str and attempt < 2:
-                import time
-                time.sleep(2)
-                continue
             if attempt == 2:
+                # Fallback เมื่อ AI พัง
                 return {
                     "pros_analysis": "ระบบ AI ขัดข้องชั่วคราว",
-                    "cons_analysis": f"Error: {error_str}",
-                    "rule_triggered": "System Fallback Activated", 
-                    "impact_score": 0.0, 
-                    "final_decision": True if base_ev >= 0.08 else False, 
-                    "final_comment": "⚠️ AI ล้มเหลว: ยืนยันไม้ด้วยคณิตศาสตร์ (Base EV)",
-                    "confidence_level": 3 if base_ev >= 0.08 else 1
+                    "cons_analysis": f"เกิดข้อผิดพลาด: {str(e)}",
+                    "rule_triggered": "System Fallback Activated",
+                    "impact_score": 0.0,
+                    "final_decision": True if base_ev >= threshold else False,
+                    "final_comment": "⚠️ ยืนยันไม้ด้วยคณิตศาสตร์ (Base EV) เนื่องจาก AI ไม่ตอบสนอง",
+                    "confidence_level": 1
                 }
-            import time
             time.sleep(2)
-
 # ==========================================
 # UI / UX Components (ระบบวาดหน้าปัดและปุ่ม)
 # ==========================================
