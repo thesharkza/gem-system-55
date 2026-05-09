@@ -12,6 +12,30 @@ import google.generativeai as genai
 import numpy as np
 from supabase import create_client, Client
 
+# ==========================================
+# 🛡️ HELPER FUNCTIONS (วางไว้ใต้บรรทัด import)
+# ==========================================
+def safe_json_loads(text):
+    if not text: return {}
+    try:
+        # พยายามแกะเอาเฉพาะส่วนที่เป็น JSON ออกมาจากข้อความที่ AI พิมพ์
+        start_idx = text.find('{')
+        end_idx = text.rfind('}')
+        if start_idx != -1 and end_idx != -1:
+            clean_text = text[start_idx:end_idx+1]
+            import json
+            return json.loads(clean_text)
+        import json
+        return json.loads(text)
+    except Exception:
+        # ถ้าพังอีก ให้พยายามลบเครื่องหมาย Markdown ออก
+        clean = text.replace("```json", "").replace("```", "").strip()
+        try: 
+            import json
+            return json.loads(clean)
+        except: 
+            return {}
+
 @st.cache_resource
 def init_connection():
     url = st.secrets["SUPABASE_URL"]
