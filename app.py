@@ -517,8 +517,8 @@ with tab1:
         hw2, hw1, d_exact, aw1, aw2, p_total = calc_dixon_coles_matrix(prob_h, prob_d, prob_a, ou_line, ow_o, uw_o, dc_rho)
         
         is_h_fav = prob_h >= prob_a
-        ev_h = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, hw_o, is_fav_team=is_h_fav)
-        ev_a = calc_advanced_ah_ev(hdp_line, aw2, aw1, d_exact, hw1, hw2, aw_o, is_fav_team=not is_h_fav) - (hdba_val/100)
+        ev_h = calc_advanced_ah_ev(hdp_line, hw2, hw1, d_exact, aw1, aw2, hw_o, is_fav=is_h_fav)
+        ev_a = calc_advanced_ah_ev(hdp_line, aw2, aw1, d_exact, hw1, hw2, aw_o, is_fav=not is_h_fav) - (hdba_val/100)
         ev_over = calc_advanced_ou_ev(ou_line, p_total, ow_o, True)
         ev_under = calc_advanced_ou_ev(ou_line, p_total, uw_o, False)
 
