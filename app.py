@@ -967,42 +967,56 @@ with tab3:
                     try:
                         client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
                         
-                        # 1. เตรียมคำสั่งหลัก (Prompt)
-                        content_data = [
-                            {"type": "text", "text": "สกัดข้อมูลจากภาพบอลสดทั้งหมดที่แนบมานี้เป็น JSON: current_min, current_score_h, current_score_a, pre_h, pre_d, pre_a, pre_ou, live_hdp, live_hdp_h, live_hdp_a, live_ou, live_ou_over, live_ou_under"}
-                        ]
+                        # 1. เขียน Prompt ให้ฉลาดขึ้น สอน AI อ่านตารางเว็บพนันไทย
+                        prompt_live = (
+                            "สกัดข้อมูลจากรูปภาพตารางราคาฟุตบอลเหล่านี้ (มีหลายแท็บ) ให้อยู่ในรูปแบบ JSON เท่านั้น โดยมีเงื่อนไขดังนี้:\n"
+                            "1. สกอร์และเวลา: สกัดนาทีปัจจุบัน (current_min), สกอร์เจ้าบ้าน (current_score_h), สกอร์เยือน (current_score_a)\n"
+                            "2. การแปลงเรตราคา (Line): หากเจอ '0.5/1' ให้แปลงเป็น 0.75, '1/1.5' ให้แปลงเป็น 1.25, '1.5/2' เป็น 1.75\n"
+                            "3. คอลัมน์ 'ต้น' คือราคาเปิด (pre_) / คอลัมน์ 'วันนี้/สด' คือราคาปัจจุบัน (live_)\n"
+                            "4. ห้ามมีข้อความอื่นนอกจาก JSON\n\n"
+                            '{"current_min":0, "current_score_h":0, "current_score_a":0, '
+                            '"pre_h":0.0, "pre_d":0.0, "pre_a":0.0, "pre_ou":0.0, "live_hdp":0.0, '
+                            '"live_hdp_h":0.0, "live_hdp_a":0.0, "live_ou":0.0, "live_ou_over":0.0, "live_ou_under":0.0}'
+                        )
                         
-                        # 2. วนลูปนำรูปภาพทั้ง 1-3 รูปแปลงเป็น Base64 แล้วยัดใส่ Array คำสั่ง
-                        for img_file in live_imgs:
-                            b64 = base64.b64encode(img_file.read()).decode('utf-8')
-                            content_data.append({
+                        # 2. ยัดรูปภาพ "ทุกรูป" ที่อัปโหลด ส่งไปให้ AI ดูพร้อมกัน
+                        content_list = [{"type": "text", "text": prompt_live}]
+                        for img_file in live_images:
+                            # รีเซ็ตตำแหน่งไฟล์ก่อนอ่าน เผื่อถูกอ่านไปแล้ว
+                            img_file.seek(0)
+                            base64_image = base64.b64encode(img_file.read()).decode('utf-8')
+                            content_list.append({
                                 "type": "image_url", 
-                                "image_url": {"url": f"data:image/jpeg;base64,{b64}"}
+                                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
                             })
-
-                        # 3. ส่งข้อมูลทั้งหมดให้ Typhoon
-                        resp = client.chat.completions.create(
-                            model="typhoon-ocr",
+                        
+                        # 3. ส่งคำสั่ง
+                        response = client.chat.completions.create(
+                            model="typhoon-v1.5x-vision-instruct", # อย่าลืมเช็คชื่อโมเดลให้ตรงกับที่คุณใช้รันผ่าน
                             messages=[{
-                                "role": "user", 
-                                "content": content_data # ส่งก้อนข้อมูลที่มีทั้งข้อความและรูปหลายรูป
+                                "role": "user",
+                                "content": content_list
                             }],
                             response_format={"type": "json_object"}
                         )
                         
-                        # 4. แปลงผลลัพธ์
-                        data = safe_json_loads(resp.choices[0].message.content)
-                        if not data:
-                            raise ValueError("สกัด JSON ไม่สำเร็จ")
-                            
+                        res_text = response.choices[0].message.content
+                        data = safe_json_loads(res_text)
+                        
+                        # 4. บันทึกลง Session State
                         for k, v in data.items(): 
-                            st.session_state[k] = v
+                            try:
+                                if 'score' in k or 'min' in k:
+                                    st.session_state[k] = int(float(v))
+                                else:
+                                    st.session_state[k] = float(v)
+                            except: pass
                             
-                        st.success("✅ ข้อมูล Live อัปเดตแล้ว!")
+                        st.success("✅ พายุสกัดข้อมูลครบทุกแท็บสำเร็จ!")
                         st.rerun()
                         
-                    except Exception as e: 
-                        st.error(f"Typhoon Error: {e}")
+                    except Exception as e:
+                        st.error(f"⚠️ Typhoon Error: {e}")
 
     col_l1, col_l2 = st.columns(2)
     with col_l1:
