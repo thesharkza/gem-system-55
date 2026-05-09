@@ -981,7 +981,7 @@ with tab3:
                         
                         # 2. ยัดรูปภาพ "ทุกรูป" ที่อัปโหลด ส่งไปให้ AI ดูพร้อมกัน
                         content_list = [{"type": "text", "text": prompt_live}]
-                        for img_file in live_images:
+                        for img_file in live_imgs:
                             # รีเซ็ตตำแหน่งไฟล์ก่อนอ่าน เผื่อถูกอ่านไปแล้ว
                             img_file.seek(0)
                             base64_image = base64.b64encode(img_file.read()).decode('utf-8')
