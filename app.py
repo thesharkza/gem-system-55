@@ -898,7 +898,7 @@ with tab3:
                 with st.spinner("กวาดสายตา..."):
                     try:
                         imgs = [Image.open(f) for f in live_images]
-                        model = genai.GenerativeModel('gemini-1.5-flash') # หรือรุ่นที่คุณใช้งาน
+                        model = genai.GenerativeModel('gemma-4-31b-it') # หรือรุ่นที่คุณใช้งาน
                         prompt_live = (
                             'สกัดเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, '
                             '"pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, '
