@@ -1031,39 +1031,27 @@ with tab3:
 
     with col_l2:
         st.subheader("💡 ราคาเปิด")
-        # ใช้ safe_float() ครอบค่า st.session_state ก่อนส่งให้ value=
-        p_h = st.number_input("เหย้า(เปิด)", value=safe_float(st.session_state.get('pre_h', 2.0), 2.0), format="%.2f", key="pre_h")
-        p_d = st.number_input("เสมอ(เปิด)", value=safe_float(st.session_state.get('pre_d', 3.0), 3.0), format="%.2f", key="pre_d")
-        p_a = st.number_input("เยือน(เปิด)", value=safe_float(st.session_state.get('pre_a', 3.0), 3.0), format="%.2f", key="pre_a")
-        p_ou = st.number_input("O/U(เปิด)", value=safe_float(st.session_state.get('pre_ou', 2.5), 2.5), format="%.2f", key="pre_ou")
+        # ราคา 1X2 ไม่มีทางต่ำกว่า 1.01
+        p_h = st.number_input("เหย้า(เปิด)", value=safe_float(st.session_state.get('pre_h', 2.0), 2.0, 1.01, 100.0), min_value=1.01, format="%.2f", key="pre_h")
+        p_d = st.number_input("เสมอ(เปิด)", value=safe_float(st.session_state.get('pre_d', 3.0), 3.0, 1.01, 100.0), min_value=1.01, format="%.2f", key="pre_d")
+        p_a = st.number_input("เยือน(เปิด)", value=safe_float(st.session_state.get('pre_a', 3.0), 3.0, 1.01, 100.0), min_value=1.01, format="%.2f", key="pre_a")
+        # เรตสูง/ต่ำ ไม่มีทางต่ำกว่า 0.5 ลูก
+        p_ou = st.number_input("O/U(เปิด)", value=safe_float(st.session_state.get('pre_ou', 2.5), 2.5, 0.5, 20.0), min_value=0.5, format="%.2f", key="pre_ou")
 
     st.markdown("---")
     st.subheader("💰 ราคา Live ปัจจุบัน (Sniper Adjust)")
-    col_live1, col_live2 = st.columns(2)
-    
-    with col_live1:
-        st.markdown("**Live HDP (เรตแฮนดิแคป)**")
-        btn_h1, btn_h2, btn_h3 = st.columns([1, 2, 1])
-        btn_h1.button("➖ 0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
-        # ✅ ครอบ safe_float ให้ live_hdp
-        live_hdp = btn_h2.number_input("Live HDP", value=safe_float(st.session_state.get('live_hdp', 0.0), 0.0), step=0.25, key="live_hdp_input", label_visibility="collapsed", format="%.2f")
-        btn_h3.button("➕ 0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
-        c_w1, c_w2 = st.columns(2)
-        # ✅ ครอบ safe_float ให้น้ำเหย้า-น้ำเยือน
-        live_hdp_h = c_w1.number_input("น้ำเหย้า", value=safe_float(st.session_state.get('live_hdp_h', 0.9), 0.9), format="%.2f", key="live_hdp_h")
-        live_hdp_a = c_w2.number_input("น้ำเยือน", value=safe_float(st.session_state.get('live_hdp_a', 0.9), 0.9), format="%.2f", key="live_hdp_a")
-
-    with col_live2:
-        st.markdown("**Live O/U (เรตสกอร์รวม)**")
-        btn_o1, btn_o2, btn_o3 = st.columns([1, 2, 1])
-        btn_o1.button("➖ 0.25", key="o_sub", on_click=adj_ou, args=(-0.25,))
-        # ✅ ครอบ safe_float ให้ live_ou
-        live_ou = btn_o2.number_input("Live O/U", value=safe_float(st.session_state.get('live_ou', 2.5), 2.5), step=0.25, key="live_ou_input", label_visibility="collapsed", format="%.2f")
-        btn_o3.button("➕ 0.25", key="o_add", on_click=adj_ou, args=(0.25,))
-        c_w3, c_w4 = st.columns(2)
-        # ✅ ครอบ safe_float ให้น้ำสูง-น้ำต่ำ
-        live_ou_over = c_w3.number_input("น้ำสูง", value=safe_float(st.session_state.get('live_ou_over', 0.9), 0.9), format="%.2f", key="live_ou_over")
-        live_ou_under = c_w4.number_input("น้ำต่ำ", value=safe_float(st.session_state.get('live_ou_under', 0.9), 0.9), format="%.2f", key="live_ou_under")
+    cl1, cl2 = st.columns(2)
+    with cl1:
+        # HDP ติดลบได้
+        l_hdp = st.number_input("Live HDP", value=safe_float(st.session_state.get('live_hdp', 0.0), 0.0, -10.0, 10.0), min_value=-10.0, step=0.25, format="%.2f")
+        l_hdp_h = st.number_input("น้ำเหย้า(Live)", value=safe_float(st.session_state.get('live_hdp_h', 0.9), 0.9, -2.0, 10.0), min_value=-2.0, format="%.2f")
+        l_hdp_a = st.number_input("น้ำเยือน(Live)", value=safe_float(st.session_state.get('live_hdp_a', 0.9), 0.9, -2.0, 10.0), min_value=-2.0, format="%.2f")
+    with cl2:
+        # O/U ต่ำสุด 0.5 ลูก
+        l_ou = st.number_input("Live O/U", value=safe_float(st.session_state.get('live_ou', 2.5), 2.5, 0.5, 20.0), min_value=0.5, step=0.25, format="%.2f")
+        l_ou_o = st.number_input("น้ำสูง(Live)", value=safe_float(st.session_state.get('live_ou_over', 0.9), 0.9, -2.0, 10.0), min_value=-2.0, format="%.2f")
+        l_ou_u = st.number_input("น้ำต่ำ(Live)", value=safe_float(st.session_state.get('live_ou_under', 0.9), 0.9, -2.0, 10.0), min_value=-2.0, format="%.2f")
+        
     c_btn1, c_btn2 = st.columns([4, 1])
     submit_live = c_btn1.button("🎯 ENGAGE SNIPER", use_container_width=True, type="primary")
     c_btn2.button("🗑️ ล้างค่า", use_container_width=True, on_click=clear_inplay_data)
