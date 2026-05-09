@@ -550,12 +550,13 @@ with tab1:
             uploaded_file = st.file_uploader("อัปโหลดรูปตารางราคา", type=['png', 'jpg'])
             if uploaded_file and st.button("🪄 สกัดข้อมูลด้วย Typhoon", use_container_width=True):
                 with st.spinner('พายุกำลังอ่านรูป...'):
-                    try:  # <--- บล็อก try ตัวนอก
+                    try:
+                        # --- เชื่อมต่อและส่งข้อมูลให้ Typhoon ---
                         client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
                         base64_image = base64.b64encode(uploaded_file.read()).decode('utf-8')
                         
                         response = client.chat.completions.create(
-                            model="typhoon-ocr", # แนะนำให้ใช้รุ่น v1.5 เพื่อความเสถียร
+                            model="typhoon-v1.5-vision-instruct", 
                             messages=[{
                                 "role": "user",
                                 "content": [
@@ -569,20 +570,21 @@ with tab1:
                             response_format={"type": "json_object"}
                         )
                         
+                        # --- จัดการผลลัพธ์ JSON ---
                         res_content = response.choices[0].message.content
-                            try:
-                                data = safe_json_loads(res_content)
-                                if not data: raise ValueError("AI ไม่ได้ส่ง JSON กลับมา")
-                            for k, v in data.items(): 
-                                st.session_state[k] = v
-                            st.success("✅ สำเร็จ!")
-                            st.rerun()
-                        except Exception as json_err:
-                            st.error(f"⚠️ JSON พัง: {json_err}")
-                            st.text(f"ข้อความที่ AI ส่งมา: {res_content}")
+                        data = safe_json_loads(res_content)
+                        
+                        if not data: 
+                            raise ValueError(f"AI ไม่ได้ส่ง JSON กลับมา\nข้อความที่ส่งมา: {res_content}")
                             
-                    except Exception as e: # <--- 🌟 เพิ่มบล็อกนี้เพื่อปิด try ตัวนอก
-                        st.error(f"⚠️ ระบบ Typhoon ขัดข้อง: {e}")
+                        for k, v in data.items(): 
+                            st.session_state[k] = v
+                            
+                        st.success("✅ สำเร็จ!")
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"⚠️ ระบบพบข้อผิดพลาด: {e}")
 
     with st.expander("⚡ Text Parser: วางข้อความดิบ", expanded=False):
         st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=100, key="raw_text")
@@ -593,25 +595,36 @@ with tab1:
                     raw = st.session_state.raw_text
                     m_vs = re.search(r'(.*VS.*)', raw)
                     if m_vs: st.session_state.match_name = m_vs.group(1).strip()
+                    
                     h_matches = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(h_matches)>=1: st.session_state.h1x2_val=float(h_matches[0]) 
-                    if len(h_matches)>=2: st.session_state.hdp_h_w_val=float(h_matches[1]) 
+                    if len(h_matches) >= 1: st.session_state.h1x2_val = float(h_matches[0]) 
+                    if len(h_matches) >= 2: st.session_state.hdp_h_w_val = float(h_matches[1]) 
+                    
                     d_matches = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(d_matches)>=1: st.session_state.d1x2_val=float(d_matches[0])
+                    if len(d_matches) >= 1: st.session_state.d1x2_val = float(d_matches[0])
+                    
                     a_matches = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
-                    if len(a_matches)>=1: st.session_state.a1x2_val=float(a_matches[0]) 
-                    if len(a_matches)>=2: st.session_state.hdp_a_w_val=float(a_matches[1]) 
+                    if len(a_matches) >= 1: st.session_state.a1x2_val = float(a_matches[0]) 
+                    if len(a_matches) >= 2: st.session_state.hdp_a_w_val = float(a_matches[1]) 
+                    
                     ah_match = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
                     if ah_match: st.session_state.hdp_line_val = parse_line(ah_match.group(1))
+                    
                     ou_match = re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)', raw, re.MULTILINE)
                     if ou_match: st.session_state.ou_line_val = parse_line(ou_match.group(1))
+                    
                     o_match = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
                     if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
+                    
                     u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
                     if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
+                    
                     st.success("✅ สำเร็จ!")
-                except Exception as e: st.error(f"⚠️ Error: {e}")
-        with c_b2: st.button("🗑️ ล้างฟอร์ม", use_container_width=True, on_click=clear_form_data)
+                except Exception as e: 
+                    st.error(f"⚠️ Error: {e}")
+                    
+        with c_b2: 
+            st.button("🗑️ ล้างฟอร์ม", use_container_width=True, on_click=clear_form_data)
 
     st.markdown("---")
     match_name = st.text_input("📝 คู่แข่งขัน", key="match_name")
