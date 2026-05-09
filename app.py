@@ -992,7 +992,7 @@ with tab3:
                         
                         # 3. ส่งคำสั่ง
                         response = client.chat.completions.create(
-                            model="typhoon-v1.5x-vision-instruct", # อย่าลืมเช็คชื่อโมเดลให้ตรงกับที่คุณใช้รันผ่าน
+                            model="typhoon-ocr", # อย่าลืมเช็คชื่อโมเดลให้ตรงกับที่คุณใช้รันผ่าน
                             messages=[{
                                 "role": "user",
                                 "content": content_list
