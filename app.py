@@ -559,11 +559,26 @@ with tab1:
                             response_format={"type": "json_object"}
                         )
                         
-                        data = json.loads(response.choices[0].message.content)
-                        for k, v in data.items(): st.session_state[k] = v
-                        st.success("✅ สำเร็จ!")
-                        st.rerun()
-                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
+                        # --- ระบบสกัด JSON ที่ปลอดภัยกว่าเดิม ---
+                        res_content = response.choices[0].message.content
+                        
+                        # ใช้ regex ค้นหาตั้งแต่ { ไปจนถึง } ตัวสุดท้าย เพื่อตัดข้อความส่วนเกิน
+                        import re
+                        match = re.search(r'\{.*\}', res_content, re.DOTALL)
+                        if match:
+                            clean_json = match.group(0)
+                        else:
+                            clean_json = res_content.strip()
+
+                        try:
+                            data = json.loads(clean_json)
+                            for k, v in data.items(): 
+                                st.session_state[k] = v
+                            st.success("✅ สำเร็จ!")
+                            st.rerun()
+                        except Exception as json_err:
+                            st.error(f"⚠️ JSON พัง: {json_err}")
+                            st.text(f"ข้อความที่ AI ส่งมา: {res_content}")
 
     with st.expander("⚡ Text Parser: วางข้อความดิบ", expanded=False):
         st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=100, key="raw_text")
@@ -939,12 +954,24 @@ with tab3:
                             response_format={"type": "json_object"}
                         )
                         
-                        data = json.loads(response.choices[0].message.content)
-                        for k, v in data.items(): 
-                            st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
-                        st.success("✅ พายุสกัดข้อมูลสำเร็จ!")
-                        st.rerun()
-                    except Exception as e: st.error(f"⚠️ Typhoon Error: {e}")
+                        # --- ระบบสกัด JSON สำหรับ Live Mode ---
+                        res_text = response.choices[0].message.content
+                        
+                        import re
+                        match = re.search(r'\{.*\}', res_text, re.DOTALL)
+                        if match:
+                            clean_json_live = match.group(0)
+                        else:
+                            clean_json_live = res_text.strip()
+
+                        try:
+                            data = json.loads(clean_json_live)
+                            for k, v in data.items(): 
+                                st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
+                            st.success("✅ พายุสกัดข้อมูลสำเร็จ!")
+                            st.rerun()
+                        except Exception as json_err:
+                            st.error(f"⚠️ JSON Live พัง: {json_err}")
 
     col_l1, col_l2 = st.columns(2)
     with col_l1:
