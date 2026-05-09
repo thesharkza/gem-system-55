@@ -11,7 +11,6 @@ from PIL import Image
 import google.generativeai as genai
 import numpy as np
 from supabase import create_client, Client
-import urllib.request
 
 # ==========================================
 # 🛡️ HELPER FUNCTIONS
@@ -118,38 +117,7 @@ def parse_line(line_str):
     except: return 0.0
 
 # ==========================================
-# 📡 1. DATA FEED INTEGRATION (API-Football)
-# ==========================================
-def fetch_api_football_data(api_key, target_match_name):
-    if not api_key:
-        return "⚠️ ไม่มี API-Football Key (AI จะวิเคราะห์จากคณิตศาสตร์ EV ล้วน)"
-    
-    # ดึงข้อมูลบอลสดทั้งหมดที่กำลังเตะอยู่
-    url = "https://v3.football.api-sports.io/fixtures?live=all"
-    
-    # ระบบความปลอดภัยของ API-Football ต้องส่ง Key ผ่าน Headers
-    headers = {
-        'x-apisports-key': api_key,
-        'User-Agent': 'Mozilla/5.0'
-    }
-    
-    try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=10) as response:
-            content = response.read()
-            data = json.loads(content.decode('utf-8'))
-            
-            # API-Football จะเก็บก้อนข้อมูลหลักไว้ใน key ที่ชื่อว่า "response"
-            if "response" in data:
-                raw_data = str(data["response"])[:3500] # ตัดข้อมูลกัน Token ล้น
-                return f"สถิติสดจาก API-Football (ค้นหาคู่ '{target_match_name}'):\n{raw_data}"
-            else:
-                return f"API ตอบกลับ แต่ไม่พบโครงสร้าง 'response': {str(data)[:200]}"
-    except Exception as e:
-        return f"❌ ไม่สามารถเชื่อมต่อกับ API-Football ได้: {e}"
-
-# ==========================================
-# 🧮 2. ระบบคณิตศาสตร์ขั้นสูง (Syndicate Quant Engine)
+# 🧮 1. ระบบคณิตศาสตร์ขั้นสูง (Syndicate Quant Engine)
 # ==========================================
 def shin_devig(o_h, o_d, o_a):
     pi = [1/o_h, 1/o_d, 1/o_a]
@@ -256,7 +224,7 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
     return 0.0
 
 # ==========================================
-# 🧠 3. ระบบ AI Decision Engine (Chief Risk Officer) + Data Driven
+# 🧠 2. ระบบ AI Decision Engine (Chief Risk Officer)
 # ==========================================
 def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0", threshold=0.08, stats_data=""):
     raw_database = load_gem_rules() 
@@ -266,33 +234,35 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     if not is_live:
         mode_instruction = (
             "[โหมดการวิเคราะห์: PRE-MATCH]\n"
-            "เน้นหา Value Bet จากคณิตศาสตร์ EV (70%) และใช้สถิติเสริม/คัมภีร์ GEM เป็นตัวกรอง (30%)"
+            "เน้นการหา Mispriced Odds โดยใช้ Math-First Approach (70%) และใช้ GEM Rules เป็น Risk Filter (30%)\n"
+            "ตรวจสอบ 'กับดักราคา' หรือ 'เรตแปลกประหลาด' หากไม่ใช่ Fatal Error ให้เน้นยืนยันตาม Base EV"
         )
     else:
         mode_instruction = (
             "[โหมดการวิเคราะห์: IN-PLAY LIVE]\n"
             "ตรวจสอบสถานการณ์ในสนามแบบ Real-time ร่วมกับ GEM RULES อย่างเต็มรูปแบบ\n"
-            "นำสถิติสด (ถ้ามี) มาประกอบการตัดสินใจว่าโมเมนตัมเข้าทางเป้าหมายหรือไม่"
+            "หากละเมิดกฎระดับ Fatal ให้ Reject ทันที แต่ถ้า Base EV สูงมาก (+15% ขึ้นไป) และชนกฎระดับ Warning ให้พิจารณาอนุมัติได้"
         )
 
     prompt = (
-        f"คุณคือ Chief Risk Officer (CRO) ประจำกองทุน Quant Sports Betting\n\n"
+        f"คุณคือ Chief Risk Officer (CRO) ประจำกองทุน Quant Sports Betting\n"
+        f"วิสัยทัศน์: ลงทุนเพื่อเอาชนะ Margin ของเจ้ามือด้วยหลักการ Expected Value (EV)\n\n"
         f"[ข้อมูลหน้างาน]\n"
         f"- คู่: {match_name}\n"
         f"- สถานการณ์: {'Live ' + str(current_min) + ' min (' + score + ')' if is_live else 'Pre-Match'}\n"
         f"- เป้าหมาย: {target} (เรต {hdp_line}, Odds {odds})\n"
         f"- Base EV: {base_ev * 100:.2f}%\n\n"
-        f"📊 [ข้อมูลสถิติเชิงลึก/API Data]\n"
+        f"📊 [ข้อมูลสถิติเชิงลึก (ถ้ามี)]\n"
         f"{stats_data}\n\n"
         f"{mode_instruction}\n\n"
         f"📖 [คัมภีร์ GEM RULES จาก CLOUD]\n"
         f"{oracle_database}\n\n"
         "คำสั่งพิเศษ:\n"
-        "1. วิเคราะห์ 'ข้อมูลสถิติ' ร่วมกับ 'Base EV' ว่าราคานี้สมเหตุสมผลหรือเป็นกับดัก\n"
-        "2. หากมีการละเมิดกฎ หรือนำกฎข้อใดมาพิจารณา 'ต้อง' ระบุ [Rule ID] และ [Category] ให้ชัดเจน\n\n"
+        "1. หากมีการละเมิดกฎ หรือนำกฎข้อใดมาพิจารณา 'ต้อง' ระบุ [Rule ID] และ [Category] ที่ปรากฏในฐานข้อมูลให้ชัดเจน\n"
+        "2. หากข้อมูลสถิติสนับสนุนเป้าหมาย ให้พิจารณาเพิ่มความมั่นใจ\n\n"
         "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น:\n"
         "{\n"
-        '    "pros_analysis": "วิเคราะห์ข้อดีทางคณิตศาสตร์และสถิติ",\n'
+        '    "pros_analysis": "วิเคราะห์ข้อดีทางคณิตศาสตร์ (และสถิติถ้ามี)",\n'
         '    "cons_analysis": "ระบุความเสี่ยงและกฎที่ตรวจพบ (ระบุ ID และ Category ที่นี่)",\n'
         '    "rule_triggered": "ระบุเฉพาะ Rule ID และหมวดหมู่",\n'
         '    "impact_score": 0.0,\n'
@@ -393,7 +363,7 @@ def calculate_clv(row):
     except: return 0.0
 
 # ==========================================
-# 🎯 4. UI - Main Layout
+# 🎯 3. UI - Main Layout
 # ==========================================
 st.title("🎯 GEM System 10.0: The Oracle")
 
@@ -409,24 +379,13 @@ else:
         st.sidebar.success("✅ AI Connected")
     else: st.sidebar.warning("⚠️ โปรดใส่ API Key")
 
-st.sidebar.header("📡 Data Feed API (API-Football)")
-api_football_key = st.secrets.get("API_FOOTBALL_KEY", "")
-
-if not api_football_key:
-    api_football_key = st.sidebar.text_input("ใส่ API-Football Key (สถิติสด):", type="password")
-    
-if api_football_key: 
-    st.sidebar.success("✅ API-Football Ready")
-else: 
-    st.sidebar.warning("⚠️ ขาด API-Football Key (ใช้ EV ล้วน)")
-
 st.sidebar.header("🗄️ Database Status")
 if supabase:
     st.sidebar.success("☁️ Supabase: Connected")
     st.sidebar.info("📚 ระบบอ่านคัมภีร์จาก Cloud อัตโนมัติ")
 else: st.sidebar.error("❌ Supabase: Disconnected (เช็ค Secrets)")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🚀 Pre-Match Terminal", "📊 Dashboard & AI Debrief", "⚡ IN-PLAY LIVE", "🧪 Backtest Engine (RPS)"])
+tab1, tab2, tab3, tab4 = st.tabs(["🚀 Pre-Match Terminal", "📊 Dashboard & AI Debrief", "⚡ IN-PLAY LIVE", "🧪 Backtest Engine"])
 
 # --- 🚀 TAB 1: Pre-Match ---
 with tab1:
@@ -557,11 +516,7 @@ with tab1:
             if not api_key: st.warning("⚠️ กรุณาใส่ API Key ให้ AI กรองความเสี่ยง")
             else:
                 with st.spinner("🧠 THE ORACLE กำลังตรวจสอบ EV และสถิติ..."):
-                    # รวบรวมข้อมูลสถิติที่ป้อน + ข้อมูล API (ถ้ามีเปิดให้ดึง)
-                    api_data = fetch_api_football_data(api_football_key, match_name) if api_football_key else ""
-                    combined_stats = f"สถิติจากผู้ใช้: {match_stats}\n{api_data}"
-                    
-                    ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'], is_live=False, threshold=pre_ah_limit, stats_data=combined_stats)
+                    ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'], is_live=False, threshold=pre_ah_limit, stats_data=match_stats)
                     net_ev = target_to_check['ev'] + ai_verdict.get('impact_score', 0)
                 
                 st.markdown("---")
@@ -731,6 +686,10 @@ with tab2:
 # --- ⚡ TAB 3: IN-PLAY LIVE ---
 with tab3:
     st.header("📺 Live Sniper Command Center")
+    
+    # คงกล่องใส่ชื่อทีมไว้ เพื่อให้ตอนเซฟลง Database มีชื่อคู่ ไม่ใช่แค่ "Live Match"
+    live_match_name = st.text_input("🎯 ล็อกเป้าหมาย (ชื่อคู่แข่งขัน):", value=st.session_state.get('match_name', 'Live Match'), key="live_match_name_input")
+    
     with st.expander("👁️ AI Live Vision", expanded=False):
         if not api_key: st.warning("⚠️ ต้องการ API Key")
         else:
@@ -789,7 +748,7 @@ with tab3:
         live_ou_under = c_w4.number_input("น้ำต่ำ", value=st.session_state.get('live_ou_under', 0.9), format="%.2f", key="live_ou_under")
 
     c_btn1, c_btn2 = st.columns([4, 1])
-    submit_live = c_btn1.button("🎯 ENGAGE SNIPER (เชื่อมต่อ API อัตโนมัติ)", use_container_width=True, type="primary")
+    submit_live = c_btn1.button("🎯 ENGAGE SNIPER", use_container_width=True, type="primary")
     c_btn2.button("🗑️ ล้างค่า", use_container_width=True, on_click=clear_inplay_data)
 
     if submit_live:
@@ -819,11 +778,8 @@ with tab3:
 
             if not api_key: st.warning("⚠️ โปรดใส่ API Key ให้ AI ทำงาน")
             else:
-                with st.spinner("📡 กำลังดึงสถิติจาก iSports และวิเคราะห์ด้วย The Oracle..."):
-                    # 🚀 ดึงสถิติสดๆ จาก API ก่อนวิเคราะห์
-                    api_data = fetch_api_football_data(api_football_key, match_name) if api_football_key else ""
-                    
-                    ai_live = ai_quant_decision_engine("Live", t_live['n'], t_live['ev'], t_live['hdp'], t_live['odds'], True, current_min, f"{current_score_h}-{current_score_a}", threshold=live_ah_limit, stats_data=live_stats)
+                with st.spinner("🧠 กำลังวิเคราะห์ข้อมูลด้วย The Oracle..."):
+                    ai_live = ai_quant_decision_engine("Live", t_live['n'], t_live['ev'], t_live['hdp'], t_live['odds'], True, current_min, f"{current_score_h}-{current_score_a}", threshold=live_ah_limit, stats_data="")
                     net_l_ev = t_live['ev'] + ai_live.get('impact_score', 0)
                     
                     st.markdown("---")
@@ -832,7 +788,7 @@ with tab3:
                     c2.metric("Oracle Adjust", f"{ai_live.get('impact_score', 0)*100:.2f}%")
                     c3.metric("Net Live EV", f"{net_l_ev*100:.2f}%")
                     
-                    with st.expander("📖 รายละเอียดการวิเคราะห์ (Live Mode & API Data)", expanded=True):
+                    with st.expander("📖 รายละเอียดการวิเคราะห์ (Live Mode)", expanded=True):
                         st.success(f"**✅ ข้อดี (Pros):** {ai_live.get('pros_analysis', 'ไม่มี')}")
                         st.error(f"**⚠️ ข้อควรระวัง (Cons):** {ai_live.get('cons_analysis', 'ไม่มี')}")
                         st.info(f"**📜 กฎที่ทำงาน:** {ai_live.get('rule_triggered', 'None')}")
@@ -845,7 +801,7 @@ with tab3:
                         
                         inv = min( (((t_live['odds']-1) * ((net_l_ev+1)/t_live['odds']) - (1-((net_l_ev+1)/t_live['odds']))) / (t_live['odds']-1)) * 0.25, 0.05) * total_bankroll
                         tz_th = timezone(timedelta(hours=7))
-                        save_to_supabase([{"Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), "Match": f"[LIVE] {st.session_state.get('match_name', 'Live Match')}", "HDP": t_live['hdp'], "Target": t_live['n'], "EV_Pct": round(net_l_ev*100, 2), "Investment": round(inv, 2), "Odds": t_live['odds'], "Closing_Odds": 0.0, "Result": ""}])
+                        save_to_supabase([{"Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"), "Match": f"[LIVE] {live_match_name}", "HDP": t_live['hdp'], "Target": t_live['n'], "EV_Pct": round(net_l_ev*100, 2), "Investment": round(inv, 2), "Odds": t_live['odds'], "Closing_Odds": 0.0, "Result": ""}])
                     else: 
                         st.warning(f"🚫 ORACLE REJECTED (ทับมือ): {ai_live.get('final_comment', 'Pass')}")
         else: st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมายที่ตั้งไว้ AH: {live_ah_threshold}%, O/U: {live_ou_threshold}%)")
