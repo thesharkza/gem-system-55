@@ -971,7 +971,7 @@ with tab3:
 
                         # 3. ส่งข้อมูลทั้งหมดให้ Typhoon
                         resp = client.chat.completions.create(
-                            model="typhoon-v1.5-vision-instruct",
+                            model="typhoon-ocr",
                             messages=[{
                                 "role": "user", 
                                 "content": content_data # ส่งก้อนข้อมูลที่มีทั้งข้อความและรูปหลายรูป
