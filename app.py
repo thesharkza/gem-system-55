@@ -528,7 +528,6 @@ with tab1:
     st.markdown("---")
     
     with st.expander("👁️ AI Vision: สกัดราคาจากภาพ (Typhoon)", expanded=False):
-        # แนะนำให้เก็บ API Key ไว้ใน st.secrets
         typhoon_key = st.secrets.get("TYPHOON_API_KEY", "") 
         if not typhoon_key: 
             st.warning("⚠️ โปรดตั้งค่า TYPHOON_API_KEY ใน Secrets")
@@ -536,16 +535,12 @@ with tab1:
             uploaded_file = st.file_uploader("อัปโหลดรูปตารางราคา", type=['png', 'jpg'])
             if uploaded_file and st.button("🪄 สกัดข้อมูลด้วย Typhoon", use_container_width=True):
                 with st.spinner('พายุกำลังอ่านรูป...'):
-                    try:
-                        # 1. เตรียม Client
+                    try:  # <--- บล็อก try ตัวนอก
                         client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
-                        
-                        # 2. แปลงรูปเป็น Base64
                         base64_image = base64.b64encode(uploaded_file.read()).decode('utf-8')
                         
-                        # 3. เรียก API
                         response = client.chat.completions.create(
-                            model="typhoon-ocr",
+                            model="typhoon-v1.5-vision-instruct", # แนะนำให้ใช้รุ่น v1.5 เพื่อความเสถียร
                             messages=[{
                                 "role": "user",
                                 "content": [
@@ -559,18 +554,12 @@ with tab1:
                             response_format={"type": "json_object"}
                         )
                         
-                        # --- ระบบสกัด JSON ที่ปลอดภัยกว่าเดิม ---
                         res_content = response.choices[0].message.content
-                        
-                        # ใช้ regex ค้นหาตั้งแต่ { ไปจนถึง } ตัวสุดท้าย เพื่อตัดข้อความส่วนเกิน
                         import re
                         match = re.search(r'\{.*\}', res_content, re.DOTALL)
-                        if match:
-                            clean_json = match.group(0)
-                        else:
-                            clean_json = res_content.strip()
+                        clean_json = match.group(0) if match else res_content.strip()
 
-                        try:
+                        try: # <--- บล็อก try ตัวใน (สำหรับ JSON)
                             data = json.loads(clean_json)
                             for k, v in data.items(): 
                                 st.session_state[k] = v
@@ -579,6 +568,9 @@ with tab1:
                         except Exception as json_err:
                             st.error(f"⚠️ JSON พัง: {json_err}")
                             st.text(f"ข้อความที่ AI ส่งมา: {res_content}")
+                            
+                    except Exception as e: # <--- 🌟 เพิ่มบล็อกนี้เพื่อปิด try ตัวนอก
+                        st.error(f"⚠️ ระบบ Typhoon ขัดข้อง: {e}")
 
     with st.expander("⚡ Text Parser: วางข้อความดิบ", expanded=False):
         st.text_area("📋 ก๊อปปี้ราคาทั้งก้อนจากหน้าเว็บมาวางตรงนี้...", height=100, key="raw_text")
