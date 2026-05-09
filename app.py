@@ -118,33 +118,35 @@ def parse_line(line_str):
     except: return 0.0
 
 # ==========================================
-# 📡 1. DATA FEED INTEGRATION (iSports API)
+# 📡 1. DATA FEED INTEGRATION (API-Football)
 # ==========================================
-def fetch_isports_data(api_key, target_match_name):
+def fetch_api_football_data(api_key, target_match_name):
     if not api_key:
-        return "⚠️ ไม่มี iSports API Key (AI จะวิเคราะห์จากคณิตศาสตร์ EV ล้วน)"
+        return "⚠️ ไม่มี API-Football Key (AI จะวิเคราะห์จากคณิตศาสตร์ EV ล้วน)"
     
-    urls = [
-        f"http://api.isportsapi.com/sport/football/livescores?api_key={api_key}",
-        f"http://api2.isportsapi.com/sport/football/livescores?api_key={api_key}"
-    ]
+    # ดึงข้อมูลบอลสดทั้งหมดที่กำลังเตะอยู่
+    url = "https://v3.football.api-sports.io/fixtures?live=all"
     
-    for url in urls:
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                content = response.read()
-                data = json.loads(content.decode('utf-8'))
-                
-                if "data" in data:
-                    raw_data = str(data["data"])[:3500] # ตัดข้อมูลกัน Token ล้น
-                    return f"สถิติสดจาก iSports API (ค้นหาคู่ '{target_match_name}'):\n{raw_data}"
-                else:
-                    return f"API ตอบกลับ แต่ข้อมูลไม่สมบูรณ์: {str(data)[:200]}"
-        except Exception:
-            continue
+    # ระบบความปลอดภัยของ API-Football ต้องส่ง Key ผ่าน Headers
+    headers = {
+        'x-apisports-key': api_key,
+        'User-Agent': 'Mozilla/5.0'
+    }
+    
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            content = response.read()
+            data = json.loads(content.decode('utf-8'))
             
-    return "❌ ไม่สามารถเชื่อมต่อกับ iSports API ได้"
+            # API-Football จะเก็บก้อนข้อมูลหลักไว้ใน key ที่ชื่อว่า "response"
+            if "response" in data:
+                raw_data = str(data["response"])[:3500] # ตัดข้อมูลกัน Token ล้น
+                return f"สถิติสดจาก API-Football (ค้นหาคู่ '{target_match_name}'):\n{raw_data}"
+            else:
+                return f"API ตอบกลับ แต่ไม่พบโครงสร้าง 'response': {str(data)[:200]}"
+    except Exception as e:
+        return f"❌ ไม่สามารถเชื่อมต่อกับ API-Football ได้: {e}"
 
 # ==========================================
 # 🧮 2. ระบบคณิตศาสตร์ขั้นสูง (Syndicate Quant Engine)
@@ -407,12 +409,16 @@ else:
         st.sidebar.success("✅ AI Connected")
     else: st.sidebar.warning("⚠️ โปรดใส่ API Key")
 
-st.sidebar.header("📡 Data Feed API (iSports)")
-isports_key = st.secrets.get("ISPORTS_API_KEY", "")
-if not isports_key:
-    isports_key = st.sidebar.text_input("ใส่ iSports API Key (สถิติสด):", type="password")
-if isports_key: st.sidebar.success("✅ iSports API Ready")
-else: st.sidebar.warning("⚠️ ขาด iSports API Key (ใช้ EV ล้วน)")
+st.sidebar.header("📡 Data Feed API (API-Football)")
+api_football_key = st.secrets.get("API_FOOTBALL_KEY", "")
+
+if not api_football_key:
+    api_football_key = st.sidebar.text_input("ใส่ API-Football Key (สถิติสด):", type="password")
+    
+if api_football_key: 
+    st.sidebar.success("✅ API-Football Ready")
+else: 
+    st.sidebar.warning("⚠️ ขาด API-Football Key (ใช้ EV ล้วน)")
 
 st.sidebar.header("🗄️ Database Status")
 if supabase:
@@ -552,7 +558,7 @@ with tab1:
             else:
                 with st.spinner("🧠 THE ORACLE กำลังตรวจสอบ EV และสถิติ..."):
                     # รวบรวมข้อมูลสถิติที่ป้อน + ข้อมูล API (ถ้ามีเปิดให้ดึง)
-                    api_data = fetch_isports_data(isports_key, match_name) if isports_key else ""
+                    api_data = fetch_api_football_data(api_football_key, match_name) if api_football_key else ""
                     combined_stats = f"สถิติจากผู้ใช้: {match_stats}\n{api_data}"
                     
                     ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'], is_live=False, threshold=pre_ah_limit, stats_data=combined_stats)
@@ -815,7 +821,7 @@ with tab3:
             else:
                 with st.spinner("📡 กำลังดึงสถิติจาก iSports และวิเคราะห์ด้วย The Oracle..."):
                     # 🚀 ดึงสถิติสดๆ จาก API ก่อนวิเคราะห์
-                    live_stats = fetch_isports_data(isports_key, st.session_state.get('match_name', ''))
+                    api_data = fetch_api_football_data(api_football_key, match_name) if api_football_key else ""
                     
                     ai_live = ai_quant_decision_engine("Live", t_live['n'], t_live['ev'], t_live['hdp'], t_live['odds'], True, current_min, f"{current_score_h}-{current_score_a}", threshold=live_ah_limit, stats_data=live_stats)
                     net_l_ev = t_live['ev'] + ai_live.get('impact_score', 0)
