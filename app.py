@@ -53,12 +53,25 @@ def clear_inplay_data():
     for k, v in inplay_defaults.items():
         st.session_state[k] = v
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300) # แคชไว้ 5 นาทีเพื่อไม่ให้ดึงบ่อยเกินไป
 def load_gem_rules():
-    if os.path.exists(RULES_FILE):
-        with open(RULES_FILE, "r", encoding="utf-8") as f:
-            return f.read()
-    return "ไม่พบไฟล์คัมภีร์ โปรดสร้างไฟล์ gem_rules.txt และใส่กฎทั้งหมดลงไป"
+    if not supabase:
+        return "ระบบเชื่อมต่อฐานข้อมูลล้มเหลว"
+    
+    try:
+        # ดึงเฉพาะกฎที่สถานะเป็น Active
+        response = supabase.table("gem_knowledge") \
+            .select("rule_text") \
+            .eq("is_active", True) \
+            .execute()
+        
+        if response.data:
+            # รวมกฎทุกข้อเป็นข้อความก้อนเดียวเหมือนในไฟล์ .txtเดิม
+            rules_list = [item['rule_text'] for item in response.data]
+            return "\n".join(rules_list)
+        return "ไม่พบข้อมูลกฎในฐานข้อมูล"
+    except Exception as e:
+        return f"Error loading rules from Supabase: {e}"
     
 def get_dynamic_rules(target, is_live, raw_rules):
     """ฟังก์ชัน RAG กรองคัมภีร์ GEM ให้เหลือเฉพาะกฎที่เข้ากับหน้างานปัจจุบัน"""
