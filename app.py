@@ -11,6 +11,8 @@ from PIL import Image
 import google.generativeai as genai
 import numpy as np
 from supabase import create_client, Client
+import base64  # เพิ่มส่วนนี้
+from openai import OpenAI  # เพิ่มส่วนนี้
 
 @st.cache_resource
 def init_connection():
@@ -525,23 +527,39 @@ with tab1:
 
     st.markdown("---")
     
-    with st.expander("👁️ AI Vision: สกัดราคาจากภาพ", expanded=False):
-        if not api_key: st.warning("⚠️ ต้องการ API Key")
+    with st.expander("👁️ AI Vision: สกัดราคาจากภาพ (Typhoon)", expanded=False):
+        # แนะนำให้เก็บ API Key ไว้ใน st.secrets
+        typhoon_key = st.secrets.get("TYPHOON_API_KEY", "") 
+        if not typhoon_key: 
+            st.warning("⚠️ โปรดตั้งค่า TYPHOON_API_KEY ใน Secrets")
         else:
             uploaded_file = st.file_uploader("อัปโหลดรูปตารางราคา", type=['png', 'jpg'])
-            if uploaded_file and st.button("🪄 สกัดข้อมูลจากรูปภาพ", use_container_width=True):
-                with st.spinner('กำลังอ่านรูป...'):
+            if uploaded_file and st.button("🪄 สกัดข้อมูลด้วย Typhoon", use_container_width=True):
+                with st.spinner('พายุกำลังอ่านรูป...'):
                     try:
-                        img = Image.open(uploaded_file)
-                        model = genai.GenerativeModel('models/gemma-4-31b-it')
-                        prompt_img = (
-                            'สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,'
-                            '"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,'
-                            '"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
+                        # 1. เตรียม Client
+                        client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
+                        
+                        # 2. แปลงรูปเป็น Base64
+                        base64_image = base64.b64encode(uploaded_file.read()).decode('utf-8')
+                        
+                        # 3. เรียก API
+                        response = client.chat.completions.create(
+                            model="typhoon-v1.5x-vision-instruct",
+                            messages=[{
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": "สกัดข้อมูลจากภาพแปลงเป็น JSON เท่านั้น: "
+                                     '{"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,'
+                                     '"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,'
+                                     '"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                                ]
+                            }],
+                            response_format={"type": "json_object"}
                         )
-                        res = model.generate_content([prompt_img, img])
-                        bt = chr(96) * 3
-                        data = json.loads(res.text.replace(bt+'json', '').replace(bt, '').strip())
+                        
+                        data = json.loads(response.choices[0].message.content)
                         for k, v in data.items(): st.session_state[k] = v
                         st.success("✅ สำเร็จ!")
                         st.rerun()
@@ -889,40 +907,44 @@ with tab2:
 with tab3:
     st.header("📺 Live Sniper Command Center")
     
-    with st.expander("👁️ AI Live Vision", expanded=False):
-        if not api_key: 
-            st.warning("⚠️ ต้องการ API Key")
+    with st.expander("👁️ AI Live Vision (Typhoon)", expanded=False):
+        typhoon_key = st.secrets.get("TYPHOON_API_KEY", "")
+        if not typhoon_key: 
+            st.warning("⚠️ ต้องการ Typhoon API Key")
         else:
             live_images = st.file_uploader("อัปโหลดรูป (สูงสุด 3 รูป)", type=['png', 'jpg'], accept_multiple_files=True)
-            if live_images and st.button("🪄 สกัดข้อมูล", use_container_width=True):
-                with st.spinner("กวาดสายตา..."):
+            if live_images and st.button("🪄 สกัดข้อมูล Live", use_container_width=True):
+                with st.spinner("Typhoon กำลังกวาดสายตา..."):
                     try:
-                        imgs = [Image.open(f) for f in live_images]
-                        model = genai.GenerativeModel('gemma-4-31b-it') # หรือรุ่นที่คุณใช้งาน
+                        client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
+                        # ใช้รูปแรกในการสกัดข้อมูลพื้นฐาน
+                        base64_image = base64.b64encode(live_images[0].read()).decode('utf-8')
+                        
                         prompt_live = (
-                            'สกัดเป็น JSON: {"current_min":0, "current_score_h":0, "current_score_a":0, '
+                            "สกัดข้อมูลจากรูปภาพฟุตบอลนี้ให้อยู่ในรูปแบบ JSON เท่านั้น: "
+                            '{"current_min":0, "current_score_h":0, "current_score_a":0, '
                             '"pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, '
                             '"live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}'
                         )
-                        res = model.generate_content([prompt_live] + imgs)
                         
-                        res_text = res.text.strip()
-                        if not res_text: raise ValueError("AI มองไม่เห็นรูป หรือส่งค่าว่างกลับมา")
-                        bt = chr(96)*3
-                        cleaned_text = res_text.replace(bt+'json', '').replace(bt, '').strip()
+                        response = client.chat.completions.create(
+                            model="typhoon-v1.5x-vision-instruct",
+                            messages=[{
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": prompt_live},
+                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                                ]
+                            }],
+                            response_format={"type": "json_object"}
+                        )
                         
-                        start_idx = cleaned_text.find('{')
-                        end_idx = cleaned_text.rfind('}')
-                        if start_idx != -1 and end_idx != -1:
-                            cleaned_text = cleaned_text[start_idx:end_idx+1]
-                        data = json.loads(cleaned_text)
-                        
+                        data = json.loads(response.choices[0].message.content)
                         for k, v in data.items(): 
                             st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
-                        st.success("✅ สำเร็จ!")
+                        st.success("✅ พายุสกัดข้อมูลสำเร็จ!")
                         st.rerun()
-                    except Exception as e: 
-                        st.error(f"⚠️ พลาด: {e}")
+                    except Exception as e: st.error(f"⚠️ Typhoon Error: {e}")
 
     col_l1, col_l2 = st.columns(2)
     with col_l1:
