@@ -1030,11 +1030,12 @@ with tab3:
         current_min = st.slider("นาทีแข่งขัน", 0, 120, safe_min, key="current_min_slider")
 
     with col_l2:
-        st.subheader("💡 ราคาเปิด (Pre-match)")
-        pre_h = st.number_input("เหย้า(เปิด)", value=st.session_state.get('pre_h', 2.0), format="%.2f", key="pre_h")
-        pre_d = st.number_input("เสมอ(เปิด)", value=st.session_state.get('pre_d', 3.0), format="%.2f", key="pre_d")
-        pre_a = st.number_input("เยือน(เปิด)", value=st.session_state.get('pre_a', 3.0), format="%.2f", key="pre_a")
-        pre_ou = st.number_input("O/U(เปิด)", value=st.session_state.get('pre_ou', 2.5), format="%.2f", step=0.25, key="pre_ou")
+        st.subheader("💡 ราคาเปิด")
+        # ใช้ safe_float() ครอบค่า st.session_state ก่อนส่งให้ value=
+        p_h = st.number_input("เหย้า(เปิด)", value=safe_float(st.session_state.get('pre_h', 2.0), 2.0), format="%.2f", key="pre_h")
+        p_d = st.number_input("เสมอ(เปิด)", value=safe_float(st.session_state.get('pre_d', 3.0), 3.0), format="%.2f", key="pre_d")
+        p_a = st.number_input("เยือน(เปิด)", value=safe_float(st.session_state.get('pre_a', 3.0), 3.0), format="%.2f", key="pre_a")
+        p_ou = st.number_input("O/U(เปิด)", value=safe_float(st.session_state.get('pre_ou', 2.5), 2.5), format="%.2f", key="pre_ou")
 
     st.markdown("---")
     st.subheader("💰 ราคา Live ปัจจุบัน (Sniper Adjust)")
@@ -1044,22 +1045,25 @@ with tab3:
         st.markdown("**Live HDP (เรตแฮนดิแคป)**")
         btn_h1, btn_h2, btn_h3 = st.columns([1, 2, 1])
         btn_h1.button("➖ 0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
-        live_hdp = btn_h2.number_input("Live HDP", value=st.session_state['live_hdp'], step=0.25, key="live_hdp_input", label_visibility="collapsed", format="%.2f")
+        # ✅ ครอบ safe_float ให้ live_hdp
+        live_hdp = btn_h2.number_input("Live HDP", value=safe_float(st.session_state.get('live_hdp', 0.0), 0.0), step=0.25, key="live_hdp_input", label_visibility="collapsed", format="%.2f")
         btn_h3.button("➕ 0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
         c_w1, c_w2 = st.columns(2)
-        live_hdp_h = c_w1.number_input("น้ำเหย้า", value=st.session_state.get('live_hdp_h', 0.9), format="%.2f", key="live_hdp_h")
-        live_hdp_a = c_w2.number_input("น้ำเยือน", value=st.session_state.get('live_hdp_a', 0.9), format="%.2f", key="live_hdp_a")
+        # ✅ ครอบ safe_float ให้น้ำเหย้า-น้ำเยือน
+        live_hdp_h = c_w1.number_input("น้ำเหย้า", value=safe_float(st.session_state.get('live_hdp_h', 0.9), 0.9), format="%.2f", key="live_hdp_h")
+        live_hdp_a = c_w2.number_input("น้ำเยือน", value=safe_float(st.session_state.get('live_hdp_a', 0.9), 0.9), format="%.2f", key="live_hdp_a")
 
     with col_live2:
         st.markdown("**Live O/U (เรตสกอร์รวม)**")
         btn_o1, btn_o2, btn_o3 = st.columns([1, 2, 1])
         btn_o1.button("➖ 0.25", key="o_sub", on_click=adj_ou, args=(-0.25,))
-        live_ou = btn_o2.number_input("Live O/U", value=st.session_state['live_ou'], step=0.25, key="live_ou_input", label_visibility="collapsed", format="%.2f")
+        # ✅ ครอบ safe_float ให้ live_ou
+        live_ou = btn_o2.number_input("Live O/U", value=safe_float(st.session_state.get('live_ou', 2.5), 2.5), step=0.25, key="live_ou_input", label_visibility="collapsed", format="%.2f")
         btn_o3.button("➕ 0.25", key="o_add", on_click=adj_ou, args=(0.25,))
         c_w3, c_w4 = st.columns(2)
-        live_ou_over = c_w3.number_input("น้ำสูง", value=st.session_state.get('live_ou_over', 0.9), format="%.2f", key="live_ou_over")
-        live_ou_under = c_w4.number_input("น้ำต่ำ", value=st.session_state.get('live_ou_under', 0.9), format="%.2f", key="live_ou_under")
-
+        # ✅ ครอบ safe_float ให้น้ำสูง-น้ำต่ำ
+        live_ou_over = c_w3.number_input("น้ำสูง", value=safe_float(st.session_state.get('live_ou_over', 0.9), 0.9), format="%.2f", key="live_ou_over")
+        live_ou_under = c_w4.number_input("น้ำต่ำ", value=safe_float(st.session_state.get('live_ou_under', 0.9), 0.9), format="%.2f", key="live_ou_under")
     c_btn1, c_btn2 = st.columns([4, 1])
     submit_live = c_btn1.button("🎯 ENGAGE SNIPER", use_container_width=True, type="primary")
     c_btn2.button("🗑️ ล้างค่า", use_container_width=True, on_click=clear_inplay_data)
