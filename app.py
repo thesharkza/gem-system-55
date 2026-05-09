@@ -926,52 +926,38 @@ with tab2:
 with tab3:
     st.header("📺 Live Sniper Command Center")
     
-    with st.expander("👁️ AI Live Vision (Typhoon)", expanded=False):
-        typhoon_key = st.secrets.get("TYPHOON_API_KEY", "")
+    with st.expander("👁️ AI Vision (Typhoon Power)", expanded=False):
         if not typhoon_key: 
-            st.warning("⚠️ ต้องการ Typhoon API Key")
+            st.warning("ต้องการ Typhoon Key")
         else:
-            live_images = st.file_uploader("อัปโหลดรูป (สูงสุด 3 รูป)", type=['png', 'jpg'], accept_multiple_files=True)
-            if live_images and st.button("🪄 สกัดข้อมูล Live", use_container_width=True):
-                with st.spinner("Typhoon กำลังกวาดสายตา..."):
+            up_file = st.file_uploader("อัปโหลดรูปราคาเปิด", type=['png', 'jpg'], key="pre_img")
+            if up_file and st.button("🪄 สกัดข้อมูลตารางราคา", use_container_width=True):
+                with st.spinner("Typhoon กำลังอ่านตาราง..."):
                     try:
-                        # --- เริ่มต้นบล็อก try ---
                         client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
-                        base64_image = base64.b64encode(live_images[0].read()).decode('utf-8')
-                        
-                        prompt_live = (
-                        "สกัดข้อมูลจากรูปภาพฟุตบอลนี้ให้อยู่ในรูปแบบ JSON เท่านั้น: "
-                        '{"current_min":0, "current_score_h":0, "current_score_a":0, '
-                        '"pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, '
-                        '"live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}'
+                        b64 = base64.b64encode(up_file.read()).decode('utf-8')
+                        resp = client.chat.completions.create(
+                            model="typhoon-ocr",
+                            messages=[
+                                {
+                                    "role": "user", 
+                                    "content": [
+                                        {"type": "text", "text": "สกัด JSON: match_name, h1x2_val, d1x2_val, a1x2_val, hdp_line_val, hdp_h_w_val, hdp_a_w_val, ou_line_val, ou_over_w_val, ou_under_w_val"}, 
+                                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
+                                    ]
+                                }
+                            ],
+                            response_format={"type": "json_object"}
                         )
-                        
-                        response = client.chat.completions.create(
-                        model="typhoon-ocr",
-                        messages=[{
-                        "role": "user",
-                        "content": [
-                        {"type": "text", "text": prompt_live},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                            ]
-                        }],
-                        response_format={"type": "json_object"}
-                        )
-                        
-                        res_text = response.choices[0].message.content.strip()
-                        data = safe_json_loads(res_text) # ใช้ฟังก์ชันพระเอกของเรา
-                        if not data:
-                            raise ValueError("สกัด JSON ไม่สำเร็จ รูปแบบอาจผิดเพี้ยน")
+                        data = safe_json_loads(resp.choices[0].message.content)
                         
                         for k, v in data.items(): 
                             st.session_state[k] = v
-                        st.success("✅ สำเร็จ!")
+                            
+                        st.success("✅ สกัดข้อมูลสำเร็จ!")
                         st.rerun()
-                        # --- จบบล็อก try ---
-                        
-                    except Exception as e:
-                        # ✅ บรรทัด except ต้องเยื้องเท่ากับ try ด้านบนพอดีเป๊ะ
-                        st.error(f"⚠️ Typhoon Error: {e}")
+                    except Exception as e: 
+                        st.error(f"Error: {e}")
 
     col_l1, col_l2 = st.columns(2)
     with col_l1:
