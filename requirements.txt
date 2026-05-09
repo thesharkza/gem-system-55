@@ -4,3 +4,4 @@ plotly
 google-generativeai
 pillow
 supabase
+openai
