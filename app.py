@@ -927,11 +927,23 @@ with tab3:
                         client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
                         base64_image = base64.b64encode(live_images[0].read()).decode('utf-8')
                         
-                        prompt_live = ("สกัดเป็น JSON: {...}") # ใส่ prompt ของคุณ
+                        prompt_live = (
+                        "สกัดข้อมูลจากรูปภาพฟุตบอลนี้ให้อยู่ในรูปแบบ JSON เท่านั้น: "
+                        '{"current_min":0, "current_score_h":0, "current_score_a":0, '
+                        '"pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, '
+                        '"live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}'
+                        )
                         
                         response = client.chat.completions.create(
-                            model="typhoon-ocr",
-                            messages=[{"role": "user", "content": [...]}]
+                        model="typhoon-ocr",
+                        messages=[{
+                        "role": "user",
+                        "content": [
+                        {"type": "text", "text": prompt_live},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                            ]
+                        }],
+                        response_format={"type": "json_object"}
                         )
                         
                         res_text = response.choices[0].message.content.strip()
