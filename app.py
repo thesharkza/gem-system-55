@@ -14,6 +14,21 @@ from supabase import create_client, Client
 import base64  # เพิ่มส่วนนี้
 from openai import OpenAI  # เพิ่มส่วนนี้
 
+# --- ฟังก์ชันช่วยทำความสะอาด JSON (วางไว้ด้านบนของไฟล์) ---
+def safe_json_loads(text):
+    try:
+        # 1. ค้นหาตำแหน่งปีกกาตัวแรก { และตัวสุดท้าย }
+        start_idx = text.find('{')
+        end_idx = text.rfind('}')
+        if start_idx != -1 and end_idx != -1:
+            clean_text = text[start_idx:end_idx+1]
+            return json.loads(clean_text)
+        return json.loads(text)
+    except Exception:
+        # หากยังไม่ได้ ให้ลองลบ Markdown blocks ออก
+        clean = text.replace("```json", "").replace("```", "").strip()
+        return json.loads(clean)
+
 @st.cache_resource
 def init_connection():
     url = st.secrets["SUPABASE_URL"]
