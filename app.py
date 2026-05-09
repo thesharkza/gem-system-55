@@ -515,11 +515,13 @@ else:
     else:
         st.sidebar.warning("⚠️ โปรดใส่ API Key")
 
-if os.path.exists(RULES_FILE):
-    file_size = os.path.getsize(RULES_FILE) / 1024
-    st.sidebar.info(f"📚 โหลดคัมภีร์แล้ว: {RULES_FILE} ({file_size:.1f} KB)")
+# --- ☁️ เปลี่ยนมาเช็คสถานะ Cloud Database แทนไฟล์ ---
+st.sidebar.header("🗄️ Database Status")
+if supabase:
+    st.sidebar.success("☁️ Supabase: Connected")
+    st.sidebar.info("📚 ระบบอ่านคัมภีร์จาก Cloud อัตโนมัติ")
 else:
-    st.sidebar.error(f"❌ ไม่พบไฟล์ '{RULES_FILE}' โปรดสร้างไฟล์และใส่กฎลงไป!")
+    st.sidebar.error("❌ Supabase: Disconnected (เช็ค Secrets)")
 
 tab1, tab2, tab3, tab4 = st.tabs(["🚀 Pre-Match Terminal", "📊 Dashboard & AI Debrief", "⚡ IN-PLAY LIVE", "🧪 Backtest Engine (RPS)"])
 
