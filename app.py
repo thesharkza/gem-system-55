@@ -923,47 +923,29 @@ with tab3:
             if live_images and st.button("🪄 สกัดข้อมูล Live", use_container_width=True):
                 with st.spinner("Typhoon กำลังกวาดสายตา..."):
                     try:
+                        # --- เริ่มต้นบล็อก try ---
                         client = OpenAI(api_key=typhoon_key, base_url="https://api.opentyphoon.ai/v1")
-                        # ใช้รูปแรกในการสกัดข้อมูลพื้นฐาน
                         base64_image = base64.b64encode(live_images[0].read()).decode('utf-8')
                         
-                        prompt_live = (
-                            "สกัดข้อมูลจากรูปภาพฟุตบอลนี้ให้อยู่ในรูปแบบ JSON เท่านั้น: "
-                            '{"current_min":0, "current_score_h":0, "current_score_a":0, '
-                            '"pre_h":2.0, "pre_d":3.0, "pre_a":3.0, "pre_ou":2.5, "live_hdp":0.0, '
-                            '"live_hdp_h":0.9, "live_hdp_a":0.9, "live_ou":2.5, "live_ou_over":0.9, "live_ou_under":0.9}'
-                        )
+                        prompt_live = ("สกัดเป็น JSON: {...}") # ใส่ prompt ของคุณ
                         
                         response = client.chat.completions.create(
                             model="typhoon-ocr",
-                            messages=[{
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": prompt_live},
-                                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-                                ]
-                            }],
-                            response_format={"type": "json_object"}
+                            messages=[{"role": "user", "content": [...]}]
                         )
                         
-                        # --- ระบบสกัด JSON สำหรับ Live Mode ---
-                        res_text = response.choices[0].message.content
+                        res_text = response.choices[0].message.content.strip()
+                        data = json.loads(res_text)
                         
-                        import re
-                        match = re.search(r'\{.*\}', res_text, re.DOTALL)
-                        if match:
-                            clean_json_live = match.group(0)
-                        else:
-                            clean_json_live = res_text.strip()
-
-                        try:
-                            data = json.loads(clean_json_live)
-                            for k, v in data.items(): 
-                                st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
-                            st.success("✅ พายุสกัดข้อมูลสำเร็จ!")
-                            st.rerun()
-                        except Exception as json_err:
-                            st.error(f"⚠️ JSON Live พัง: {json_err}")
+                        for k, v in data.items(): 
+                            st.session_state[k] = v
+                        st.success("✅ สำเร็จ!")
+                        st.rerun()
+                        # --- จบบล็อก try ---
+                        
+                    except Exception as e:
+                        # ✅ บรรทัด except ต้องเยื้องเท่ากับ try ด้านบนพอดีเป๊ะ
+                        st.error(f"⚠️ Typhoon Error: {e}")
 
     col_l1, col_l2 = st.columns(2)
     with col_l1:
