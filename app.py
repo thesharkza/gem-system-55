@@ -545,7 +545,7 @@ with tab1:
                         
                         # 3. เรียก API
                         response = client.chat.completions.create(
-                            model="typhoon-v1.5x-vision-instruct",
+                            model="typhoon-ocr",
                             messages=[{
                                 "role": "user",
                                 "content": [
@@ -928,7 +928,7 @@ with tab3:
                         )
                         
                         response = client.chat.completions.create(
-                            model="typhoon-v1.5x-vision-instruct",
+                            model="typhoon-ocr",
                             messages=[{
                                 "role": "user",
                                 "content": [
