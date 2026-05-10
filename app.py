@@ -626,90 +626,121 @@ with tab2:
                 st.bar_chart(odds_win_rate, color=line_color)
 
         # ==========================================
-        # 🤖 AI Daily Debrief (Level 5: Manual Select Edition)
+        # 🤖 AI Oracle Learning (วิเคราะห์จุดอ่อน & ค้นหาจุดแข็ง)
         # ==========================================
         st.markdown("---")
-        st.subheader("🤖 AI Daily Debrief (วิเคราะห์ & อัปเดตกฎอัตโนมัติ)")
+        st.subheader("🤖 AI Oracle Learning (พัฒนากฎจากชัยชนะและความพ่ายแพ้)")
         
+        # ดึงเฉพาะไม้ที่รู้ผลแล้ว (มีสกอร์/Result)
         if 'Net_Profit' in logs.columns:
-            loss_logs = logs[logs['Net_Profit'] < 0].copy()
+            completed_logs = logs[logs['Result'].astype(str).str.strip() != ""].copy()
         else:
-            loss_logs = logs[logs['Result'].str.contains(r'-', na=False)].copy()
-        
-        if len(loss_logs) > 0:
-            st.info(f"🔍 พบประวัติการลงทุนที่ขาดทุนจำนวน {len(loss_logs)} รายการ โปรดติ๊กเลือกเฉพาะแมตช์ที่ต้องการให้ AI ชันสูตร")
+            completed_logs = pd.DataFrame()
             
-            # แทรกคอลัมน์ Checkbox ไว้หน้าสุด
-            loss_logs.insert(0, "Analyze", False)
+        if len(completed_logs) > 0:
+            # 🌟 เพิ่มปุ่มเลือกประเภทการวิเคราะห์
+            debrief_type = st.radio("🔍 เลือกประเภทข้อมูลที่จะให้ AI เรียนรู้:", 
+                                   ["🔴 วิเคราะห์ความพ่ายแพ้ (หาจุดอ่อน/สร้างเกราะป้องกัน)", 
+                                    "🟢 วิเคราะห์ชัยชนะ (หาจุดแข็ง/หักล้างกฎเดิมที่ตึงเกินไป)", 
+                                    "⚪ วิเคราะห์ผสม (เปรียบเทียบหารูปแบบ)"], 
+                                   horizontal=True)
             
-            # สร้างตาราง Data Editor ให้ผู้บัญชาการเลือกติ๊กได้
-            debrief_selection = st.data_editor(
-                loss_logs[['Analyze', 'Time', 'Match', 'HDP', 'Target', 'Odds', 'Result', 'Net_Profit']],
-                column_config={
-                    "Analyze": st.column_config.CheckboxColumn("✅ เลือกวิเคราะห์", default=False),
-                    "Net_Profit": st.column_config.NumberColumn("ขาดทุน", format="%.2f")
-                },
-                hide_index=True,
-                use_container_width=True,
-                key="debrief_editor"
-            )
+            # กรองข้อมูลและตั้งเป้าหมายให้ AI ตามประเภทที่เลือก
+            if "🔴" in debrief_type:
+                target_logs = completed_logs[completed_logs['Net_Profit'] < 0].copy()
+                ai_task = "ทำ 'Post-Mortem Analysis' จากข้อมูลที่ขาดทุน ค้นหาจุดอ่อน และสร้างกฎเพื่อป้องกันความผิดพลาดเดิม (Defensive Rules)"
+                prefix_id = "GEM_DEF_"
+            elif "🟢" in debrief_type:
+                target_logs = completed_logs[completed_logs['Net_Profit'] > 0].copy()
+                ai_task = "ทำ 'Success Analysis' จากข้อมูลที่ได้กำไร ค้นหารูปแบบที่ชนะตลาด และสร้างกฎเชิงบวก (Offensive Rules) เช่น 'ให้เพิ่มความมั่นใจหาก...' หรือ 'สามารถใช้ยกเว้นกฎความเสี่ยงข้ออื่นได้หากเข้าเงื่อนไขนี้'"
+                prefix_id = "GEM_OFF_"
+            else:
+                target_logs = completed_logs.copy()
+                ai_task = "วิเคราะห์เปรียบเทียบทั้งไม้ที่ชนะและแพ้ ค้นหารูปแบบความสำเร็จและความล้มเหลว เพื่อสร้างหรือปรับปรุงกฎในคัมภีร์ให้มีความสมดุล"
+                prefix_id = "GEM_MIX_"
             
-            selected_for_debrief = debrief_selection[debrief_selection['Analyze'] == True]
-            
-            if st.button("🧠 สั่ง AI ชันสูตรเฉพาะแมตช์ที่เลือก", use_container_width=True, type="primary"):
-                if selected_for_debrief.empty:
-                    st.warning("⚠️ โปรดติ๊กเลือกอย่างน้อย 1 รายการ ในตารางด้านบนก่อนครับ")
-                else:
-                    with st.spinner(f"The Oracle กำลังวิเคราะห์จุดอ่อนจาก {len(selected_for_debrief)} แมตช์ที่คุณเลือก..."):
-                        loss_data_str = selected_for_debrief[['Time', 'Match', 'HDP', 'Target', 'Odds', 'Result']].to_csv(index=False)
-                        try:
-                            rules_res = supabase.table("gem_knowledge").select("rule_id, category, rule_text").eq("is_active", True).execute()
-                            rules_str = "\n".join([f"[{r['rule_id']} - หมวด {r['category']}] {r['rule_text']}" for r in (rules_res.data or [])])
-                        except: rules_str = ""
+            if len(target_logs) > 0:
+                st.info(f"📋 พบข้อมูลตรงตามเงื่อนไขจำนวน {len(target_logs)} รายการ โปรดติ๊กเลือกแมตช์ที่ต้องการให้ AI เรียนรู้")
+                
+                target_logs.insert(0, "Analyze", False)
+                
+                debrief_selection = st.data_editor(
+                    target_logs[['Analyze', 'Time', 'Match', 'HDP', 'Target', 'Odds', 'Result', 'Net_Profit']],
+                    column_config={
+                        "Analyze": st.column_config.CheckboxColumn("✅ เลือกวิเคราะห์", default=False),
+                        "Net_Profit": st.column_config.NumberColumn("กำไร/ขาดทุน", format="%.2f")
+                    },
+                    hide_index=True,
+                    use_container_width=True,
+                    key="debrief_editor"
+                )
+                
+                selected_for_debrief = debrief_selection[debrief_selection['Analyze'] == True]
+                
+                if st.button(f"🧠 สั่ง AI เรียนรู้จากข้อมูลที่เลือก", use_container_width=True, type="primary"):
+                    if selected_for_debrief.empty:
+                        st.warning("⚠️ โปรดติ๊กเลือกอย่างน้อย 1 รายการ ในตารางด้านบนก่อนครับ")
+                    else:
+                        with st.spinner(f"The Oracle กำลังเรียนรู้จาก {len(selected_for_debrief)} แมตช์ที่คุณเลือก..."):
+                            loss_data_str = selected_for_debrief[['Time', 'Match', 'HDP', 'Target', 'Odds', 'Result']].to_csv(index=False)
+                            try:
+                                rules_res = supabase.table("gem_knowledge").select("rule_id, category, rule_text").eq("is_active", True).execute()
+                                rules_str = "\n".join([f"[{r['rule_id']} - หมวด {r['category']}] {r['rule_text']}" for r in (rules_res.data or [])])
+                            except: rules_str = ""
 
-                        prompt_debrief = (
-                            "คุณคือ Chief Risk Officer ของกองทุน Quant Hedge Fund กีฬา\n"
-                            "หน้าที่: ทำ 'Post-Mortem Analysis' จากข้อมูลที่ขาดทุนที่ผู้บริหารคัดเลือกมาให้ และสร้างกฎใหม่เพื่อปิดจุดอ่อนทันที\n\n"
-                            f"📋 [ข้อมูลการขาดทุนที่คัดกรองแล้ว (CSV)]\n{loss_data_str}\n\n"
-                            f"📖 [คัมภีร์ปัจจุบัน (ห้ามสร้างกฎซ้ำ)]\n{rules_str}\n\n"
-                            "คำสั่ง: วิเคราะห์สาเหตุความพ่ายแพ้ และสร้างกฎโครงสร้างราคา/เวลาเพื่ออุดรอยรั่ว (ห้ามเจาะจงชื่อทีม)\n"
-                            "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น:\n"
-                            '{"analysis_summary": "สรุปสาเหตุภาพรวม", "new_rules_to_add": [{"rule_text": "ห้าม...หาก...", "category": "Risk Management"}]}'
-                        )
-                        
-                        try:
-                            if "GEMINI_API_KEY" not in st.secrets and not api_key: 
-                                st.error("⚠️ ไม่พบ API Key กรุณาใส่ API Key ใน Sidebar")
-                            else:
-                                model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
-                                res_debrief = model.generate_content(prompt_debrief)
-                                data = safe_json_loads(res_debrief.text)
-                                
-                                if data:
-                                    st.success("✅ การวิเคราะห์เสร็จสิ้น!")
-                                    st.info(f"**บทวิเคราะห์จาก CRO:**\n{data.get('analysis_summary', 'ไม่มีคำอธิบาย')}")
+                            prompt_debrief = (
+                                f"คุณคือ Chief Risk Officer และ Quant Analyst ของกองทุนกีฬา\n"
+                                f"หน้าที่: {ai_task}\n\n"
+                                f"📋 [ข้อมูล Case Study ที่ผู้บริหารคัดเลือกมา (CSV)]\n{loss_data_str}\n\n"
+                                f"📖 [คัมภีร์ปัจจุบัน (เพื่อใช้เทียบเคียง)]\n{rules_str}\n\n"
+                                "คำสั่ง:\n"
+                                "1. วิเคราะห์เจาะลึกสาเหตุของผลลัพธ์จากข้อมูลที่ให้มา\n"
+                                "2. สร้างข้อเสนอเป็น 'กฎข้อใหม่' เชิงเทคนิค (โครงสร้างราคา/เวลา/เรต) ห้ามเจาะจงชื่อทีม\n"
+                                "3. หากเป็นชัยชนะ ให้เน้นสร้างกฎเพื่อเจาะทำกำไร หรือกฎที่ใช้ผ่อนปรนความเข้มงวดของกฎเดิม\n"
+                                "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น:\n"
+                                '{"analysis_summary": "สรุปผลการวิเคราะห์เชิงลึก", "new_rules_to_add": [{"rule_text": "เนื้อหากฎ...", "category": "หมวดหมู่ (เช่น Risk Management, Winning Pattern)"}]}'
+                            )
+                            
+                            try:
+                                if "GEMINI_API_KEY" not in st.secrets and not api_key: 
+                                    st.error("⚠️ ไม่พบ API Key กรุณาใส่ API Key ใน Sidebar")
+                                else:
+                                    model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+                                    res_debrief = model.generate_content(prompt_debrief)
+                                    data = safe_json_loads(res_debrief.text)
                                     
-                                    new_rules = data.get("new_rules_to_add", [])
-                                    if new_rules:
-                                        insert_payload = []
-                                        base_id = datetime.now(timezone(timedelta(hours=7))).strftime("%Y%m%d_%H%M")
+                                    if data:
+                                        st.success("✅ กระบวนการเรียนรู้เสร็จสิ้น!")
+                                        st.info(f"**บทวิเคราะห์จาก CRO:**\n{data.get('analysis_summary', 'ไม่มีคำอธิบาย')}")
                                         
-                                        st.write("### 📜 กฎใหม่ที่ระบบสร้างและบันทึกอัตโนมัติ:")
-                                        for idx, rule in enumerate(new_rules):
-                                            rule_id = f"GEM_AUTO_{base_id}_{idx+1}"
-                                            insert_payload.append({"rule_id": rule_id, "rule_text": rule.get("rule_text", ""), "category": rule.get("category", "Auto-Generated")})
-                                            st.warning(f"**[{rule_id} - {rule.get('category')}]** {rule.get('rule_text')}")
-                                        
-                                        supabase.table("gem_knowledge").insert(insert_payload).execute()
-                                        if 'load_gem_rules' in globals():
-                                            try: load_gem_rules.clear()
-                                            except: pass
-                                        st.balloons()
-                                        st.success("💾 ซิงค์กฎใหม่ลงฐานข้อมูล (Supabase) อัตโนมัติเรียบร้อยแล้ว!")
-                                    else: st.write("🎉 AI ประเมินว่าไม่จำเป็นต้องสร้างกฎใหม่ (ความผิดพลาดอาจเกิดจาก Variance เล็กน้อย)")
-                                else: st.error("⚠️ AI ตอบกลับผิดรูปแบบ JSON ไม่สามารถดึงข้อมูลกฎได้")
-                        except Exception as e: st.error(f"❌ ระบบขัดข้องระหว่างการบันทึก: {e}")
-        else: st.success("🌟 ยอดเยี่ยม! ระบบยังไม่พบประวัติการแทงเสีย AI จึงยังไม่ต้องวิเคราะห์จุดอ่อน")
+                                        new_rules = data.get("new_rules_to_add", [])
+                                        if new_rules:
+                                            insert_payload = []
+                                            base_id = datetime.now(timezone(timedelta(hours=7))).strftime("%Y%m%d_%H%M")
+                                            
+                                            st.write("### 📜 กฎใหม่ที่ระบบสร้างและบันทึกอัตโนมัติ:")
+                                            for idx, rule in enumerate(new_rules):
+                                                rule_id = f"{prefix_id}{base_id}_{idx+1}"
+                                                insert_payload.append({"rule_id": rule_id, "rule_text": rule.get("rule_text", ""), "category": rule.get("category", "AI Learning")})
+                                                
+                                                if "DEF" in prefix_id: st.error(f"**[{rule_id} - {rule.get('category')}]** {rule.get('rule_text')}")
+                                                elif "OFF" in prefix_id: st.success(f"**[{rule_id} - {rule.get('category')}]** {rule.get('rule_text')}")
+                                                else: st.warning(f"**[{rule_id} - {rule.get('category')}]** {rule.get('rule_text')}")
+                                            
+                                            supabase.table("gem_knowledge").insert(insert_payload).execute()
+                                            if 'load_gem_rules' in globals():
+                                                try: load_gem_rules.clear()
+                                                except: pass
+                                            st.balloons()
+                                            st.success("💾 ซิงค์การเรียนรู้ลงฐานข้อมูล (Supabase) อัตโนมัติเรียบร้อยแล้ว!")
+                                        else: st.write("🎉 AI ประเมินว่าเคสนี้ไม่จำเป็นต้องสร้างกฎใหม่")
+                                    else: st.error("⚠️ AI ตอบกลับผิดรูปแบบ JSON")
+                            except Exception as e: st.error(f"❌ ระบบขัดข้องระหว่างการบันทึก: {e}")
+            else:
+                st.write("ยังไม่มีประวัติการลงทุนในหมวดหมู่นี้ครับ")
+        else: st.info("ℹ️ ยังไม่มีประวัติการลงทุนที่ทราบผลลัพธ์เพื่อนำมาวิเคราะห์")
+
+# --- ⚡ TAB 3: IN-PLAY LIVE ---
 
 # --- ⚡ TAB 3: IN-PLAY LIVE ---
 with tab3:
