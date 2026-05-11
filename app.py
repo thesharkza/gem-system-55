@@ -147,14 +147,11 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, ou_line, ou_over_w, ou_under_w, rho, 
     
     poisson_skew_adj = 0.20
     expected_total = max(0.5, ou_line + poisson_skew_adj + ((true_o_prob - 0.5) * 2.5)) 
-    
-    # 🔧 ปรับใหม่: ดรอปค่าพลังลงมาที่ 0.60 เพื่อให้สกอร์สูสีและสมจริงมากขึ้น
     supremacy = (p_h - p_a) * (expected_total ** 0.60) 
     
     lam_h_base = max(0.15, (expected_total + supremacy) / 2.0)
     lam_a_base = max(0.15, (expected_total - supremacy) / 2.0)
 
-    # 🔧 ปรับใหม่: อัตราการไหลของเวลา ให้หนืดขึ้นเล็กน้อย (0.75) เพื่อป้องกัน EV พุ่งตอนท้ายเกม
     time_factor = (minutes_left / 90.0) ** 0.75 
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
@@ -229,7 +226,8 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
 # ==========================================
 # 🧠 2. ระบบ AI Decision Engine (Chief Risk Officer)
 # ==========================================
-def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0", threshold=0.08, stats_data=""):
+# 🌟 เพิ่มตัวแปร is_target_fav เพื่อบอก AI ตรงๆ ว่านี่คือทีมต่อหรือทีมรอง
+def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0", threshold=0.08, stats_data="", is_target_fav=None):
     raw_database = load_gem_rules() 
     try: oracle_database = get_dynamic_rules(target, is_live, raw_database)
     except NameError: oracle_database = raw_database
@@ -247,13 +245,20 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
             "หากละเมิดกฎระดับ Fatal ให้ Reject ทันที แต่ถ้า Base EV สูงมาก (+15% ขึ้นไป) และชนกฎระดับ Warning ให้พิจารณาอนุมัติได้"
         )
 
+    # 🌟 กำหนดข้อความป้ายกำกับให้ชัดเจน ห้าม AI เดาเอง!
+    role_info = ""
+    if is_target_fav is True:
+        role_info = " [สถานะ: ทีมต่อ (Favorite)]"
+    elif is_target_fav is False:
+        role_info = " [สถานะ: ทีมรอง (Underdog)]"
+
     prompt = (
         f"คุณคือ Chief Risk Officer (CRO) ประจำกองทุน Quant Sports Betting\n"
         f"วิสัยทัศน์: ลงทุนเพื่อเอาชนะ Margin ของเจ้ามือด้วยหลักการ Expected Value (EV)\n\n"
         f"[ข้อมูลหน้างาน]\n"
         f"- คู่: {match_name}\n"
         f"- สถานการณ์: {'Live ' + str(current_min) + ' min (' + score + ')' if is_live else 'Pre-Match'}\n"
-        f"- เป้าหมาย: {target} (เรต {hdp_line}, Odds {odds})\n"
+        f"- เป้าหมาย: {target}{role_info} (เรต {abs(hdp_line)}, Odds {odds})\n"
         f"- Base EV: {base_ev * 100:.2f}%\n\n"
         f"📊 [ข้อมูลสถิติเชิงลึก (ถ้ามี)]\n"
         f"{stats_data}\n\n"
@@ -261,12 +266,13 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
         f"📖 [คัมภีร์ GEM RULES จาก CLOUD]\n"
         f"{oracle_database}\n\n"
         "คำสั่งพิเศษ:\n"
-        "1. หากมีการละเมิดกฎ หรือนำกฎข้อใดมาพิจารณา 'ต้อง' ระบุ [Rule ID] และ [Category] ที่ปรากฏในฐานข้อมูลให้ชัดเจน\n"
-        "2. หากข้อมูลสถิติสนับสนุนเป้าหมาย ให้พิจารณาเพิ่มความมั่นใจ\n\n"
+        "1. เช็คสถานะ 'ทีมต่อ/ทีมรอง' ในข้อมูลหน้างานให้ดี ห้ามสับสน! กฎบางข้อห้ามใช้กับทีมรองเด็ดขาด\n"
+        "2. หากมีการละเมิดกฎ หรือนำกฎข้อใดมาพิจารณา 'ต้อง' ระบุ [Rule ID] และ [Category] ให้ชัดเจน\n"
+        "3. ค่า impact_score ต้องเป็นทศนิยมเท่านั้น (เช่น 0.05 คือปรับเพิ่ม 5%, -0.10 คือปรับลด 10%) ห้ามส่งค่าตัวเลขเกิน 1.0 หรือต่ำกว่า -1.0 เด็ดขาด\n\n"
         "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น:\n"
         "{\n"
         '    "pros_analysis": "วิเคราะห์ข้อดีทางคณิตศาสตร์ (และสถิติถ้ามี)",\n'
-        '    "cons_analysis": "ระบุความเสี่ยงและกฎที่ตรวจพบ (ระบุ ID และ Category ที่นี่)",\n'
+        '    "cons_analysis": "ระบุความเสี่ยงและกฎที่ตรวจพบ (ระบุ ID ด้วย)",\n'
         '    "rule_triggered": "ระบุเฉพาะ Rule ID และหมวดหมู่",\n'
         '    "impact_score": 0.0,\n'
         '    "final_decision": true,\n'
@@ -280,7 +286,13 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
             model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
             response = model.generate_content(prompt)
             data = safe_json_loads(response.text)
-            if data: return data
+            if data:
+                # 🌟 FIX BUGS 750%: ถ้า AI ส่งค่ามาแบบบ้าคลั่งเกิน 1 (เช่น ส่งมา 7.5 แทนที่จะเป็น 0.075) ให้หาร 100 กลับทันที
+                impact = float(data.get('impact_score', 0.0))
+                if abs(impact) >= 1.0: 
+                    impact = impact / 100.0 
+                data['impact_score'] = impact
+                return data
         except Exception as e:
             if attempt == 2:
                 return {
@@ -519,7 +531,12 @@ with tab1:
             if not api_key: st.warning("⚠️ กรุณาใส่ API Key ให้ AI กรองความเสี่ยง")
             else:
                 with st.spinner("🧠 THE ORACLE กำลังตรวจสอบ EV และสถิติ..."):
-                    ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'], is_live=False, threshold=pre_ah_limit, stats_data=match_stats)
+                    # 🌟 คำนวณส่งค่าป้ายกำกับทีมต่อทีมรองไปให้ฟังก์ชัน AI
+                    t_fav = None
+                    if target_to_check['n'] == "เจ้าบ้าน": t_fav = is_h_fav
+                    elif target_to_check['n'] == "ทีมเยือน": t_fav = not is_h_fav
+                    
+                    ai_verdict = ai_quant_decision_engine(match_name, target_to_check['n'], target_to_check['ev'], target_to_check['hdp'], target_to_check['odds'], is_live=False, threshold=pre_ah_limit, stats_data=match_stats, is_target_fav=t_fav)
                     net_ev = target_to_check['ev'] + ai_verdict.get('impact_score', 0)
                 
                 st.markdown("---")
@@ -733,8 +750,8 @@ with tab2:
                                                 except: pass
                                             st.balloons()
                                             st.success("💾 ซิงค์การเรียนรู้ลงฐานข้อมูล (Supabase) อัตโนมัติเรียบร้อยแล้ว!")
-                                        else: st.write("🎉 AI ประเมินว่าเคสนี้ไม่จำเป็นต้องสร้างกฎใหม่")
-                                    else: st.error("⚠️ AI ตอบกลับผิดรูปแบบ JSON")
+                                        else: st.write("🎉 AI ประเมินว่าเคสนี้ไม่จำเป็นต้องสร้างกฎใหม่ (ความผิดพลาดอาจเกิดจาก Variance เล็กน้อย)")
+                                    else: st.error("⚠️ AI ตอบกลับผิดรูปแบบ JSON ไม่สามารถดึงข้อมูลกฎได้")
                             except Exception as e: st.error(f"❌ ระบบขัดข้องระหว่างการบันทึก: {e}")
             else:
                 st.write("ยังไม่มีประวัติการลงทุนในหมวดหมู่นี้ครับ")
@@ -832,7 +849,12 @@ with tab3:
             if not api_key: st.warning("⚠️ โปรดใส่ API Key ให้ AI ทำงาน")
             else:
                 with st.spinner("🧠 กำลังวิเคราะห์ข้อมูลด้วย The Oracle..."):
-                    ai_live = ai_quant_decision_engine("Live", t_live['n'], t_live['ev'], t_live['hdp'], t_live['odds'], True, current_min, f"{current_score_h}-{current_score_a}", threshold=live_ah_limit, stats_data="")
+                    # 🌟 คำนวณส่งค่าป้ายกำกับทีมต่อทีมรองไปให้ฟังก์ชัน AI (โหมด Live)
+                    t_fav = None
+                    if t_live['n'] == "เจ้าบ้าน": t_fav = is_fav
+                    elif t_live['n'] == "ทีมเยือน": t_fav = not is_fav
+                    
+                    ai_live = ai_quant_decision_engine("Live", t_live['n'], t_live['ev'], t_live['hdp'], t_live['odds'], True, current_min, f"{current_score_h}-{current_score_a}", threshold=live_ah_limit, stats_data="", is_target_fav=t_fav)
                     net_l_ev = t_live['ev'] + ai_live.get('impact_score', 0)
                     
                     st.markdown("---")
