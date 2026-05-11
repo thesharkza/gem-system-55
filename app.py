@@ -145,8 +145,20 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, ou_line, ou_over_w, ou_under_w, rho, 
     o_prob = 1.0 / o_w; u_prob = 1.0 / u_w
     true_o_prob = o_prob / (o_prob + u_prob)
     
-    poisson_skew_adj = 0.20
-    expected_total = max(0.5, ou_line + poisson_skew_adj + ((true_o_prob - 0.5) * 2.5)) 
+    # 1. ฐานความคาดหวังจากเจ้ามือ (Baseline)
+    base_expected_total = ou_line + 0.20 + ((true_o_prob - 0.5) * 2.5) 
+    
+    # 🌟 FIX: Cross-Market Calibration (ปลดล็อก EV สูง/ต่ำ)
+    # หาความเบี่ยงเบนของโอกาสเสมอ (ค่ามาตรฐานคือ 25% หรือ 0.25)
+    draw_divergence = 0.25 - p_d 
+    
+    # ตัวคูณ 8.0 คืออัตราเร่ง หากโอกาสเสมอน้อย บอลจะยิ่งเปิดแลก (ยิงกันเยอะ)
+    total_adjustment = draw_divergence * 8.0 
+    
+    # 2. จำนวนประตูที่คาดหวังใหม่ (หักล้างกับตลาด 1X2 แล้ว)
+    expected_total = max(0.5, base_expected_total + total_adjustment)
+    
+    # 3. คำนวณพลังโจมตีและอัตราเวลา
     supremacy = (p_h - p_a) * (expected_total ** 0.60) 
     
     lam_h_base = max(0.15, (expected_total + supremacy) / 2.0)
