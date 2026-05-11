@@ -238,7 +238,6 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
 # ==========================================
 # 🧠 2. ระบบ AI Decision Engine (Chief Risk Officer)
 # ==========================================
-# 🌟 เพิ่มตัวแปร is_target_fav เพื่อบอก AI ตรงๆ ว่านี่คือทีมต่อหรือทีมรอง
 def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_live=False, current_min=0, score="0-0", threshold=0.08, stats_data="", is_target_fav=None):
     raw_database = load_gem_rules() 
     try: oracle_database = get_dynamic_rules(target, is_live, raw_database)
@@ -257,7 +256,6 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
             "หากละเมิดกฎระดับ Fatal ให้ Reject ทันที แต่ถ้า Base EV สูงมาก (+15% ขึ้นไป) และชนกฎระดับ Warning ให้พิจารณาอนุมัติได้"
         )
 
-    # 🌟 กำหนดข้อความป้ายกำกับให้ชัดเจน ห้าม AI เดาเอง!
     role_info = ""
     if is_target_fav is True:
         role_info = " [สถานะ: ทีมต่อ (Favorite)]"
@@ -279,8 +277,9 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
         f"{oracle_database}\n\n"
         "คำสั่งพิเศษ:\n"
         "1. เช็คสถานะ 'ทีมต่อ/ทีมรอง' ในข้อมูลหน้างานให้ดี ห้ามสับสน! กฎบางข้อห้ามใช้กับทีมรองเด็ดขาด\n"
-        "2. หากมีการละเมิดกฎ หรือนำกฎข้อใดมาพิจารณา 'ต้อง' ระบุ [Rule ID] และ [Category] ให้ชัดเจน\n"
-        "3. ค่า impact_score ต้องเป็นทศนิยมเท่านั้น (เช่น 0.05 คือปรับเพิ่ม 5%, -0.10 คือปรับลด 10%) ห้ามส่งค่าตัวเลขเกิน 1.0 หรือต่ำกว่า -1.0 เด็ดขาด\n\n"
+        "2. ⚠️ แยกแยะตลาด (Market Isolation): หากเป้าหมายคือตลาด แฮนดิแคป (ทีมต่อ/ทีมรอง) ห้ามนำกฎของตลาด สูง/ต่ำ (O/U) มาใช้พิจารณาเด็ดขาด และในทางกลับกัน\n"
+        "3. หากมีการละเมิดกฎ หรือนำกฎข้อใดมาพิจารณา 'ต้อง' ระบุ [Rule ID] และ [Category] ให้ชัดเจน\n"
+        "4. ค่า impact_score ต้องเป็นทศนิยมเท่านั้น (เช่น 0.05 คือปรับเพิ่ม 5%, -0.10 คือปรับลด 10%) ห้ามส่งค่าตัวเลขเกิน 1.0 หรือต่ำกว่า -1.0 เด็ดขาด\n\n"
         "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น:\n"
         "{\n"
         '    "pros_analysis": "วิเคราะห์ข้อดีทางคณิตศาสตร์ (และสถิติถ้ามี)",\n'
@@ -299,7 +298,6 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
             response = model.generate_content(prompt)
             data = safe_json_loads(response.text)
             if data:
-                # 🌟 FIX BUGS 750%: ถ้า AI ส่งค่ามาแบบบ้าคลั่งเกิน 1 (เช่น ส่งมา 7.5 แทนที่จะเป็น 0.075) ให้หาร 100 กลับทันที
                 impact = float(data.get('impact_score', 0.0))
                 if abs(impact) >= 1.0: 
                     impact = impact / 100.0 
@@ -543,7 +541,6 @@ with tab1:
             if not api_key: st.warning("⚠️ กรุณาใส่ API Key ให้ AI กรองความเสี่ยง")
             else:
                 with st.spinner("🧠 THE ORACLE กำลังตรวจสอบ EV และสถิติ..."):
-                    # 🌟 คำนวณส่งค่าป้ายกำกับทีมต่อทีมรองไปให้ฟังก์ชัน AI
                     t_fav = None
                     if target_to_check['n'] == "เจ้าบ้าน": t_fav = is_h_fav
                     elif target_to_check['n'] == "ทีมเยือน": t_fav = not is_h_fav
@@ -725,9 +722,10 @@ with tab2:
                                 "คำสั่ง:\n"
                                 "1. วิเคราะห์เจาะลึกสาเหตุของผลลัพธ์จากข้อมูลที่ให้มา\n"
                                 "2. สร้างข้อเสนอเป็น 'กฎข้อใหม่' เชิงเทคนิค (โครงสร้างราคา/เวลา/เรต) ห้ามเจาะจงชื่อทีม\n"
-                                "3. หากเป็นชัยชนะ ให้เน้นสร้างกฎเพื่อเจาะทำกำไร หรือกฎที่ใช้ผ่อนปรนความเข้มงวดของกฎเดิม\n"
+                                "3. ⚠️ ต้องระบุประเภทตลาดของกฎให้ชัดเจน โดยใส่ป้ายกำกับไว้ที่ Category: ใช้ [AH] สำหรับกฎแฮนดิแคป, [OU] สำหรับกฎสูง/ต่ำ, หรือ [ALL] หากใช้ได้กับทุกตลาด\n"
+                                "4. หากเป็นชัยชนะ ให้เน้นสร้างกฎเพื่อเจาะทำกำไร หรือกฎที่ใช้ผ่อนปรนความเข้มงวดของกฎเดิม\n"
                                 "ตอบกลับเป็น JSON Format (ภาษาไทย) เท่านั้น:\n"
-                                '{"analysis_summary": "สรุปผลการวิเคราะห์เชิงลึก", "new_rules_to_add": [{"rule_text": "เนื้อหากฎ...", "category": "หมวดหมู่ (เช่น Risk Management, Winning Pattern)"}]}'
+                                '{"analysis_summary": "สรุปผลการวิเคราะห์เชิงลึก", "new_rules_to_add": [{"rule_text": "เนื้อหากฎ...", "category": "Risk Management [AH]"}]}'
                             )
                             
                             try:
@@ -861,7 +859,6 @@ with tab3:
             if not api_key: st.warning("⚠️ โปรดใส่ API Key ให้ AI ทำงาน")
             else:
                 with st.spinner("🧠 กำลังวิเคราะห์ข้อมูลด้วย The Oracle..."):
-                    # 🌟 คำนวณส่งค่าป้ายกำกับทีมต่อทีมรองไปให้ฟังก์ชัน AI (โหมด Live)
                     t_fav = None
                     if t_live['n'] == "เจ้าบ้าน": t_fav = is_fav
                     elif t_live['n'] == "ทีมเยือน": t_fav = not is_fav
@@ -923,13 +920,8 @@ with tab4:
             finished_logs = finished_logs.dropna(subset=['Actual_Score'])
             
             if not finished_logs.empty:
-                # ความน่าจะเป็นของเจ้ามือ
                 finished_logs['Bookie_Prob'] = (1 / finished_logs['Odds']).clip(lower=0.0, upper=1.0)
-                
-                # ความน่าจะเป็นดิบของเรา
                 raw_our_prob = (((finished_logs['EV_Pct'] / 100) + 1) / finished_logs['Odds']).clip(lower=0.0, upper=1.0)
-                
-                # 🔧 ปรับใหม่ (Bayesian Shrinkage): ผสมความมั่นใจ (โมเดลเรา 85% : บ่อน 15%)
                 finished_logs['Our_Prob'] = ((raw_our_prob * 0.85) + (finished_logs['Bookie_Prob'] * 0.15)).clip(lower=0.0, upper=1.0)
                 
                 finished_logs['Our_Error'] = (finished_logs['Our_Prob'] - finished_logs['Actual_Score'])**2
