@@ -147,12 +147,15 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, ou_line, ou_over_w, ou_under_w, rho, 
     
     poisson_skew_adj = 0.20
     expected_total = max(0.5, ou_line + poisson_skew_adj + ((true_o_prob - 0.5) * 2.5)) 
-    supremacy = (p_h - p_a) * (expected_total ** 0.85)
+    
+    # 🔧 ปรับใหม่: ดรอปค่าพลังลงมาที่ 0.60 เพื่อให้สกอร์สูสีและสมจริงมากขึ้น
+    supremacy = (p_h - p_a) * (expected_total ** 0.60) 
     
     lam_h_base = max(0.15, (expected_total + supremacy) / 2.0)
     lam_a_base = max(0.15, (expected_total - supremacy) / 2.0)
 
-    time_factor = (minutes_left / 90.0) ** 0.85 
+    # 🔧 ปรับใหม่: อัตราการไหลของเวลา ให้หนืดขึ้นเล็กน้อย (0.75) เพื่อป้องกัน EV พุ่งตอนท้ายเกม
+    time_factor = (minutes_left / 90.0) ** 0.75 
     lam_h = lam_h_base * time_factor
     lam_a = lam_a_base * time_factor
 
@@ -631,21 +634,18 @@ with tab2:
         st.markdown("---")
         st.subheader("🤖 AI Oracle Learning (พัฒนากฎจากชัยชนะและความพ่ายแพ้)")
         
-        # ดึงเฉพาะไม้ที่รู้ผลแล้ว (มีสกอร์/Result)
         if 'Net_Profit' in logs.columns:
             completed_logs = logs[logs['Result'].astype(str).str.strip() != ""].copy()
         else:
             completed_logs = pd.DataFrame()
             
         if len(completed_logs) > 0:
-            # 🌟 เพิ่มปุ่มเลือกประเภทการวิเคราะห์
             debrief_type = st.radio("🔍 เลือกประเภทข้อมูลที่จะให้ AI เรียนรู้:", 
                                    ["🔴 วิเคราะห์ความพ่ายแพ้ (หาจุดอ่อน/สร้างเกราะป้องกัน)", 
                                     "🟢 วิเคราะห์ชัยชนะ (หาจุดแข็ง/หักล้างกฎเดิมที่ตึงเกินไป)", 
                                     "⚪ วิเคราะห์ผสม (เปรียบเทียบหารูปแบบ)"], 
                                    horizontal=True)
             
-            # กรองข้อมูลและตั้งเป้าหมายให้ AI ตามประเภทที่เลือก
             if "🔴" in debrief_type:
                 target_logs = completed_logs[completed_logs['Net_Profit'] < 0].copy()
                 ai_task = "ทำ 'Post-Mortem Analysis' จากข้อมูลที่ขาดทุน ค้นหาจุดอ่อน และสร้างกฎเพื่อป้องกันความผิดพลาดเดิม (Defensive Rules)"
@@ -739,8 +739,6 @@ with tab2:
             else:
                 st.write("ยังไม่มีประวัติการลงทุนในหมวดหมู่นี้ครับ")
         else: st.info("ℹ️ ยังไม่มีประวัติการลงทุนที่ทราบผลลัพธ์เพื่อนำมาวิเคราะห์")
-
-# --- ⚡ TAB 3: IN-PLAY LIVE ---
 
 # --- ⚡ TAB 3: IN-PLAY LIVE ---
 with tab3:
@@ -866,7 +864,7 @@ with tab3:
 # ==========================================
 with tab4:
     st.header("🧪 ระบบทดสอบความแม่นยำจากข้อมูลจริง (Live Backtest)")
-    st.markdown("ระบบคำนวณย้อนหลังเพื่อดูว่า AI ประเมิน 'โอกาสชนะ' ได้แม่นยำกว่า 'ราคาของเจ้ามือ' หรือไม่ (ใช้มาตรฐาน Brier Score: ยิ่งใกล้ 0 ยิ่งดี)")
+    st.markdown("ระบบจะดึงข้อมูลบิลการลงทุน **ที่รู้ผลแล้ว** จาก Dashboard มาคำนวณย้อนหลัง เพื่อดูว่า AI ของเราประเมิน 'โอกาสชนะ' ได้แม่นยำกว่า 'ราคาของเจ้ามือ' หรือไม่ (ใช้มาตรฐาน Brier Score: ยิ่งใกล้ 0 ยิ่งแปลว่าทายแม่น)")
     
     logs = load_logs()
     if logs is not None and not logs.empty:
@@ -891,8 +889,14 @@ with tab4:
             finished_logs = finished_logs.dropna(subset=['Actual_Score'])
             
             if not finished_logs.empty:
+                # ความน่าจะเป็นของเจ้ามือ
                 finished_logs['Bookie_Prob'] = (1 / finished_logs['Odds']).clip(lower=0.0, upper=1.0)
-                finished_logs['Our_Prob'] = (((finished_logs['EV_Pct'] / 100) + 1) / finished_logs['Odds']).clip(lower=0.0, upper=1.0)
+                
+                # ความน่าจะเป็นดิบของเรา
+                raw_our_prob = (((finished_logs['EV_Pct'] / 100) + 1) / finished_logs['Odds']).clip(lower=0.0, upper=1.0)
+                
+                # 🔧 ปรับใหม่ (Bayesian Shrinkage): ผสมความมั่นใจ (โมเดลเรา 85% : บ่อน 15%)
+                finished_logs['Our_Prob'] = ((raw_our_prob * 0.85) + (finished_logs['Bookie_Prob'] * 0.15)).clip(lower=0.0, upper=1.0)
                 
                 finished_logs['Our_Error'] = (finished_logs['Our_Prob'] - finished_logs['Actual_Score'])**2
                 finished_logs['Bookie_Error'] = (finished_logs['Bookie_Prob'] - finished_logs['Actual_Score'])**2
