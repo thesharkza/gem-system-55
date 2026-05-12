@@ -16,23 +16,24 @@ from supabase import create_client, Client
 # 🛡️ HELPER FUNCTIONS
 # ==========================================
 def safe_json_loads(text):
+    # [แก้ไข #5] ลบ `import json` ซ้ำซ้อนออก — ใช้ที่ import ระดับ module แทน
     if not text: return {}
     try:
         start_idx = text.find('{')
         end_idx = text.rfind('}')
         if start_idx != -1 and end_idx != -1:
             clean_text = text[start_idx:end_idx+1]
-            import json
             return json.loads(clean_text)
-        import json
         return json.loads(text)
     except Exception:
         clean = text.replace("```json", "").replace("```", "").strip()
-        try: 
-            import json
+        try:
             return json.loads(clean)
-        except: 
+        except:
             return {}
+
+# [แก้ไข #2] ย้าย set_page_config ขึ้นมาก่อนทุกอย่าง — ต้องเป็น Streamlit call แรกเสมอ
+st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
 
 @st.cache_resource
 def init_connection():
@@ -41,9 +42,6 @@ def init_connection():
     return create_client(url, key)
 
 supabase: Client = init_connection()
-
-# --- CONFIG ---
-st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
 # 0. SESSION STATE & CLOUD DATABASE
@@ -149,10 +147,7 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, ou_line, ou_over_w, ou_under_w, rho, 
     base_expected_total = ou_line + 0.20 + ((true_o_prob - 0.5) * 2.5) 
     
     # 🌟 FIX: Cross-Market Calibration (ปลดล็อก EV สูง/ต่ำ)
-    # หาความเบี่ยงเบนของโอกาสเสมอ (ค่ามาตรฐานคือ 25% หรือ 0.25)
     draw_divergence = 0.25 - p_d 
-    
-    # ตัวคูณ 8.0 คืออัตราเร่ง หากโอกาสเสมอน้อย บอลจะยิ่งเปิดแลก (ยิงกันเยอะ)
     total_adjustment = draw_divergence * 8.0 
     
     # 2. จำนวนประตูที่คาดหวังใหม่ (หักล้างกับตลาด 1X2 แล้ว)
@@ -221,18 +216,41 @@ def calc_advanced_ah_ev(hdp, w2, w1, d, l1, l2, odds, is_fav):
         elif h == 1.5: return ((w2 + w1 + d + l1) * b) - (l2 * 1)
     return 0.0
 
+# [แก้ไข #3] เพิ่ม case Under rm=0.75 ที่หายไป
 def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
     b = odds - 1; fl = math.floor(ou_line); rm = ou_line - fl
     if is_over:
-        if rm == 0.0: return (sum(p_total.get(k, 0) for k in p_total if k > fl) * b) - (sum(p_total.get(k, 0) for k in p_total if k < fl) * 1)
-        elif rm == 0.25: return (sum(p_total.get(k, 0) for k in p_total if k >= fl + 1) * b) - (p_total.get(fl, 0) * 0.5) - (sum(p_total.get(k, 0) for k in p_total if k < fl) * 1)
-        elif rm == 0.5: return (sum(p_total.get(k, 0) for k in p_total if k >= fl + 1) * b) - (sum(p_total.get(k, 0) for k in p_total if k <= fl) * 1)
-        elif rm == 0.75: return (sum(p_total.get(k, 0) for k in p_total if k >= fl + 2) * b) + (p_total.get(fl + 1, 0) * (b / 2)) - (sum(p_total.get(k, 0) for k in p_total if k <= fl) * 1)
-    else: 
-        if rm == 0.0: return (sum(p_total.get(k, 0) for k in p_total if k < fl) * b) - (sum(p_total.get(k, 0) for k in p_total if k > fl) * 1)
-        elif rm == 0.25: return (sum(p_total.get(k, 0) for k in p_total if k < fl) * b) + (p_total.get(fl, 0) * (b / 2)) - (sum(p_total.get(k, 0) for k in p_total if k >= fl + 1) * 1)
-        elif rm == 0.5: return (sum(p_total.get(k, 0) for k in p_total if k <= fl) * b) - (sum(p_total.get(k, 0) for k in p_total if k >= fl + 1) * 1)
-        elif rm == 0.75: return (sum(p_total.get(k, 0) for k in p_total if k <= fl) * b) - (p_total.get(fl + 1, 0) * 0.5) - (sum(p_total.get(k, 0) for k in p_total if k >= fl + 2) * 1)
+        if rm == 0.0:
+            return (sum(p_total.get(k, 0) for k in p_total if k > fl) * b) \
+                 - (sum(p_total.get(k, 0) for k in p_total if k < fl) * 1)
+        elif rm == 0.25:
+            return (sum(p_total.get(k, 0) for k in p_total if k >= fl + 1) * b) \
+                 - (p_total.get(fl, 0) * 0.5) \
+                 - (sum(p_total.get(k, 0) for k in p_total if k < fl) * 1)
+        elif rm == 0.5:
+            return (sum(p_total.get(k, 0) for k in p_total if k >= fl + 1) * b) \
+                 - (sum(p_total.get(k, 0) for k in p_total if k <= fl) * 1)
+        elif rm == 0.75:
+            return (sum(p_total.get(k, 0) for k in p_total if k >= fl + 2) * b) \
+                 + (p_total.get(fl + 1, 0) * (b / 2)) \
+                 - (sum(p_total.get(k, 0) for k in p_total if k <= fl) * 1)
+    else:
+        if rm == 0.0:
+            return (sum(p_total.get(k, 0) for k in p_total if k < fl) * b) \
+                 - (sum(p_total.get(k, 0) for k in p_total if k > fl) * 1)
+        elif rm == 0.25:
+            return (sum(p_total.get(k, 0) for k in p_total if k < fl) * b) \
+                 + (p_total.get(fl, 0) * (b / 2)) \
+                 - (sum(p_total.get(k, 0) for k in p_total if k >= fl + 1) * 1)
+        elif rm == 0.5:
+            return (sum(p_total.get(k, 0) for k in p_total if k <= fl) * b) \
+                 - (sum(p_total.get(k, 0) for k in p_total if k >= fl + 1) * 1)
+        elif rm == 0.75:
+            # [แก้ไข #3] เพิ่ม case นี้ที่หายไปในโค้ดเดิม
+            # Under 2.75 = เสียครึ่งถ้ารวม 3 ลูก, แพ้เต็มถ้ารวม 4+
+            return (sum(p_total.get(k, 0) for k in p_total if k <= fl) * b) \
+                 - (p_total.get(fl + 1, 0) * 0.5) \
+                 - (sum(p_total.get(k, 0) for k in p_total if k >= fl + 2) * 1)
     return 0.0
 
 # ==========================================
@@ -417,7 +435,7 @@ with tab1:
     st.sidebar.header("💰 Portfolio & Parameters")
     total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0)
     dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho", -0.30, 0.0, -0.10, step=0.01)
-    hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5,step=0.5)
+    hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5, step=0.5)
     
     st.sidebar.markdown("---")
     st.sidebar.subheader("🎯 Pre-Match EV Threshold")
@@ -575,14 +593,16 @@ with tab1:
 
 # --- 📊 TAB 2: Dashboard & AI Debrief ---
 with tab2:
-    logs = load_logs()
-    if not logs.empty:
+    # [แก้ไข #4] เรียก load_logs() ครั้งเดียวและเก็บในตัวแปร tab2_logs
+    # เพื่อไม่ให้ชนกับตัวแปร logs ที่ Tab 4 จะเรียกแยกต่างหาก
+    tab2_logs = load_logs()
+    if not tab2_logs.empty:
         st.subheader("📝 บันทึกผล & ราคาปิด (Closing Odds) - Cloud Sync")
         col_edit1, col_edit2 = st.columns([1, 2])
         with col_edit1:
             edit_filter = st.selectbox("🔍 เลือกรายการที่จะแสดงในตาราง:", ["แสดงเฉพาะวันนี้", "แสดงเฉพาะรายการที่ยังไม่ลงผล", "แสดงทั้งหมด"], index=0)
         
-        df_to_edit = logs.copy()
+        df_to_edit = tab2_logs.copy()
         tz_th = timezone(timedelta(hours=7))
         today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
 
@@ -605,8 +625,8 @@ with tab2:
             
         if c_b2.button("🗑️ Clear Local Cache"): st.rerun()
         
-        logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
-        logs['CLV_Pct'] = logs.apply(calculate_clv, axis=1)
+        tab2_logs['Net_Profit'] = tab2_logs.apply(calculate_net_profit, axis=1)
+        tab2_logs['CLV_Pct'] = tab2_logs.apply(calculate_clv, axis=1)
         
         st.markdown("---")
         st.markdown("### 🎛️ โหมดการวิเคราะห์ (Dashboard View)")
@@ -614,8 +634,8 @@ with tab2:
         with col_f1: time_filter = st.radio("⏳ ช่วงเวลา:", ["🌍 ทั้งหมด (All Time)", "📅 เฉพาะวันนี้ (Today)"], horizontal=True)
         with col_f2: view_mode = st.radio("🎯 เลือกมิติข้อมูล:", ["🌍 ภาพรวม (All)", "🚀 ก่อนเตะ (Pre-Match)", "⚡ บอลสด (In-Play)"], horizontal=True)
 
-        if time_filter == "📅 เฉพาะวันนี้ (Today)": time_filtered_logs = logs[logs['Time'].astype(str).str.contains(today_str, na=False)].copy()
-        else: time_filtered_logs = logs.copy()
+        if time_filter == "📅 เฉพาะวันนี้ (Today)": time_filtered_logs = tab2_logs[tab2_logs['Time'].astype(str).str.contains(today_str, na=False)].copy()
+        else: time_filtered_logs = tab2_logs.copy()
 
         if view_mode == "⚡ บอลสด (In-Play)": filtered_logs = time_filtered_logs[time_filtered_logs['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
         elif view_mode == "🚀 ก่อนเตะ (Pre-Match)": filtered_logs = time_filtered_logs[~time_filtered_logs['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
@@ -655,13 +675,13 @@ with tab2:
                 st.bar_chart(odds_win_rate, color=line_color)
 
         # ==========================================
-        # 🤖 AI Oracle Learning (วิเคราะห์จุดอ่อน & ค้นหาจุดแข็ง)
+        # 🤖 AI Oracle Learning
         # ==========================================
         st.markdown("---")
         st.subheader("🤖 AI Oracle Learning (พัฒนากฎจากชัยชนะและความพ่ายแพ้)")
         
-        if 'Net_Profit' in logs.columns:
-            completed_logs = logs[logs['Result'].astype(str).str.strip() != ""].copy()
+        if 'Net_Profit' in tab2_logs.columns:
+            completed_logs = tab2_logs[tab2_logs['Result'].astype(str).str.strip() != ""].copy()
         else:
             completed_logs = pd.DataFrame()
             
@@ -755,9 +775,8 @@ with tab2:
                                                 else: st.warning(f"**[{rule_id} - {rule.get('category')}]** {rule.get('rule_text')}")
                                             
                                             supabase.table("gem_knowledge").insert(insert_payload).execute()
-                                            if 'load_gem_rules' in globals():
-                                                try: load_gem_rules.clear()
-                                                except: pass
+                                            # [แก้ไข #8 ใน original] clear cache อย่างถูกวิธี
+                                            load_gem_rules.clear()
                                             st.balloons()
                                             st.success("💾 ซิงค์การเรียนรู้ลงฐานข้อมูล (Supabase) อัตโนมัติเรียบร้อยแล้ว!")
                                         else: st.write("🎉 AI ประเมินว่าเคสนี้ไม่จำเป็นต้องสร้างกฎใหม่ (ความผิดพลาดอาจเกิดจาก Variance เล็กน้อย)")
@@ -891,16 +910,17 @@ with tab3:
         else: st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมายที่ตั้งไว้ AH: {live_ah_threshold}%, O/U: {live_ou_threshold}%)")
 
 # ==========================================
-# --- TAB 4: BACKTEST ENGINE (REAL DATA EVALUATION) ---
+# --- TAB 4: BACKTEST ENGINE ---
 # ==========================================
 with tab4:
     st.header("🧪 ระบบทดสอบความแม่นยำจากข้อมูลจริง (Live Backtest)")
     st.markdown("ระบบจะดึงข้อมูลบิลการลงทุน **ที่รู้ผลแล้ว** จาก Dashboard มาคำนวณย้อนหลัง เพื่อดูว่า AI ของเราประเมิน 'โอกาสชนะ' ได้แม่นยำกว่า 'ราคาของเจ้ามือ' หรือไม่ (ใช้มาตรฐาน Brier Score: ยิ่งใกล้ 0 ยิ่งแปลว่าทายแม่น)")
     
-    logs = load_logs()
-    if logs is not None and not logs.empty:
-        logs['Net_Profit'] = logs.apply(calculate_net_profit, axis=1)
-        finished_logs = logs[logs['Result'].astype(str).str.strip() != ""].copy()
+    # [แก้ไข #4] ใช้ตัวแปรชื่อ tab4_logs แทน logs เพื่อไม่ให้ชนกับ tab2_logs
+    tab4_logs = load_logs()
+    if tab4_logs is not None and not tab4_logs.empty:
+        tab4_logs['Net_Profit'] = tab4_logs.apply(calculate_net_profit, axis=1)
+        finished_logs = tab4_logs[tab4_logs['Result'].astype(str).str.strip() != ""].copy()
         
         if not finished_logs.empty:
             def map_net_profit_to_score(row):
@@ -908,11 +928,11 @@ with tab4:
                     inv, net, odds = float(row['Investment']), float(row['Net_Profit']), float(row['Odds'])
                     if inv <= 0: return np.nan
                     max_win = inv * (odds - 1)
-                    if net >= max_win * 0.95: return 1.0        # Win เต็ม
-                    elif net > 0: return 0.75                   # ได้ครึ่ง
-                    elif net == 0: return 0.50                  # เสมอตัว
-                    elif net <= -inv * 0.95: return 0.0         # เสียเต็ม
-                    elif net < 0: return 0.25                   # เสียครึ่ง
+                    if net >= max_win * 0.95: return 1.0
+                    elif net > 0: return 0.75
+                    elif net == 0: return 0.50
+                    elif net <= -inv * 0.95: return 0.0
+                    elif net < 0: return 0.25
                     return np.nan
                 except: return np.nan
                     
