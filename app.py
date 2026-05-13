@@ -13,77 +13,138 @@ import numpy as np
 from supabase import create_client, Client
 
 # --- CONFIG ---
-# [แก้ไข] ย้าย set_page_config ขึ้นมาก่อนสุดตามกฎของ Streamlit
 st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
 
 # ==========================================
-# 🎨 0.1 MODERN UI / UX ENGINE (CSS Injection)
+# 🎨 0.1 LIMITLESS DASHBOARD UI ENGINE (Light Theme)
 # ==========================================
 st.markdown("""
 <style>
-    /* 1. จัดการพื้นที่จอมือถือให้คุ้มค่า (ลดขอบขาว) */
+    /* บังคับพื้นหลังให้เป็นสีเทาอ่อนแบบ Limitless */
+    .stApp {
+        background-color: #f4f5f7;
+    }
+
+    /* 1. จัดการพื้นที่ขอบ ให้ดูเป็นระเบียบ */
     div.block-container {
-        padding-top: 1.5rem !important;
-        padding-bottom: 1rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
+        padding-top: 2rem !important;
+        padding-bottom: 2rem !important;
+        padding-left: 1.5rem !important;
+        padding-right: 1.5rem !important;
     }
     
-    /* 2. ซ่อนแถบ Header ของ Streamlit ด้านบน ให้เหมือนแอปมือถือแท้ๆ */
+    /* 2. ซ่อนแถบ Header ของ Streamlit */
     header {visibility: hidden;}
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
 
-    /* 3. ตกแต่งกรอบ Expander (กล่องพับได้) ให้เป็นสไตล์ Card ขอบมน */
+    /* 3. ตกแต่งกรอบ Expander ให้เป็นสไตล์ Panel สีขาว ขอบบาง เงาอ่อนๆ */
     div[data-testid="stExpander"] {
-        background-color: rgba(255, 255, 255, 0.02);
-        border-radius: 15px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        background-color: #ffffff !important;
+        border-radius: 6px !important;
+        border: 1px solid #cfd8dc !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
+    }
+    div[data-testid="stExpander"] summary {
+        background-color: #f8f9fa !important;
+        border-bottom: 1px solid #eceff1 !important;
+        border-radius: 6px 6px 0 0 !important;
+        padding: 10px 15px !important;
+    }
+    div[data-testid="stExpander"] summary p {
+        color: #333333 !important;
+        font-weight: 600 !important;
+        font-size: 1rem !important;
     }
 
-    /* 4. ตกแต่งช่องกรอกข้อมูล (Inputs) ให้โค้งมนดูล้ำสมัย */
-    div[data-baseweb="input"] > div {
-        border-radius: 10px !important;
-        background-color: rgba(0, 0, 0, 0.2) !important;
+    /* 4. ตกแต่งช่องกรอกข้อมูล (Inputs) สไตล์ Bootstrap */
+    div[data-baseweb="input"] > div, div[data-baseweb="select"] > div {
+        border-radius: 4px !important;
+        background-color: #ffffff !important;
+        border: 1px solid #cfd8dc !important;
+        transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+    }
+    div[data-baseweb="input"] > div:focus-within {
+        border-color: #2196f3 !important;
+        box-shadow: 0 0 0 0.2rem rgba(33, 150, 243, 0.25) !important;
     }
     
-    /* 5. ตกแต่งปุ่มกด (Buttons) */
+    /* สีตัวอักษรใน Input */
+    input, textarea {
+        color: #333333 !important;
+    }
+
+    /* 5. ตกแต่งปุ่มกด (Secondary Buttons) */
     button[kind="secondary"] {
-        border-radius: 10px !important;
-        border: 1px solid rgba(255, 255, 255, 0.2) !important;
-        transition: all 0.3s ease;
+        border-radius: 4px !important;
+        border: 1px solid #cfd8dc !important;
+        background-color: #ffffff !important;
+        color: #333333 !important;
+        font-weight: 500 !important;
+        transition: all 0.2s ease;
     }
     button[kind="secondary"]:hover {
-        border: 1px solid #00FF7F !important;
-        color: #00FF7F !important;
+        background-color: #eceff1 !important;
+        border-color: #b0bec5 !important;
     }
 
-    /* 6. ตกแต่งปุ่มหลัก (Primary Button) ให้มีแสงเรืองแสง (Glow Effect) */
+    /* 6. ตกแต่งปุ่มหลัก (Primary Button) สไตล์ Limitless Blue */
     button[kind="primary"] {
-        border-radius: 10px !important;
-        background: linear-gradient(90deg, #00C9FF 0%, #92FE9D 100%) !important;
-        color: black !important;
-        font-weight: bold !important;
+        border-radius: 4px !important;
+        background-color: #2196f3 !important; /* สีฟ้าน้ำเงิน */
+        color: #ffffff !important;
+        font-weight: 600 !important;
         border: none !important;
-        box-shadow: 0 4px 15px rgba(0, 255, 127, 0.4) !important;
-        transition: transform 0.2s;
+        box-shadow: 0 2px 5px rgba(33, 150, 243, 0.3) !important;
+        transition: all 0.2s ease;
+    }
+    button[kind="primary"]:hover {
+        background-color: #1e88e5 !important;
+        box-shadow: 0 4px 8px rgba(33, 150, 243, 0.4) !important;
     }
     button[kind="primary"]:active {
-        transform: scale(0.95);
+        transform: translateY(1px);
     }
 
-    /* 7. ปรับสไตล์ตัวเลข Metrics ให้อ่านง่ายและเด่นขึ้น */
+    /* 7. ปรับสไตล์ตัวเลข Metrics (เกจวัด) ให้อ่านง่าย */
     div[data-testid="stMetricValue"] {
-        font-size: 1.8rem !important;
-        font-weight: 800 !important;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        font-size: 2rem !important;
+        font-weight: 700 !important;
+        color: #333 !important;
+        text-shadow: none !important;
+    }
+    div[data-testid="stMetricLabel"] {
+        color: #78909c !important;
+        font-weight: 600 !important;
+        text-transform: uppercase;
+        font-size: 0.85rem !important;
     }
     
-    /* 8. ปรับแต่ง Tabs ให้ดูเป็นปุ่มแอปมือถือ */
+    /* 8. ปรับแต่ง Tabs ให้ดูเป็น Navbar คลีนๆ */
     button[data-baseweb="tab"] {
-        border-radius: 8px 8px 0px 0px !important;
+        background-color: transparent !important;
+        color: #607d8b !important;
+        border-radius: 0 !important;
         font-weight: 600 !important;
+        border-bottom: 2px solid transparent !important;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        color: #2196f3 !important;
+        border-bottom: 2px solid #2196f3 !important;
+    }
+
+    /* 9. เปลี่ยนสีหัวข้อ (Headers) ทั้งหมดเป็นสีเข้ม */
+    h1, h2, h3, h4, h5, h6 {
+        color: #263238 !important;
+        font-weight: 600 !important;
+    }
+
+    /* 10. ตกแต่ง Sidebar ให้เป็นโทนสีเข้ม (Limitless Dark Sidebar) */
+    [data-testid="stSidebar"] {
+        background-color: #263238 !important;
+    }
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p, [data-testid="stSidebar"] label {
+        color: #cfd8dc !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -215,17 +276,13 @@ def calc_dixon_coles_matrix(p_h, p_d, p_a, ou_line, ou_over_w, ou_under_w, rho, 
     o_prob = 1.0 / o_w; u_prob = 1.0 / u_w
     true_o_prob = o_prob / (o_prob + u_prob)
     
-    # 1. ฐานความคาดหวังจากเจ้ามือ (Baseline)
     base_expected_total = ou_line + 0.20 + ((true_o_prob - 0.5) * 2.5) 
     
-    # 🌟 FIX: Cross-Market Calibration (ปลดล็อก EV สูง/ต่ำ)
     draw_divergence = 0.25 - p_d 
     total_adjustment = draw_divergence * 8.0 
     
-    # 2. จำนวนประตูที่คาดหวังใหม่ (หักล้างกับตลาด 1X2 แล้ว)
     expected_total = max(0.5, base_expected_total + total_adjustment)
     
-    # 3. คำนวณพลังโจมตีและอัตราเวลา
     supremacy = (p_h - p_a) * (expected_total ** 0.60) 
     
     lam_h_base = max(0.15, (expected_total + supremacy) / 2.0)
@@ -405,19 +462,19 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
 # ==========================================
 def create_ev_gauge(ev_value, title, threshold=8.0):
     ev_pct = ev_value * 100
-    if ev_pct >= threshold: color = "#00FF7F" 
-    elif ev_pct > 0: color = "#FFD700" 
-    else: color = "#FF4500" 
+    if ev_pct >= threshold: color = "#2196f3" # 🎨 เปลี่ยนสีเป็นโทน Limitless Blue
+    elif ev_pct > 0: color = "#4caf50" # 🎨 โทนเขียวสว่าง
+    else: color = "#f44336" # 🎨 โทนแดง
         
     fig = go.Figure(go.Indicator(
         mode = "gauge+number", value = ev_pct,
         number = {'suffix': "%", 'font': {'color': color, 'size': 30}},
-        title = {'text': title, 'font': {'size': 16, 'color': 'white'}},
+        title = {'text': title, 'font': {'size': 16, 'color': '#333333'}}, # 🎨 เปลี่ยนสีตัวหนังสือในเกจให้เข้มขึ้น
         gauge = {
-            'axis': {'range': [-20, 20], 'tickwidth': 1, 'tickcolor': "white"},
-            'bar': {'color': color}, 'bgcolor': "rgba(0,0,0,0.1)", 'borderwidth': 1, 'bordercolor': "gray",
-            'steps': [{'range': [-20, 0], 'color': "rgba(255, 69, 0, 0.15)"}, {'range': [0, threshold], 'color': "rgba(255, 215, 0, 0.15)"}, {'range': [threshold, 20], 'color': "rgba(0, 255, 127, 0.15)"}],
-            'threshold': {'line': {'color': "white", 'width': 3}, 'thickness': 0.75, 'value': ev_pct}
+            'axis': {'range': [-20, 20], 'tickwidth': 1, 'tickcolor': "#333333"},
+            'bar': {'color': color}, 'bgcolor': "rgba(0,0,0,0.05)", 'borderwidth': 1, 'bordercolor': "#cfd8dc",
+            'steps': [{'range': [-20, 0], 'color': "rgba(244, 67, 54, 0.15)"}, {'range': [0, threshold], 'color': "rgba(76, 175, 80, 0.15)"}, {'range': [threshold, 20], 'color': "rgba(33, 150, 243, 0.15)"}],
+            'threshold': {'line': {'color': "#333333", 'width': 3}, 'thickness': 0.75, 'value': ev_pct}
         }
     ))
     fig.update_layout(height=200, margin=dict(l=10, r=10, t=30, b=10), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
@@ -606,8 +663,8 @@ with tab1:
         best_ou = max([{"n": "สูง", "ev": ev_over, "odds": ow_o, "hdp": ou_line}, {"n": "ต่ำ", "ev": ev_under, "odds": uw_o, "hdp": ou_line}], key=lambda x: x['ev'])
 
         st.markdown("---")
-        st.markdown("<h3 style='text-align: center;'>📊 ANALYZE PRE-MATCH (ผลวิเคราะห์คณิตศาสตร์)</h3>", unsafe_allow_html=True)
-        st.markdown("<h5 style='text-align: center; color: #aaaaaa;'>📈 สถิติความน่าจะเป็น (Implied Probabilities)</h5>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align: center; color: #2196f3;'>📊 ANALYZE PRE-MATCH (ผลวิเคราะห์คณิตศาสตร์)</h3>", unsafe_allow_html=True)
+        st.markdown("<h5 style='text-align: center; color: #607d8b;'>📈 สถิติความน่าจะเป็น (Implied Probabilities)</h5>", unsafe_allow_html=True)
         
         col1, col2, col3 = st.columns(3)
         col1.metric(label="🏠 โอกาสเจ้าบ้านชนะ", value=f"{prob_h*100:.1f}%")
@@ -616,10 +673,10 @@ with tab1:
 
         g1, g2 = st.columns(2)
         with g1: 
-            st.markdown("<h4 style='text-align: center; color: #4db8ff;'>🔵 ตลาดแฮนดิแคป (AH)</h4>", unsafe_allow_html=True)
+            st.markdown("<h4 style='text-align: center; color: #2196f3;'>🔵 ตลาดแฮนดิแคป (AH)</h4>", unsafe_allow_html=True)
             st.plotly_chart(create_ev_gauge(best_ah['ev'], f"เป้าหมาย: {best_ah['n']}", pre_ah_threshold), use_container_width=True)
         with g2: 
-            st.markdown("<h4 style='text-align: center; color: #ff9933;'>🟠 ตลาดสกอร์รวม (O/U)</h4>", unsafe_allow_html=True)
+            st.markdown("<h4 style='text-align: center; color: #2196f3;'>🟠 ตลาดสกอร์รวม (O/U)</h4>", unsafe_allow_html=True)
             st.plotly_chart(create_ev_gauge(best_ou['ev'], f"เป้าหมาย: {best_ou['n']}", pre_ou_threshold), use_container_width=True)
 
         ah_passed = best_ah['ev'] >= pre_ah_limit
@@ -653,7 +710,7 @@ with tab1:
                     st.info(f"**📜 กฎที่ทำงาน:** {ai_verdict.get('rule_triggered', 'None')}")
                 
                 if ai_verdict.get('final_decision', False) and net_ev > 0:
-                    st.balloons()
+                    st.toast("✅ ORACLE APPROVED!", icon="🚀")
                     st.success(f"✅ ORACLE APPROVED: {ai_verdict.get('final_comment', 'Good')}")
                     inv = min( (((target_to_check['odds']-1) * ((net_ev+1)/target_to_check['odds']) - (1-((net_ev+1)/target_to_check['odds']))) / (target_to_check['odds']-1)) * 0.25, 0.05) * total_bankroll
                     tz_th = timezone(timedelta(hours=7))
@@ -973,8 +1030,7 @@ with tab3:
                     
                     limit_to_use = live_ah_limit if t_live['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_limit
                     if ai_live.get('final_decision', False) and net_l_ev >= limit_to_use:
-                        st.balloons()
-                        st.error(f"🚨 SNIPER ALERT: เป้า '{t_live['n']}' อนุมัติโจมตี!")
+                        st.toast("🚨 SNIPER ALERT!", icon="🚨")
                         st.success(f"✅ ORACLE: {ai_live.get('final_comment', 'Good')}")
                         
                         inv = min( (((t_live['odds']-1) * ((net_l_ev+1)/t_live['odds']) - (1-((net_l_ev+1)/t_live['odds']))) / (t_live['odds']-1)) * 0.25, 0.05) * total_bankroll
@@ -985,7 +1041,7 @@ with tab3:
         else: st.write(f"🛡️ ตลาดปกติ (ยังไม่ผ่านเกณฑ์เป้าหมายที่ตั้งไว้ AH: {live_ah_threshold}%, O/U: {live_ou_threshold}%)")
 
 # ==========================================
-# --- TAB 4: BACKTEST ENGINE ---
+# --- TAB 4: BACKTEST ENGINE (REAL DATA EVALUATION) ---
 # ==========================================
 with tab4:
     st.header("🧪 ระบบทดสอบความแม่นยำจากข้อมูลจริง (Live Backtest)")
@@ -1002,11 +1058,11 @@ with tab4:
                     inv, net, odds = float(row['Investment']), float(row['Net_Profit']), float(row['Odds'])
                     if inv <= 0: return np.nan
                     max_win = inv * (odds - 1)
-                    if net >= max_win * 0.95: return 1.0
-                    elif net > 0: return 0.75
-                    elif net == 0: return 0.50
-                    elif net <= -inv * 0.95: return 0.0
-                    elif net < 0: return 0.25
+                    if net >= max_win * 0.95: return 1.0        # Win เต็ม
+                    elif net > 0: return 0.75                   # ได้ครึ่ง
+                    elif net == 0: return 0.50                  # เสมอตัว
+                    elif net <= -inv * 0.95: return 0.0         # เสียเต็ม
+                    elif net < 0: return 0.25                   # เสียครึ่ง
                     return np.nan
                 except: return np.nan
                     
@@ -1014,8 +1070,13 @@ with tab4:
             finished_logs = finished_logs.dropna(subset=['Actual_Score'])
             
             if not finished_logs.empty:
+                # ความน่าจะเป็นของเจ้ามือ
                 finished_logs['Bookie_Prob'] = (1 / finished_logs['Odds']).clip(lower=0.0, upper=1.0)
+                
+                # ความน่าจะเป็นดิบของเรา
                 raw_our_prob = (((finished_logs['EV_Pct'] / 100) + 1) / finished_logs['Odds']).clip(lower=0.0, upper=1.0)
+                
+                # 🔧 ปรับใหม่ (Bayesian Shrinkage): ผสมความมั่นใจ (โมเดลเรา 85% : บ่อน 15%)
                 finished_logs['Our_Prob'] = ((raw_our_prob * 0.85) + (finished_logs['Bookie_Prob'] * 0.15)).clip(lower=0.0, upper=1.0)
                 
                 finished_logs['Our_Error'] = (finished_logs['Our_Prob'] - finished_logs['Actual_Score'])**2
