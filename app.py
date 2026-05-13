@@ -312,7 +312,7 @@ def ai_quant_decision_engine(match_name, target, base_ev, hdp_line, odds, is_liv
     
     for attempt in range(3):
         try:
-            model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+            model = genai.GenerativeModel('gemma-4-31B-it')
             response = model.generate_content(prompt)
             data = safe_json_loads(response.text)
             if data:
@@ -460,7 +460,7 @@ with tab1:
                 with st.spinner('กำลังอ่านรูป...'):
                     try:
                         img = Image.open(uploaded_file)
-                        model = genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+                        model = genai.GenerativeModel('gemma-4-31B-it')
                         prompt_img = 'สกัดข้อมูลจากภาพแปลงเป็น JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
                         res = model.generate_content([prompt_img, img])
                         data = safe_json_loads(res.text)
