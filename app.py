@@ -12,11 +12,86 @@ import google.generativeai as genai
 import numpy as np
 from supabase import create_client, Client
 
+# --- CONFIG ---
+# [แก้ไข] ย้าย set_page_config ขึ้นมาก่อนสุดตามกฎของ Streamlit
+st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
+
+# ==========================================
+# 🎨 0.1 MODERN UI / UX ENGINE (CSS Injection)
+# ==========================================
+st.markdown("""
+<style>
+    /* 1. จัดการพื้นที่จอมือถือให้คุ้มค่า (ลดขอบขาว) */
+    div.block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 1rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+    }
+    
+    /* 2. ซ่อนแถบ Header ของ Streamlit ด้านบน ให้เหมือนแอปมือถือแท้ๆ */
+    header {visibility: hidden;}
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+
+    /* 3. ตกแต่งกรอบ Expander (กล่องพับได้) ให้เป็นสไตล์ Card ขอบมน */
+    div[data-testid="stExpander"] {
+        background-color: rgba(255, 255, 255, 0.02);
+        border-radius: 15px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    /* 4. ตกแต่งช่องกรอกข้อมูล (Inputs) ให้โค้งมนดูล้ำสมัย */
+    div[data-baseweb="input"] > div {
+        border-radius: 10px !important;
+        background-color: rgba(0, 0, 0, 0.2) !important;
+    }
+    
+    /* 5. ตกแต่งปุ่มกด (Buttons) */
+    button[kind="secondary"] {
+        border-radius: 10px !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
+        transition: all 0.3s ease;
+    }
+    button[kind="secondary"]:hover {
+        border: 1px solid #00FF7F !important;
+        color: #00FF7F !important;
+    }
+
+    /* 6. ตกแต่งปุ่มหลัก (Primary Button) ให้มีแสงเรืองแสง (Glow Effect) */
+    button[kind="primary"] {
+        border-radius: 10px !important;
+        background: linear-gradient(90deg, #00C9FF 0%, #92FE9D 100%) !important;
+        color: black !important;
+        font-weight: bold !important;
+        border: none !important;
+        box-shadow: 0 4px 15px rgba(0, 255, 127, 0.4) !important;
+        transition: transform 0.2s;
+    }
+    button[kind="primary"]:active {
+        transform: scale(0.95);
+    }
+
+    /* 7. ปรับสไตล์ตัวเลข Metrics ให้อ่านง่ายและเด่นขึ้น */
+    div[data-testid="stMetricValue"] {
+        font-size: 1.8rem !important;
+        font-weight: 800 !important;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+    }
+    
+    /* 8. ปรับแต่ง Tabs ให้ดูเป็นปุ่มแอปมือถือ */
+    button[data-baseweb="tab"] {
+        border-radius: 8px 8px 0px 0px !important;
+        font-weight: 600 !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # ==========================================
 # 🛡️ HELPER FUNCTIONS
 # ==========================================
 def safe_json_loads(text):
-    # [แก้ไข #5] ลบ `import json` ซ้ำซ้อนออก — ใช้ที่ import ระดับ module แทน
     if not text: return {}
     try:
         start_idx = text.find('{')
@@ -31,9 +106,6 @@ def safe_json_loads(text):
             return json.loads(clean)
         except:
             return {}
-
-# [แก้ไข #2] ย้าย set_page_config ขึ้นมาก่อนทุกอย่าง — ต้องเป็น Streamlit call แรกเสมอ
-st.set_page_config(page_title="GEM System 10.0 (The Oracle)", layout="wide", initial_sidebar_state="expanded")
 
 @st.cache_resource
 def init_connection():
@@ -216,7 +288,6 @@ def calc_advanced_ah_ev(hdp, w2, w1, d, l1, l2, odds, is_fav):
         elif h == 1.5: return ((w2 + w1 + d + l1) * b) - (l2 * 1)
     return 0.0
 
-# [แก้ไข #3] เพิ่ม case Under rm=0.75 ที่หายไป
 def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
     b = odds - 1; fl = math.floor(ou_line); rm = ou_line - fl
     if is_over:
@@ -246,8 +317,6 @@ def calc_advanced_ou_ev(ou_line, p_total, odds, is_over):
             return (sum(p_total.get(k, 0) for k in p_total if k <= fl) * b) \
                  - (sum(p_total.get(k, 0) for k in p_total if k >= fl + 1) * 1)
         elif rm == 0.75:
-            # [แก้ไข #3] เพิ่ม case นี้ที่หายไปในโค้ดเดิม
-            # Under 2.75 = เสียครึ่งถ้ารวม 3 ลูก, แพ้เต็มถ้ารวม 4+
             return (sum(p_total.get(k, 0) for k in p_total if k <= fl) * b) \
                  - (p_total.get(fl + 1, 0) * 0.5) \
                  - (sum(p_total.get(k, 0) for k in p_total if k >= fl + 2) * 1)
@@ -435,7 +504,7 @@ with tab1:
     st.sidebar.header("💰 Portfolio & Parameters")
     total_bankroll = st.sidebar.number_input("เงินทุนทั้งหมด (THB)", min_value=0.0, value=10000.0)
     dc_rho = st.sidebar.slider("🔗 Dixon-Coles Rho", -0.30, 0.0, -0.10, step=0.01)
-    hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5, step=0.5)
+    hdba_val = st.sidebar.slider("⚖️ HDBA Penalty %", 0.0, 10.0, 1.5,step=0.5)
     
     st.sidebar.markdown("---")
     st.sidebar.subheader("🎯 Pre-Match EV Threshold")
@@ -465,7 +534,9 @@ with tab1:
                         res = model.generate_content([prompt_img, img])
                         data = safe_json_loads(res.text)
                         for k, v in data.items(): st.session_state[k] = v
-                        st.success("✅ สำเร็จ!"); st.rerun()
+                        st.toast("✅ สกัดข้อมูลจากภาพสำเร็จ!", icon="🎯")
+                        time.sleep(1)
+                        st.rerun()
                     except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
     with st.expander("⚡ Text Parser: วางข้อความดิบ", expanded=False):
@@ -493,7 +564,8 @@ with tab1:
                     if o_match: st.session_state.ou_over_w_val = float(o_match.group(1))
                     u_match = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
                     if u_match: st.session_state.ou_under_w_val = float(u_match.group(1))
-                    st.success("✅ สำเร็จ!")
+                    st.toast("✅ สกัดข้อมูลข้อความสำเร็จ!", icon="🎯")
+                    time.sleep(1)
                 except Exception as e: st.error(f"⚠️ Error: {e}")
         with c_b2: st.button("🗑️ ล้างฟอร์ม", use_container_width=True, on_click=clear_form_data)
 
@@ -517,7 +589,7 @@ with tab1:
     st.subheader("📊 ข้อมูลสถิติเพิ่มเติม (Optional)")
     match_stats = st.text_area("ก๊อปปี้สถิติย้อนหลัง (H2H, ฟอร์ม) จากเว็บอื่นมาวาง เพื่อให้ AI วิเคราะห์ร่วมด้วย", height=100)
 
-    if st.button("🚀 ANALYZE PRE-MATCH", use_container_width=True):
+    if st.button("🚀 ANALYZE PRE-MATCH", use_container_width=True, type="primary"):
         def fix(o): return o + 1.0 if o < 1.1 else o
         h_o, d_o, a_o = fix(h1x2), fix(d1x2), fix(a1x2)
         hw_o, aw_o, ow_o, uw_o = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
@@ -593,8 +665,6 @@ with tab1:
 
 # --- 📊 TAB 2: Dashboard & AI Debrief ---
 with tab2:
-    # [แก้ไข #4] เรียก load_logs() ครั้งเดียวและเก็บในตัวแปร tab2_logs
-    # เพื่อไม่ให้ชนกับตัวแปร logs ที่ Tab 4 จะเรียกแยกต่างหาก
     tab2_logs = load_logs()
     if not tab2_logs.empty:
         st.subheader("📝 บันทึกผล & ราคาปิด (Closing Odds) - Cloud Sync")
@@ -621,7 +691,9 @@ with tab2:
             with st.spinner("กำลังอัปเดตข้อมูลบน Cloud..."):
                 for _, row in edited_df.iterrows():
                     supabase.table("investment_logs").update({"Closing_Odds": float(row['Closing_Odds']), "Result": str(row['Result'])}).eq("id", row['id']).execute()
-            st.success("อัปเดตเรียบร้อย!"); st.rerun()
+            st.toast("✅ อัปเดตข้อมูลลงฐานข้อมูลสำเร็จ!", icon="💾")
+            time.sleep(1)
+            st.rerun()
             
         if c_b2.button("🗑️ Clear Local Cache"): st.rerun()
         
@@ -775,8 +847,9 @@ with tab2:
                                                 else: st.warning(f"**[{rule_id} - {rule.get('category')}]** {rule.get('rule_text')}")
                                             
                                             supabase.table("gem_knowledge").insert(insert_payload).execute()
-                                            # [แก้ไข #8 ใน original] clear cache อย่างถูกวิธี
-                                            load_gem_rules.clear()
+                                            if 'load_gem_rules' in globals():
+                                                try: load_gem_rules.clear()
+                                                except: pass
                                             st.balloons()
                                             st.success("💾 ซิงค์การเรียนรู้ลงฐานข้อมูล (Supabase) อัตโนมัติเรียบร้อยแล้ว!")
                                         else: st.write("🎉 AI ประเมินว่าเคสนี้ไม่จำเป็นต้องสร้างกฎใหม่ (ความผิดพลาดอาจเกิดจาก Variance เล็กน้อย)")
@@ -802,7 +875,9 @@ with tab3:
                         res = model.generate_content([prompt_live] + imgs)
                         data = safe_json_loads(res.text)
                         for k, v in data.items(): st.session_state[k] = float(v) if 'score' not in k and 'min' not in k else int(v)
-                        st.success("✅ สำเร็จ!"); st.rerun()
+                        st.toast("✅ สกัดข้อมูลจากภาพสำเร็จ!", icon="🎯")
+                        time.sleep(1)
+                        st.rerun()
                     except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
     col_l1, col_l2 = st.columns(2)
@@ -916,7 +991,6 @@ with tab4:
     st.header("🧪 ระบบทดสอบความแม่นยำจากข้อมูลจริง (Live Backtest)")
     st.markdown("ระบบจะดึงข้อมูลบิลการลงทุน **ที่รู้ผลแล้ว** จาก Dashboard มาคำนวณย้อนหลัง เพื่อดูว่า AI ของเราประเมิน 'โอกาสชนะ' ได้แม่นยำกว่า 'ราคาของเจ้ามือ' หรือไม่ (ใช้มาตรฐาน Brier Score: ยิ่งใกล้ 0 ยิ่งแปลว่าทายแม่น)")
     
-    # [แก้ไข #4] ใช้ตัวแปรชื่อ tab4_logs แทน logs เพื่อไม่ให้ชนกับ tab2_logs
     tab4_logs = load_logs()
     if tab4_logs is not None and not tab4_logs.empty:
         tab4_logs['Net_Profit'] = tab4_logs.apply(calculate_net_profit, axis=1)
