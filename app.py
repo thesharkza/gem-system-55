@@ -731,6 +731,8 @@ with tab1:
                         um=re.search(r'^\s*ต่ำ\s+([0-9.]+)',raw,re.MULTILINE)
                         if um: st.session_state.ou_under_w_val=float(um.group(1))
                         st.toast("✅ Parsed!", icon="🎯")
+                        time.sleep(1)
+                        st.rerun() # 🌟 เพิ่มบรรทัดนี้ เพื่อให้ระบบรีเซ็ตและอัปเดตหน้าจอทันที ไม่ชนกับ Widget ด้านล่าง
                     except Exception as e: st.error(str(e))
             with tp2: st.button("🗑 CLEAR",use_container_width=True,on_click=clear_form_data)
 
@@ -1015,7 +1017,7 @@ with tab3:
                         for k, v in d.items():
                             if k == 'match_name':
                                 st.session_state['match_name_live'] = str(v)
-                                st.session_state['match_name'] = str(v)
+                                # ลบคำสั่งซิงค์ข้าม Tab ทิ้ง ป้องกัน Streamlit Error 100%
                             elif k in ["rc_h", "rc_a"]: 
                                 st.session_state[k] = bool(v)
                             elif 'score' in k or 'min' in k: 
