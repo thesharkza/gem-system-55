@@ -499,7 +499,7 @@ def ai_engine(match_name,target,base_ev,hdp,odds,live=False,min=0,score="0-0",th
     )
     for attempt in range(3):
         try:
-            model=genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+            model = genai.GenerativeModel('models/gemma-4-31b-it')
             res=model.generate_content(prompt)
             data=safe_json_loads(res.text)
             if data:
@@ -675,7 +675,7 @@ with tab1:
                     with st.spinner("Scanning..."):
                         try:
                             img=Image.open(uf)
-                            m=genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+                            model = genai.GenerativeModel('models/gemma-4-31b-it')
                             p='สกัดข้อมูลจากภาพ JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
                             d=safe_json_loads(m.generate_content([p,img]).text)
                             for k,v in d.items(): st.session_state[k]=v
@@ -943,7 +943,7 @@ with tab3:
             if limgs and st.button("⚡ EXTRACT LIVE DATA",use_container_width=True):
                 with st.spinner("Scanning..."):
                     try:
-                        imgs=[Image.open(f) for f in limgs]; m=genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+                        imgs=[Image.open(f) for f in limgs]; m=genai.GenerativeModel('models/gemma-4-31b-it')
                         pl='สกัด JSON: {"current_min":0,"current_score_h":0,"current_score_a":0,"pre_h":2.0,"pre_d":3.0,"pre_a":3.0,"pre_ou":2.5,"live_hdp":0.0,"live_hdp_h":0.9,"live_hdp_a":0.9,"live_ou":2.5,"live_ou_over":0.9,"live_ou_under":0.9}'
                         d=safe_json_loads(m.generate_content([pl]+imgs).text)
                         for k,v in d.items(): st.session_state[k]=float(v) if 'score' not in k and 'min' not in k else int(v)
