@@ -317,11 +317,6 @@ hr { border-color: var(--border-neon) !important; }
     border-color: var(--border) !important;
 }
 [data-testid="stNumberInput"] button:hover { background: var(--neon-dim) !important; }
-
-/* ซ่อนเมนู Header ที่ไม่จำเป็น */
-header {visibility: hidden;}
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -423,18 +418,11 @@ def calc_dixon_coles_matrix(ph,pd,pa,ou,oow,uuw,rho,ch=0,ca=0,ml=90,rch=False,rc
     ow=oow+1 if oow<1.1 else oow; uw=uuw+1 if uuw<1.1 else uuw
     op=1/ow; up=1/uw; top=op/(op+up)
     bet=ou+0.20+((top-0.5)*2.5)
-    
-    # 🌟 Cross-Market Calibration
-    draw_divergence = 0.25 - pd
-    total_adjustment = draw_divergence * 8.0 
-    et=max(0.5,bet+total_adjustment)
-    
+    et=max(0.5,bet+(0.25-pd)*8.0)
     sup=(ph-pa)*(et**0.60)
     lh=max(0.15,(et+sup)/2)*(ml/90)**0.75; la=max(0.15,(et-sup)/2)*(ml/90)**0.75
-    
     if rch: lh*=0.50; la*=1.30
     if rca: la*=0.50; lh*=1.30
-    
     mx=[[0.0]*10 for _ in range(10)]
     for i in range(10):
         for j in range(10):
@@ -445,7 +433,6 @@ def calc_dixon_coles_matrix(ph,pd,pa,ou,oow,uuw,rho,ch=0,ca=0,ml=90,rch=False,rc
             elif i==1 and j==1: tau=1-rho
             else: tau=1.0
             mx[i][j]=max(0,bp*tau)
-            
     tp=sum(sum(r) for r in mx)
     h2=h1=dr=a1=a2=0.0; pou={}
     for i in range(10):
@@ -622,7 +609,7 @@ st.markdown("""
     </h1>
   </div>
   <div style="text-align:right;">
-    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.5</div>
+    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.6</div>
     <span class="gem-badge">● SYSTEM ONLINE</span>
   </div>
 </div>
@@ -692,7 +679,9 @@ with tab1:
                             p='สกัดข้อมูลจากภาพ JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
                             d=safe_json_loads(model.generate_content([p,img]).text)
                             for k,v in d.items(): st.session_state[k]=v
-                            st.toast("✅ สำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
+                            st.toast("✅ สกัดข้อมูลจากภาพสำเร็จ!", icon="🎯")
+                            time.sleep(1)
+                            st.rerun()
                         except Exception as e: st.error(str(e))
     with qi2:
         with st.expander("⌨️ TEXT PARSER — Paste raw text"):
@@ -720,7 +709,8 @@ with tab1:
                         if om: st.session_state.ou_over_w_val=float(om.group(1))
                         um=re.search(r'^\s*ต่ำ\s+([0-9.]+)',raw,re.MULTILINE)
                         if um: st.session_state.ou_under_w_val=float(um.group(1))
-                        st.toast("✅ Parsed!", icon="🎯"); time.sleep(1)
+                        st.toast("✅ สกัดข้อความสำเร็จ!", icon="🎯")
+                        time.sleep(1)
                     except Exception as e: st.error(str(e))
             with tp2: st.button("🗑 CLEAR",use_container_width=True,on_click=clear_form_data)
 
@@ -749,7 +739,7 @@ with tab1:
         st.markdown('</div>',unsafe_allow_html=True)
 
     st.markdown('<div class="gem-label">◈ SUPPLEMENTARY STATS (OPTIONAL)</div>',unsafe_allow_html=True)
-    match_stats=st.text_area("Paste H2H / form data...",height=70)
+    match_stats=st.text_area("Paste H2H / form data...",height=70, label_visibility="collapsed")
     st.markdown('<div style="height:6px"></div>',unsafe_allow_html=True)
 
     if st.button("⚡  RUN ORACLE ANALYSIS",use_container_width=True,type="primary"):
@@ -861,18 +851,41 @@ with tab2:
         else: fl=tfl
         il=fl[fl['Investment']>0]
 
-        m1,m2,m3,m4,m5=st.columns(5)
+        # 🌟 คำนวณ MDD & % Beating CLV (Institutional Metrics)
+        max_drawdown = 0.0
+        mdd_pct = 0.0
+        if not fl.empty:
+            logs_dd = fl.sort_values(by='Time').copy()
+            logs_dd['Cum'] = logs_dd['Net_Profit'].cumsum()
+            running_max = logs_dd['Cum'].cummax()
+            drawdown = logs_dd['Cum'] - running_max
+            max_drawdown = drawdown.min()
+            if total_bankroll > 0: mdd_pct = (max_drawdown / total_bankroll) * 100
+
+        beating_clv_pct = 0.0
+        v_clv = il[il['Closing_Odds'] > 1.0]
+        if not v_clv.empty:
+            beating_count = len(v_clv[v_clv['CLV_Pct'] > 0])
+            beating_clv_pct = (beating_count / len(v_clv)) * 100
+
+        # 🌟 แสดงผลส่วน Institutional Dashboard
+        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ PORTFOLIO OVERVIEW</div>',unsafe_allow_html=True)
+        m1,m2,m3,m4=st.columns(4)
         m1.metric("NET PROFIT",f"฿{fl['Net_Profit'].sum():,.0f}")
         m2.metric("DEPLOYED",f"฿{il['Investment'].sum():,.0f}")
         m3.metric("WIN RATE",f"{(len(il[il['Net_Profit']>0])/len(il)*100 if not il.empty else 0):.1f}%")
         m4.metric("ROI",f"{(fl['Net_Profit'].sum()/il['Investment'].sum()*100 if not il.empty and il['Investment'].sum()>0 else 0):.2f}%")
-        m5.metric("AVG CLV",f"{il[il['Closing_Odds']>1.0]['CLV_Pct'].mean():.2f}%" if not il[il['Closing_Odds']>1.0].empty else "—")
+
+        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ INSTITUTIONAL METRICS</div>',unsafe_allow_html=True)
+        n1,n2,n3=st.columns(3)
+        n1.metric("MAX DRAWDOWN",f"฿{max_drawdown:,.0f}",f"{mdd_pct:.2f}% of Bankroll",delta_color="inverse")
+        n2.metric("AVG CLV",f"{v_clv['CLV_Pct'].mean():.2f}%" if not v_clv.empty else "—")
+        n3.metric("% BEATING CLV",f"{beating_clv_pct:.1f}%" if not v_clv.empty else "—")
 
         if not fl.empty:
             ls=fl.sort_values('Time').copy(); ls['Cum']=ls['Net_Profit'].cumsum()
             lc='#ff8c00' if vm=="In-Play" else ('#00b4ff' if vm=="Pre-Match" else '#00ff88')
             
-            # 🌟 แก้ไข Error Plotly ด้วยการใช้สี RGBA แทน Hex 8 หลัก
             fill_c = 'rgba(255, 140, 0, 0.12)' if vm=="In-Play" else ('rgba(0, 180, 255, 0.12)' if vm=="Pre-Match" else 'rgba(0, 255, 136, 0.12)')
             
             fig_e=go.Figure(go.Scatter(x=ls['Time'],y=ls['Cum'],mode='lines',fill='tozeroy',line=dict(color=lc,width=2),fillcolor=fill_c))
