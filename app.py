@@ -858,7 +858,11 @@ with tab2:
         if not fl.empty:
             ls=fl.sort_values('Time').copy(); ls['Cum']=ls['Net_Profit'].cumsum()
             lc='#ff8c00' if vm=="In-Play" else ('#00b4ff' if vm=="Pre-Match" else '#00ff88')
-            fig_e=go.Figure(go.Scatter(x=ls['Time'],y=ls['Cum'],mode='lines',fill='tozeroy',line=dict(color=lc,width=2),fillcolor=f"{lc}12"))
+            
+            # 🌟 แก้ไข Error Plotly ด้วยการใช้สี RGBA แทน Hex 8 หลัก
+            fill_c = 'rgba(255, 140, 0, 0.12)' if vm=="In-Play" else ('rgba(0, 180, 255, 0.12)' if vm=="Pre-Match" else 'rgba(0, 255, 136, 0.12)')
+            
+            fig_e=go.Figure(go.Scatter(x=ls['Time'],y=ls['Cum'],mode='lines',fill='tozeroy',line=dict(color=lc,width=2),fillcolor=fill_c))
             neon_layout(fig_e,f"EQUITY CURVE — {vm.upper()}")
             st.plotly_chart(fig_e,use_container_width=True)
 
