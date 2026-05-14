@@ -991,34 +991,42 @@ with tab3:
                         imgs=[Image.open(f) for f in limgs]
                         m=genai.GenerativeModel('models/gemma-4-31b-it')
                         
-                        # 🌟 อัปเกรด PROMPT สอน AI ให้อ่านตาราง Live สด และแปลงเรตราคา
+                        # 🌟 อัปเกรด PROMPT สกัดข้อมูล Live + ตรวจจับใบแดง
                         pl='''คุณคือ AI Quant Analyst สกัดข้อมูลตารางราคาฟุตบอล LIVE สด จากภาพให้ออกมาเป็น JSON เท่านั้น อิงจากโครงสร้างดังนี้:
-1. เวลาและสกอร์:
+1. เวลา, สกอร์ และ ใบแดง:
    - current_min = ตัวเลขเวลาที่กำลังแข่ง (เช่น 27:06 ให้ตอบ 27)
-   - current_score_h = สกอร์ทีมแถวบน (เลขหน้าคอลัมน์แฮนดิแคป)
-   - current_score_a = สกอร์ทีมแถวล่าง
+   - current_score_h = สกอร์ทีมเหย้า (แถวบน)
+   - current_score_a = สกอร์ทีมเยือน (แถวล่าง)
+   - rc_h = true หากมีสัญลักษณ์ "ใบแดง" (กล่องสีแดงเล็กๆ) อยู่บริเวณหลังชื่อทีมเหย้า (แถวบน) นอกนั้นให้ตอบ false
+   - rc_a = true หากมีสัญลักษณ์ "ใบแดง" (กล่องสีแดงเล็กๆ) อยู่บริเวณหลังชื่อทีมเยือน (แถวล่าง) นอกนั้นให้ตอบ false
 2. คอลัมน์ 'แฮนดิแคป' (ซ้ายสุด):
-   - live_hdp = เรตต่อรองปัจจุบัน (หากเป็นรูปแบบ 0/0.5 ให้ตอบ 0.25, 0.5/1 ให้ตอบ 0.75, ไม่ต้องเอาเครื่องหมาย +/-)
+   - live_hdp = เรตต่อรองปัจจุบัน (หากเป็น 0/0.5 ตอบ 0.25, 0.5/1 ตอบ 0.75 ไม่เอาเครื่องหมาย +/-)
    - live_hdp_h = ค่าน้ำทีมแถวบน
    - live_hdp_a = ค่าน้ำทีมแถวล่าง
 3. คอลัมน์ 'สูง/ต่ำ' (กลาง):
-   - live_ou = เรตสกอร์รวม (หากเป็นรูปแบบ 3.5/4 ให้ตอบ 3.75)
+   - live_ou = เรตสกอร์รวม (หากเป็น 3.5/4 ตอบ 3.75)
    - live_ou_over = ค่าน้ำใต้คำว่า 'สูง'
    - live_ou_under = ค่าน้ำใต้คำว่า 'ต่ำ'
 
-*หมายเหตุ: pre_h, pre_d, pre_a, pre_ou ปล่อยเป็น 0.0 ไว้ ผู้ใช้จะกรอกเอง
+*หมายเหตุ: pre_h, pre_d, pre_a, pre_ou ปล่อยเป็น 0.0 ไว้
 ตอบกลับเป็น JSON ก้อนเดียวเท่านั้น:
-{"current_min":0,"current_score_h":0,"current_score_a":0,"pre_h":0.0,"pre_d":0.0,"pre_a":0.0,"pre_ou":0.0,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}'''
+{"current_min":0,"current_score_h":0,"current_score_a":0,"rc_h":false,"rc_a":false,"pre_h":0.0,"pre_d":0.0,"pre_a":0.0,"pre_ou":0.0,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}'''
                         
                         d=safe_json_loads(m.generate_content([pl]+imgs).text)
                         
-                        # กรองเอาเฉพาะค่า Live (ไม่ให้ AI ไปทับค่า Pre-match ที่ User กรอกไว้)
-                        live_keys = ["current_min", "current_score_h", "current_score_a", "live_hdp", "live_hdp_h", "live_hdp_a", "live_ou", "live_ou_over", "live_ou_under"]
+                        # กรองเอาเฉพาะค่า Live + สถานะใบแดง
+                        live_keys = ["current_min", "current_score_h", "current_score_a", "rc_h", "rc_a", "live_hdp", "live_hdp_h", "live_hdp_a", "live_ou", "live_ou_over", "live_ou_under"]
                         for k in live_keys:
                             if k in d:
-                                st.session_state[k] = float(d[k]) if 'score' not in k and 'min' not in k else int(d[k])
-                                
-                        st.toast("✅ สกัดเป้าหมาย Live สำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
+                                # แยกการแปลงค่าให้เหมาะสมกับชนิดตัวแปร (Boolean, Int, Float)
+                                if k in ["rc_h", "rc_a"]:
+                                    st.session_state[k] = bool(d[k])
+                                elif 'score' in k or 'min' in k:
+                                    st.session_state[k] = int(d[k])
+                                else:
+                                    st.session_state[k] = float(d[k])
+                                    
+                        st.toast("✅ สกัดเป้าหมาย Live + ตรวจจับใบแดงสำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
                     except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
     st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
