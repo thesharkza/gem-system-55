@@ -985,31 +985,50 @@ with tab3:
                 with st.spinner("Scanning..."):
                     try:
                         imgs=[Image.open(f) for f in limgs]
-                        m=genai.GenerativeModel('models/gemma-4-31b-it')
+                        model=genai.GenerativeModel('models/gemma-4-31b-it')
+                        
+                        # 🌟 อัปเกรด PROMPT สกัดข้อมูล Live แบบสมบูรณ์ (เพิ่มชื่อทีมและเน้นตำแหน่งสกอร์)
                         pl='''คุณคือ AI Quant Analyst สกัดข้อมูลฟุตบอล LIVE สด จากภาพให้ออกมาเป็น JSON เท่านั้น อิงจากโครงสร้างดังนี้:
-1. เวลา, สกอร์ และ ใบแดง:
-   - current_min = ตัวเลขเวลาที่กำลังแข่ง (เช่น 27:06 ให้ตอบ 27)
-   - current_score_h = สกอร์ทีมเหย้า (แถวบน)
-   - current_score_a = สกอร์ทีมเยือน (แถวล่าง)
-   - rc_h = true หากมีสัญลักษณ์ "ใบแดง" หลังชื่อทีมเหย้า
-   - rc_a = true หากมีสัญลักษณ์ "ใบแดง" หลังชื่อทีมเยือน
-2. คอลัมน์ 'แฮนดิแคป' (ซ้ายสุด):
-   - live_hdp = เรตปัจจุบัน (0/0.5 ตอบ 0.25, 0.5/1 ตอบ 0.75)
-   - live_hdp_h = ค่าน้ำทีมแถวบน
-   - live_hdp_a = ค่าน้ำทีมแถวล่าง
-3. คอลัมน์ 'สูง/ต่ำ' (กลาง):
-   - live_ou = เรตสกอร์รวม (3.5/4 ตอบ 3.75)
-   - live_ou_over = ค่าน้ำใต้คำว่า 'สูง'
-   - live_ou_under = ค่าน้ำใต้คำว่า 'ต่ำ'
-ตอบกลับเป็น JSON ก้อนเดียวเท่านั้น:
-{"current_min":0,"current_score_h":0,"current_score_a":0,"rc_h":false,"rc_a":false,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}'''
-                        d=safe_json_loads(m.generate_content([pl]+imgs).text)
-                        for k in d:
-                            if k in ["rc_h", "rc_a"]: st.session_state[k] = bool(d[k])
-                            elif 'score' in k or 'min' in k: st.session_state[k] = int(d[k])
-                            else: st.session_state[k] = float(d[k])
-                        st.toast("✅ สกัดเป้าหมาย Live สำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
-                    except Exception as e: st.error(str(e))
+1. ข้อมูลทั่วไป:
+   - match_name: ชื่อทีมเหย้า (แถวบน) + " VS " + ชื่อทีมเยือน (แถวล่าง)
+2. เวลา, สกอร์ และ ใบแดง:
+   - current_min: ตัวเลขเวลาที่กำลังแข่ง (เช่น 27:06 ให้ตอบ 27)
+   - current_score_h: สกอร์ทีมเหย้า (ตัวเลขที่อยู่ติดกับชื่อทีมแถวบน)
+   - current_score_a: สกอร์ทีมเยือน (ตัวเลขที่อยู่ติดกับชื่อทีมแถวล่าง)
+   - rc_h: true หากมีสัญลักษณ์ "ใบแดง" หลังชื่อทีมเหย้า
+   - rc_a: true หากมีสัญลักษณ์ "ใบแดง" หลังชื่อทีมเยือน
+3. คอลัมน์ 'แฮนดิแคป' (ซ้ายสุด):
+   - live_hdp: เรตปัจจุบัน (ต้องแปลงเป็นทศนิยม เช่น 0/0.5 ตอบ 0.25, 0.5/1 ตอบ 0.75, 1/1.5 ตอบ 1.25)
+   - live_hdp_h: ค่าน้ำทีมแถวบน
+   - live_hdp_a: ค่าน้ำทีมแถวล่าง
+4. คอลัมน์ 'สูง/ต่ำ' (กลาง):
+   - live_ou: เรตสกอร์รวม (ต้องแปลงเป็นทศนิยม เช่น 3.5/4 ตอบ 3.75, 2.5/3 ตอบ 2.75)
+   - live_ou_over: ค่าน้ำใต้คำว่า 'สูง'
+   - live_ou_under: ค่าน้ำใต้คำว่า 'ต่ำ'
+
+ตอบกลับเป็น JSON ก้อนเดียวเท่านั้น ห้ามมีข้อความอื่น:
+{"match_name":"","current_min":0,"current_score_h":0,"current_score_a":0,"rc_h":false,"rc_a":false,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}'''
+                        
+                        d=safe_json_loads(model.generate_content([pl]+imgs).text)
+                        
+                        # 🌟 ระบบตะแกรงกรองข้อมูลและแปลงค่า (Safeguard)
+                        for k, v in d.items():
+                            if k == 'match_name':
+                                st.session_state['match_name_live'] = str(v)
+                                st.session_state['match_name'] = str(v)
+                            elif k in ["rc_h", "rc_a"]: 
+                                st.session_state[k] = bool(v)
+                            elif 'score' in k or 'min' in k: 
+                                try: st.session_state[k] = int(v)
+                                except ValueError: st.session_state[k] = 0
+                            else: 
+                                try: st.session_state[k] = float(v)
+                                except ValueError: st.session_state[k] = 0.0
+                                
+                        st.toast("✅ สกัดเป้าหมาย Live ชัดเจน 100%!", icon="🎯")
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
     st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
     
