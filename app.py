@@ -694,7 +694,14 @@ with tab1:
 ตอบกลับมาแค่ JSON ก้อนเดียวเท่านั้น ห้ามมีข้อความอื่น:
 {"match_name":"","h1x2_val":0.0,"d1x2_val":0.0,"a1x2_val":0.0,"hdp_line_val":0.0,"hdp_h_w_val":0.0,"hdp_a_w_val":0.0,"ou_line_val":0.0,"ou_over_w_val":0.0,"ou_under_w_val":0.0}"""
                             d=safe_json_loads(model.generate_content([prompt_img,img]).text)
-                            for k,v in d.items(): st.session_state[k]=v
+                            for k, v in d.items():
+                                if k == 'match_name':
+                                    st.session_state[k] = str(v)
+                                else:
+                                    try:
+                                        st.session_state[k] = float(v)
+                                    except ValueError:
+                                        st.session_state[k] = 0.0
                             st.toast("✅ สกัดข้อมูลสำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
                         except Exception as e: st.error(str(e))
     with qi2:
