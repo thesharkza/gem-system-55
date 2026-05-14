@@ -609,7 +609,7 @@ st.markdown("""
     </h1>
   </div>
   <div style="text-align:right;">
-    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.6</div>
+    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.8</div>
     <span class="gem-badge">● SYSTEM ONLINE</span>
   </div>
 </div>
@@ -676,8 +676,6 @@ with tab1:
                         try:
                             img=Image.open(uf)
                             model = genai.GenerativeModel('models/gemma-4-31b-it')
-                            
-                            # 🌟 อัปเกรด PROMPT แบบละเอียด เพื่อสอน AI ให้อ่านโครงสร้างตารางราคาบอล
                             prompt_img = """คุณคือ AI Quant Analyst สกัดข้อมูลตารางราคาฟุตบอลจากภาพให้ออกมาเป็น JSON เท่านั้น โดยอิงจากโครงสร้างหน้าจอดังนี้:
 1. match_name: เอาชื่อทีมแถวบน + " VS " + ชื่อทีมแถวล่าง
 2. คอลัมน์ 'แฮนดิแคป' (ซ้ายสุด): 
@@ -695,13 +693,10 @@ with tab1:
 
 ตอบกลับมาแค่ JSON ก้อนเดียวเท่านั้น ห้ามมีข้อความอื่น:
 {"match_name":"","h1x2_val":0.0,"d1x2_val":0.0,"a1x2_val":0.0,"hdp_line_val":0.0,"hdp_h_w_val":0.0,"hdp_a_w_val":0.0,"ou_line_val":0.0,"ou_over_w_val":0.0,"ou_under_w_val":0.0}"""
-
-                            d=safe_json_loads(model.generate_content([prompt_img, img]).text)
+                            d=safe_json_loads(model.generate_content([prompt_img,img]).text)
                             for k,v in d.items(): st.session_state[k]=v
-                            st.toast("✅ สกัดข้อมูลจากภาพสำเร็จเป๊ะ!", icon="🎯")
-                            time.sleep(1)
-                            st.rerun()
-                        except Exception as e: st.error(f"⚠️ พลาด: {e}")
+                            st.toast("✅ สกัดข้อมูลสำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
+                        except Exception as e: st.error(str(e))
     with qi2:
         with st.expander("⌨️ TEXT PARSER — Paste raw text"):
             st.text_area("Paste odds...",height=75,key="raw_text")
@@ -728,8 +723,7 @@ with tab1:
                         if om: st.session_state.ou_over_w_val=float(om.group(1))
                         um=re.search(r'^\s*ต่ำ\s+([0-9.]+)',raw,re.MULTILINE)
                         if um: st.session_state.ou_under_w_val=float(um.group(1))
-                        st.toast("✅ สกัดข้อความสำเร็จ!", icon="🎯")
-                        time.sleep(1)
+                        st.toast("✅ Parsed!", icon="🎯")
                     except Exception as e: st.error(str(e))
             with tp2: st.button("🗑 CLEAR",use_container_width=True,on_click=clear_form_data)
 
@@ -870,7 +864,7 @@ with tab2:
         else: fl=tfl
         il=fl[fl['Investment']>0]
 
-        # 🌟 คำนวณ MDD & % Beating CLV (Institutional Metrics)
+        # 🌟 คำนวณ Institutional Metrics (MDD & % Beating CLV)
         max_drawdown = 0.0
         mdd_pct = 0.0
         if not fl.empty:
@@ -887,7 +881,6 @@ with tab2:
             beating_count = len(v_clv[v_clv['CLV_Pct'] > 0])
             beating_clv_pct = (beating_count / len(v_clv)) * 100
 
-        # 🌟 แสดงผลส่วน Institutional Dashboard
         st.markdown('<div class="gem-label" style="margin-top:14px;">◈ PORTFOLIO OVERVIEW</div>',unsafe_allow_html=True)
         m1,m2,m3,m4=st.columns(4)
         m1.metric("NET PROFIT",f"฿{fl['Net_Profit'].sum():,.0f}")
@@ -904,9 +897,7 @@ with tab2:
         if not fl.empty:
             ls=fl.sort_values('Time').copy(); ls['Cum']=ls['Net_Profit'].cumsum()
             lc='#ff8c00' if vm=="In-Play" else ('#00b4ff' if vm=="Pre-Match" else '#00ff88')
-            
             fill_c = 'rgba(255, 140, 0, 0.12)' if vm=="In-Play" else ('rgba(0, 180, 255, 0.12)' if vm=="Pre-Match" else 'rgba(0, 255, 136, 0.12)')
-            
             fig_e=go.Figure(go.Scatter(x=ls['Time'],y=ls['Cum'],mode='lines',fill='tozeroy',line=dict(color=lc,width=2),fillcolor=fill_c))
             neon_layout(fig_e,f"EQUITY CURVE — {vm.upper()}")
             st.plotly_chart(fig_e,use_container_width=True)
@@ -946,7 +937,7 @@ with tab2:
                 if st.button("⚡  EXECUTE ORACLE LEARNING",use_container_width=True,type="primary"):
                     if picked.empty: st.warning("Select at least one record")
                     else:
-                        with st.spinner(f"Oracle learning from {len(picked)} matches..."):
+                        with st.spinner(f"Oracle learning..."):
                             csv_s=picked[['Time','Match','HDP','Target','Odds','Result']].to_csv(index=False)
                             try: rr=supabase.table("gem_knowledge").select("rule_id,category,rule_text").eq("is_active",True).execute(); rs="\n".join([f"[{r['rule_id']}] {r['rule_text']}" for r in (rr.data or [])])
                             except: rs=""
@@ -970,11 +961,9 @@ with tab2:
                                             supabase.table("gem_knowledge").insert(pl).execute()
                                             load_gem_rules.clear()
                                             st.balloons(); st.success("✓ Rules synced to Cloud")
-                                        else: st.info("No new rules needed — normal variance")
-                                    else: st.error("Malformed AI response")
                             except Exception as e: st.error(str(e))
             else: st.info("No records in this category")
-        else: st.info("◈ No settled results to analyse — update Result column first")
+        else: st.info("◈ No settled results to analyse")
 
 # ╔══════════════╗
 # ║  TAB 3       ║
@@ -984,61 +973,51 @@ with tab3:
     with st.expander("📷 AI LIVE VISION — Multi-image scan"):
         if not api_key: st.markdown('<p class="gem-warn">▸ API Key required</p>',unsafe_allow_html=True)
         else:
-            limgs=st.file_uploader("Upload up to 3 screenshots",type=['png','jpg'],accept_multiple_files=True)
+            limgs=st.file_uploader("Upload live screenshots",type=['png','jpg'],accept_multiple_files=True)
             if limgs and st.button("⚡ EXTRACT LIVE DATA",use_container_width=True):
                 with st.spinner("Scanning..."):
                     try:
                         imgs=[Image.open(f) for f in limgs]
                         m=genai.GenerativeModel('models/gemma-4-31b-it')
-                        
-                        # 🌟 อัปเกรด PROMPT สกัดข้อมูล Live + ตรวจจับใบแดง
-                        pl='''คุณคือ AI Quant Analyst สกัดข้อมูลตารางราคาฟุตบอล LIVE สด จากภาพให้ออกมาเป็น JSON เท่านั้น อิงจากโครงสร้างดังนี้:
+                        pl='''คุณคือ AI Quant Analyst สกัดข้อมูลฟุตบอล LIVE สด จากภาพให้ออกมาเป็น JSON เท่านั้น อิงจากโครงสร้างดังนี้:
 1. เวลา, สกอร์ และ ใบแดง:
    - current_min = ตัวเลขเวลาที่กำลังแข่ง (เช่น 27:06 ให้ตอบ 27)
    - current_score_h = สกอร์ทีมเหย้า (แถวบน)
    - current_score_a = สกอร์ทีมเยือน (แถวล่าง)
-   - rc_h = true หากมีสัญลักษณ์ "ใบแดง" (กล่องสีแดงเล็กๆ) อยู่บริเวณหลังชื่อทีมเหย้า (แถวบน) นอกนั้นให้ตอบ false
-   - rc_a = true หากมีสัญลักษณ์ "ใบแดง" (กล่องสีแดงเล็กๆ) อยู่บริเวณหลังชื่อทีมเยือน (แถวล่าง) นอกนั้นให้ตอบ false
+   - rc_h = true หากมีสัญลักษณ์ "ใบแดง" หลังชื่อทีมเหย้า
+   - rc_a = true หากมีสัญลักษณ์ "ใบแดง" หลังชื่อทีมเยือน
 2. คอลัมน์ 'แฮนดิแคป' (ซ้ายสุด):
-   - live_hdp = เรตต่อรองปัจจุบัน (หากเป็น 0/0.5 ตอบ 0.25, 0.5/1 ตอบ 0.75 ไม่เอาเครื่องหมาย +/-)
+   - live_hdp = เรตปัจจุบัน (0/0.5 ตอบ 0.25, 0.5/1 ตอบ 0.75)
    - live_hdp_h = ค่าน้ำทีมแถวบน
    - live_hdp_a = ค่าน้ำทีมแถวล่าง
 3. คอลัมน์ 'สูง/ต่ำ' (กลาง):
-   - live_ou = เรตสกอร์รวม (หากเป็น 3.5/4 ตอบ 3.75)
+   - live_ou = เรตสกอร์รวม (3.5/4 ตอบ 3.75)
    - live_ou_over = ค่าน้ำใต้คำว่า 'สูง'
    - live_ou_under = ค่าน้ำใต้คำว่า 'ต่ำ'
-
-*หมายเหตุ: pre_h, pre_d, pre_a, pre_ou ปล่อยเป็น 0.0 ไว้
 ตอบกลับเป็น JSON ก้อนเดียวเท่านั้น:
-{"current_min":0,"current_score_h":0,"current_score_a":0,"rc_h":false,"rc_a":false,"pre_h":0.0,"pre_d":0.0,"pre_a":0.0,"pre_ou":0.0,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}'''
-                        
+{"current_min":0,"current_score_h":0,"current_score_a":0,"rc_h":false,"rc_a":false,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}'''
                         d=safe_json_loads(m.generate_content([pl]+imgs).text)
-                        
-                        # กรองเอาเฉพาะค่า Live + สถานะใบแดง
-                        live_keys = ["current_min", "current_score_h", "current_score_a", "rc_h", "rc_a", "live_hdp", "live_hdp_h", "live_hdp_a", "live_ou", "live_ou_over", "live_ou_under"]
-                        for k in live_keys:
-                            if k in d:
-                                # แยกการแปลงค่าให้เหมาะสมกับชนิดตัวแปร (Boolean, Int, Float)
-                                if k in ["rc_h", "rc_a"]:
-                                    st.session_state[k] = bool(d[k])
-                                elif 'score' in k or 'min' in k:
-                                    st.session_state[k] = int(d[k])
-                                else:
-                                    st.session_state[k] = float(d[k])
-                                    
-                        st.toast("✅ สกัดเป้าหมาย Live + ตรวจจับใบแดงสำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
-                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
+                        for k in d:
+                            if k in ["rc_h", "rc_a"]: st.session_state[k] = bool(d[k])
+                            elif 'score' in k or 'min' in k: st.session_state[k] = int(d[k])
+                            else: st.session_state[k] = float(d[k])
+                        st.toast("✅ สกัดเป้าหมาย Live สำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
+                    except Exception as e: st.error(str(e))
 
     st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
+    
+    # 🌟 เพิ่มช่องบันทึกชื่อทีม (ดึงค่าจากหน้า Pre-Match มาเป็นค่าเริ่มต้น)
+    st.text_input("MATCH (Live)", value=st.session_state.get('match_name', ''), key="match_name_live", placeholder="Home Team VS Away Team")
+
     gl1,gl2=st.columns(2)
     with gl1:
         st.markdown('<div class="gem-label">◈ LIVE MATCH STATE</div>',unsafe_allow_html=True)
         s1,s2=st.columns(2)
-        csh=s1.number_input("HOME SCORE",min_value=0,value=st.session_state.get('lh_s_input',0),key="lh_s_input")
-        rch=s2.checkbox("🟥 HOME RED",key="rc_h")
+        csh=s1.number_input("HOME SCORE",min_value=0,value=st.session_state.get('current_score_h',0),key="lh_s_input")
+        rch=s2.checkbox("🟥 HOME RED",value=st.session_state.get('rc_h',False),key="rc_h_chk")
         s3,s4=st.columns(2)
-        csa=s3.number_input("AWAY SCORE",min_value=0,value=st.session_state.get('la_s_input',0),key="la_s_input")
-        rca=s4.checkbox("🟥 AWAY RED",key="rc_a")
+        csa=s3.number_input("AWAY SCORE",min_value=0,value=st.session_state.get('current_score_a',0),key="la_s_input")
+        rca=s4.checkbox("🟥 AWAY RED",value=st.session_state.get('rc_a',False),key="rc_a_chk")
         cmin=st.slider("MINUTE",0,120,st.session_state.get('current_min',45))
     with gl2:
         st.markdown('<div class="gem-label">◈ PRE-MATCH REFERENCE</div>',unsafe_allow_html=True)
@@ -1100,7 +1079,12 @@ with tab3:
                     tf2=None
                     if tl2['n']=="เจ้าบ้าน": tf2=fvl
                     elif tl2['n']=="ทีมเยือน": tf2=not fvl
-                    al=ai_engine("Live",tl2['n'],tl2['ev'],tl2['hdp'],tl2['odds'],True,cmin,f"{csh}-{csa}",thr=live_ah_lim,fav=tf2)
+                    
+                    # 🌟 ดึงชื่อทีมที่กรอกจากหน้า Live ไปวิเคราะห์
+                    live_mn = st.session_state.get('match_name_live')
+                    if not live_mn: live_mn = st.session_state.get('match_name', 'Live Match')
+                    
+                    al=ai_engine(live_mn,tl2['n'],tl2['ev'],tl2['hdp'],tl2['odds'],True,cmin,f"{csh}-{csa}",thr=live_ah_lim,fav=tf2)
                     nlev=tl2['ev']+al.get('impact_score',0)
                 lc1,lc2,lc3=st.columns(3)
                 lc1.metric("LIVE EV",f"{tl2['ev']*100:.2f}%")
@@ -1116,7 +1100,12 @@ with tab3:
                     st.markdown(f'<div class="gem-panel" style="border-top:2px solid #ff3b5c;border-left:2px solid #ff3b5c;"><div class="gem-label" style="border-color:#ff3b5c;color:#ff3b5c;">◈ SNIPER APPROVED — TARGET LOCKED</div><p style="color:#ff3b5c;font-family:\'Share Tech Mono\';">TARGET: {tl2["n"]} | NET EV: {nlev*100:.2f}%</p><p style="color:#c8e6d4;">{al.get("final_comment","")}</p></div>',unsafe_allow_html=True)
                     inv=min((((tl2['odds']-1)*((nlev+1)/tl2['odds'])-(1-((nlev+1)/tl2['odds'])))/(tl2['odds']-1))*0.25,0.05)*total_bankroll
                     tz2=timezone(timedelta(hours=7))
-                    save_db([{"Time":datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"),"Match":f"[LIVE] {st.session_state.get('match_name','Live')}","HDP":tl2['hdp'],"Target":tl2['n'],"EV_Pct":round(nlev*100,2),"Investment":round(inv,2),"Odds":tl2['odds'],"Closing_Odds":0.0,"Result":""}])
+                    
+                    # 🌟 บันทึกชื่อทีมพร้อมประทับเวลานาทีแข่งขัน (Auto-Timestamp Minute)
+                    save_db([{"Time":datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"),
+                              "Match":f"[LIVE {cmin}'] {live_mn}",
+                              "HDP":tl2['hdp'],"Target":tl2['n'],"EV_Pct":round(nlev*100,2),
+                              "Investment":round(inv,2),"Odds":tl2['odds'],"Closing_Odds":0.0,"Result":""}])
                 else:
                     st.markdown(f'<div class="gem-panel" style="border-top:2px solid #ffd600;"><div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ ORACLE STAND DOWN</div><p class="gem-warn">{al.get("final_comment","")}</p></div>',unsafe_allow_html=True)
         else:
