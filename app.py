@@ -988,12 +988,38 @@ with tab3:
             if limgs and st.button("⚡ EXTRACT LIVE DATA",use_container_width=True):
                 with st.spinner("Scanning..."):
                     try:
-                        imgs=[Image.open(f) for f in limgs]; m=genai.GenerativeModel('models/gemma-4-31b-it')
-                        pl='สกัด JSON: {"current_min":0,"current_score_h":0,"current_score_a":0,"pre_h":2.0,"pre_d":3.0,"pre_a":3.0,"pre_ou":2.5,"live_hdp":0.0,"live_hdp_h":0.9,"live_hdp_a":0.9,"live_ou":2.5,"live_ou_over":0.9,"live_ou_under":0.9}'
+                        imgs=[Image.open(f) for f in limgs]
+                        m=genai.GenerativeModel('models/gemma-4-31b-it')
+                        
+                        # 🌟 อัปเกรด PROMPT สอน AI ให้อ่านตาราง Live สด และแปลงเรตราคา
+                        pl='''คุณคือ AI Quant Analyst สกัดข้อมูลตารางราคาฟุตบอล LIVE สด จากภาพให้ออกมาเป็น JSON เท่านั้น อิงจากโครงสร้างดังนี้:
+1. เวลาและสกอร์:
+   - current_min = ตัวเลขเวลาที่กำลังแข่ง (เช่น 27:06 ให้ตอบ 27)
+   - current_score_h = สกอร์ทีมแถวบน (เลขหน้าคอลัมน์แฮนดิแคป)
+   - current_score_a = สกอร์ทีมแถวล่าง
+2. คอลัมน์ 'แฮนดิแคป' (ซ้ายสุด):
+   - live_hdp = เรตต่อรองปัจจุบัน (หากเป็นรูปแบบ 0/0.5 ให้ตอบ 0.25, 0.5/1 ให้ตอบ 0.75, ไม่ต้องเอาเครื่องหมาย +/-)
+   - live_hdp_h = ค่าน้ำทีมแถวบน
+   - live_hdp_a = ค่าน้ำทีมแถวล่าง
+3. คอลัมน์ 'สูง/ต่ำ' (กลาง):
+   - live_ou = เรตสกอร์รวม (หากเป็นรูปแบบ 3.5/4 ให้ตอบ 3.75)
+   - live_ou_over = ค่าน้ำใต้คำว่า 'สูง'
+   - live_ou_under = ค่าน้ำใต้คำว่า 'ต่ำ'
+
+*หมายเหตุ: pre_h, pre_d, pre_a, pre_ou ปล่อยเป็น 0.0 ไว้ ผู้ใช้จะกรอกเอง
+ตอบกลับเป็น JSON ก้อนเดียวเท่านั้น:
+{"current_min":0,"current_score_h":0,"current_score_a":0,"pre_h":0.0,"pre_d":0.0,"pre_a":0.0,"pre_ou":0.0,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}'''
+                        
                         d=safe_json_loads(m.generate_content([pl]+imgs).text)
-                        for k,v in d.items(): st.session_state[k]=float(v) if 'score' not in k and 'min' not in k else int(v)
-                        st.toast("✅ สำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
-                    except Exception as e: st.error(str(e))
+                        
+                        # กรองเอาเฉพาะค่า Live (ไม่ให้ AI ไปทับค่า Pre-match ที่ User กรอกไว้)
+                        live_keys = ["current_min", "current_score_h", "current_score_a", "live_hdp", "live_hdp_h", "live_hdp_a", "live_ou", "live_ou_over", "live_ou_under"]
+                        for k in live_keys:
+                            if k in d:
+                                st.session_state[k] = float(d[k]) if 'score' not in k and 'min' not in k else int(d[k])
+                                
+                        st.toast("✅ สกัดเป้าหมาย Live สำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
+                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
     st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
     gl1,gl2=st.columns(2)
