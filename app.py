@@ -1013,16 +1013,23 @@ with tab3:
                         
                         d=safe_json_loads(model.generate_content([pl]+imgs).text)
                         
-                        # 🌟 ระบบตะแกรงกรองข้อมูลและแปลงค่า (Safeguard)
+                        # 🌟 ระบบตะแกรงกรองข้อมูลและแมป Widget Key ให้ตรงช่อง (Safeguard)
                         for k, v in d.items():
                             if k == 'match_name':
                                 st.session_state['match_name_live'] = str(v)
-                                # ลบคำสั่งซิงค์ข้าม Tab ทิ้ง ป้องกัน Streamlit Error 100%
-                            elif k in ["rc_h", "rc_a"]: 
-                                st.session_state[k] = bool(v)
-                            elif 'score' in k or 'min' in k: 
-                                try: st.session_state[k] = int(v)
-                                except ValueError: st.session_state[k] = 0
+                            elif k == 'current_score_h':
+                                try: st.session_state['lh_s_input'] = int(v)
+                                except ValueError: pass
+                            elif k == 'current_score_a':
+                                try: st.session_state['la_s_input'] = int(v)
+                                except ValueError: pass
+                            elif k == 'rc_h':
+                                st.session_state['rc_h_chk'] = bool(v)
+                            elif k == 'rc_a':
+                                st.session_state['rc_a_chk'] = bool(v)
+                            elif k == 'current_min':
+                                try: st.session_state['current_min'] = int(v)
+                                except ValueError: pass
                             else: 
                                 try: st.session_state[k] = float(v)
                                 except ValueError: st.session_state[k] = 0.0
