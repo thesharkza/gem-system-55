@@ -12,6 +12,14 @@ import google.generativeai as genai
 import numpy as np
 from supabase import create_client, Client
 
+# ── must be the very first Streamlit call ──
+st.set_page_config(
+    page_title="GEM System 10.0 · The Oracle",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    page_icon="🎯"
+)
+
 # ==========================================
 # 🛡️ HELPER FUNCTIONS
 # ==========================================
@@ -30,14 +38,6 @@ def safe_json_loads(text):
             return json.loads(clean)
         except:
             return {}
-
-# ── must be the very first Streamlit call ──
-st.set_page_config(
-    page_title="GEM System 10.0 · The Oracle",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    page_icon="🎯"
-)
 
 # ==========================================
 # 🎨  NEON QUANT THEME
@@ -317,6 +317,11 @@ hr { border-color: var(--border-neon) !important; }
     border-color: var(--border) !important;
 }
 [data-testid="stNumberInput"] button:hover { background: var(--neon-dim) !important; }
+
+/* ซ่อนเมนู Header ที่ไม่จำเป็น */
+header {visibility: hidden;}
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -418,11 +423,18 @@ def calc_dixon_coles_matrix(ph,pd,pa,ou,oow,uuw,rho,ch=0,ca=0,ml=90,rch=False,rc
     ow=oow+1 if oow<1.1 else oow; uw=uuw+1 if uuw<1.1 else uuw
     op=1/ow; up=1/uw; top=op/(op+up)
     bet=ou+0.20+((top-0.5)*2.5)
-    et=max(0.5,bet+(0.25-pd)*8.0)
+    
+    # 🌟 Cross-Market Calibration
+    draw_divergence = 0.25 - pd
+    total_adjustment = draw_divergence * 8.0 
+    et=max(0.5,bet+total_adjustment)
+    
     sup=(ph-pa)*(et**0.60)
     lh=max(0.15,(et+sup)/2)*(ml/90)**0.75; la=max(0.15,(et-sup)/2)*(ml/90)**0.75
+    
     if rch: lh*=0.50; la*=1.30
     if rca: la*=0.50; lh*=1.30
+    
     mx=[[0.0]*10 for _ in range(10)]
     for i in range(10):
         for j in range(10):
@@ -433,6 +445,7 @@ def calc_dixon_coles_matrix(ph,pd,pa,ou,oow,uuw,rho,ch=0,ca=0,ml=90,rch=False,rc
             elif i==1 and j==1: tau=1-rho
             else: tau=1.0
             mx[i][j]=max(0,bp*tau)
+            
     tp=sum(sum(r) for r in mx)
     h2=h1=dr=a1=a2=0.0; pou={}
     for i in range(10):
@@ -609,7 +622,7 @@ st.markdown("""
     </h1>
   </div>
   <div style="text-align:right;">
-    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.3</div>
+    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.5</div>
     <span class="gem-badge">● SYSTEM ONLINE</span>
   </div>
 </div>
@@ -677,9 +690,9 @@ with tab1:
                             img=Image.open(uf)
                             model = genai.GenerativeModel('models/gemma-4-31b-it')
                             p='สกัดข้อมูลจากภาพ JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
-                            d=safe_json_loads(m.generate_content([p,img]).text)
+                            d=safe_json_loads(model.generate_content([p,img]).text)
                             for k,v in d.items(): st.session_state[k]=v
-                            st.success("✓ Done"); st.rerun()
+                            st.toast("✅ สำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
                         except Exception as e: st.error(str(e))
     with qi2:
         with st.expander("⌨️ TEXT PARSER — Paste raw text"):
@@ -707,7 +720,7 @@ with tab1:
                         if om: st.session_state.ou_over_w_val=float(om.group(1))
                         um=re.search(r'^\s*ต่ำ\s+([0-9.]+)',raw,re.MULTILINE)
                         if um: st.session_state.ou_under_w_val=float(um.group(1))
-                        st.success("✓ Parsed")
+                        st.toast("✅ Parsed!", icon="🎯"); time.sleep(1)
                     except Exception as e: st.error(str(e))
             with tp2: st.button("🗑 CLEAR",use_container_width=True,on_click=clear_form_data)
 
@@ -831,7 +844,7 @@ with tab2:
             with st.spinner("Syncing..."):
                 for _,row in edf.iterrows():
                     supabase.table("investment_logs").update({"Closing_Odds":float(row['Closing_Odds']),"Result":str(row['Result'])}).eq("id",row['id']).execute()
-            st.success("✓ Synced"); st.rerun()
+            st.toast("✓ Synced", icon="💾"); time.sleep(1); st.rerun()
         if sb2.button("↺  REFRESH",use_container_width=True): st.rerun()
 
         tab2_logs['Net_Profit']=tab2_logs.apply(calc_pnl,axis=1)
@@ -909,7 +922,7 @@ with tab2:
                             try:
                                 if not api_key: st.error("API Key missing")
                                 else:
-                                    m=genai.GenerativeModel('gemini-3.1-flash-lite-preview')
+                                    m=genai.GenerativeModel('models/gemma-4-31b-it')
                                     d=safe_json_loads(m.generate_content(pd_).text)
                                     if d:
                                         st.success("✓ Learning complete")
@@ -947,7 +960,7 @@ with tab3:
                         pl='สกัด JSON: {"current_min":0,"current_score_h":0,"current_score_a":0,"pre_h":2.0,"pre_d":3.0,"pre_a":3.0,"pre_ou":2.5,"live_hdp":0.0,"live_hdp_h":0.9,"live_hdp_a":0.9,"live_ou":2.5,"live_ou_over":0.9,"live_ou_under":0.9}'
                         d=safe_json_loads(m.generate_content([pl]+imgs).text)
                         for k,v in d.items(): st.session_state[k]=float(v) if 'score' not in k and 'min' not in k else int(v)
-                        st.success("✓"); st.rerun()
+                        st.toast("✅ สำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
                     except Exception as e: st.error(str(e))
 
     st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
