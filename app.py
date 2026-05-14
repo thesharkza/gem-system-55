@@ -672,17 +672,36 @@ with tab1:
             else:
                 uf=st.file_uploader("Upload odds screenshot",type=['png','jpg'])
                 if uf and st.button("⚡ EXTRACT IMAGE",use_container_width=True):
-                    with st.spinner("Scanning..."):
+                    with st.spinner("Scanning Matrix..."):
                         try:
                             img=Image.open(uf)
                             model = genai.GenerativeModel('models/gemma-4-31b-it')
-                            p='สกัดข้อมูลจากภาพ JSON: {"match_name":"","h1x2_val":0,"d1x2_val":0,"a1x2_val":0,"hdp_line_val":0,"hdp_h_w_val":0,"hdp_a_w_val":0,"ou_line_val":0,"ou_over_w_val":0,"ou_under_w_val":0}'
-                            d=safe_json_loads(model.generate_content([p,img]).text)
+                            
+                            # 🌟 อัปเกรด PROMPT แบบละเอียด เพื่อสอน AI ให้อ่านโครงสร้างตารางราคาบอล
+                            prompt_img = """คุณคือ AI Quant Analyst สกัดข้อมูลตารางราคาฟุตบอลจากภาพให้ออกมาเป็น JSON เท่านั้น โดยอิงจากโครงสร้างหน้าจอดังนี้:
+1. match_name: เอาชื่อทีมแถวบน + " VS " + ชื่อทีมแถวล่าง
+2. คอลัมน์ 'แฮนดิแคป' (ซ้ายสุด): 
+   - hdp_line_val = เรตต่อรอง (เช่น 1.5, 0.5/1)
+   - hdp_h_w_val = ค่าน้ำทีมแถวบน
+   - hdp_a_w_val = ค่าน้ำทีมแถวล่าง
+3. คอลัมน์ 'สูง/ต่ำ' (กลาง): 
+   - ou_line_val = เรตประตูรวม (เลขที่อยู่หลังคำว่า สูง/ต่ำ เช่น 3.5)
+   - ou_over_w_val = ค่าน้ำที่อยู่ใต้คำว่า 'สูง'
+   - ou_under_w_val = ค่าน้ำที่อยู่ใต้คำว่า 'ต่ำ'
+4. คอลัมน์ '1X2' (ขวาสุด): 
+   - h1x2_val = ค่าน้ำช่องบนสุด (ใต้เลข 1)
+   - a1x2_val = ค่าน้ำช่องที่สอง (ใต้เลข 2)
+   - d1x2_val = ค่าน้ำช่องล่างสุด (ใต้ตัว X)
+
+ตอบกลับมาแค่ JSON ก้อนเดียวเท่านั้น ห้ามมีข้อความอื่น:
+{"match_name":"","h1x2_val":0.0,"d1x2_val":0.0,"a1x2_val":0.0,"hdp_line_val":0.0,"hdp_h_w_val":0.0,"hdp_a_w_val":0.0,"ou_line_val":0.0,"ou_over_w_val":0.0,"ou_under_w_val":0.0}"""
+
+                            d=safe_json_loads(model.generate_content([prompt_img, img]).text)
                             for k,v in d.items(): st.session_state[k]=v
-                            st.toast("✅ สกัดข้อมูลจากภาพสำเร็จ!", icon="🎯")
+                            st.toast("✅ สกัดข้อมูลจากภาพสำเร็จเป๊ะ!", icon="🎯")
                             time.sleep(1)
                             st.rerun()
-                        except Exception as e: st.error(str(e))
+                        except Exception as e: st.error(f"⚠️ พลาด: {e}")
     with qi2:
         with st.expander("⌨️ TEXT PARSER — Paste raw text"):
             st.text_area("Paste odds...",height=75,key="raw_text")
