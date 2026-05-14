@@ -978,7 +978,7 @@ with tab3:
                 with st.spinner("Scanning..."):
                     try:
                         imgs=[Image.open(f) for f in limgs]
-                        m=genai.GenerativeModel('models/gemma-4-31b-it')
+                        m=genai.GenerativeModel('models/gemma-4-26b-a4b-it')
                         pl='''คุณคือ AI Quant Analyst สกัดข้อมูลฟุตบอล LIVE สด จากภาพให้ออกมาเป็น JSON เท่านั้น อิงจากโครงสร้างดังนี้:
 1. เวลา, สกอร์ และ ใบแดง:
    - current_min = ตัวเลขเวลาที่กำลังแข่ง (เช่น 27:06 ให้ตอบ 27)
