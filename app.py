@@ -680,9 +680,9 @@ with st.sidebar:
     max_bet_cap = st.slider("Max Bet Cap %", 1.0, 10.0, 5.0, step=0.5, help="ลิมิตเงินลงทุนสูงสุดที่จะไม่เกินเปอร์เซ็นต์นี้ต่อบิล")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
-    pre_ah_thr=st.slider("AH %",1.0,15.0,5.0,step=0.5)
-    pre_ou_thr=st.slider("O/U %",1.0,15.0,5.0,step=0.5)
+   st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
+    pre_ah_thr=st.slider("AH %", 1.0, 50.0, 24.5, step=0.5) # ขยายเพดานเป็น 50% และตั้งต้นที่ 24.5%
+    pre_ou_thr=st.slider("O/U %", 1.0, 50.0, 23.5, step=0.5) # ขยายเพดานเป็น 50% และตั้งต้นที่ 23.5%
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — IN-PLAY</div>', unsafe_allow_html=True)
     live_ah_thr=st.slider("AH Live %",5.0,50.0,20.0,step=1.0)
     live_ou_thr=st.slider("O/U Live %",5.0,50.0,20.0,step=1.0)
