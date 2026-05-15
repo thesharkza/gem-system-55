@@ -350,7 +350,8 @@ def init_session_state():
         'ou_line_val': 2.5, 'ou_over_w_val': 0.0, 'ou_under_w_val': 0.0,
         'raw_text': "", 'live_hdp': 0.0, 'live_ou': 2.50,
         'lh_s_input': 0, 'la_s_input': 0, 'current_min': 45,
-        'rc_h_chk': False, 'rc_a_chk': False
+        'rc_h_chk': False, 'rc_a_chk': False,
+        'xg_h_val': 0.0, 'xg_a_val': 0.0 # 🌟 เพิ่ม Session State สำหรับ xG
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
@@ -395,6 +396,7 @@ def clear_form_data():
     st.session_state.h1x2_val=1.0; st.session_state.d1x2_val=1.0; st.session_state.a1x2_val=1.0
     st.session_state.hdp_line_val=0.0; st.session_state.hdp_h_w_val=0.0; st.session_state.hdp_a_w_val=0.0
     st.session_state.ou_line_val=2.5; st.session_state.ou_over_w_val=0.0; st.session_state.ou_under_w_val=0.0
+    st.session_state.xg_h_val=0.0; st.session_state.xg_a_val=0.0
 
 def parse_line(s):
     s = str(s).replace(' ','').replace('+','')
@@ -426,23 +428,35 @@ def shin_devig(oh,od,oa):
 
 def poisson(k,lam): return (lam**k*math.exp(-lam))/math.factorial(k)
 
-def calc_dixon_coles_matrix(ph,pd,pa,ou,oow,uuw,rho,ch=0,ca=0,ml=90,rch=False,rca=False):
+# 🌟 อัปเกรด 2 อย่าง: Dynamic Rho และ xG Integration
+def calc_dixon_coles_matrix(ph,pd,pa,ou,oow,uuw,ch=0,ca=0,ml=90,rch=False,rca=False, xg_h=0.0, xg_a=0.0, xg_weight=0.0):
     ow=oow+1 if oow<1.1 else oow; uw=uuw+1 if uuw<1.1 else uuw
     op=1/ow; up=1/uw; top=op/(op+up)
     bet=ou+0.20+((top-0.5)*2.5)
     et=max(0.5,bet+(0.25-pd)*8.0)
     sup=(ph-pa)*(et**0.60)
     lh=max(0.15,(et+sup)/2)*(ml/90)**0.75; la=max(0.15,(et-sup)/2)*(ml/90)**0.75
+    
     if rch: lh*=0.50; la*=1.30
     if rca: la*=0.50; lh*=1.30
+    
+    # 🌟 2. xG Blending (หลอมรวมสถิติความคาดหวังจริง เข้ากับราคาบ่อน)
+    if xg_h > 0.0 or xg_a > 0.0:
+        lh = (lh * (1 - xg_weight)) + (xg_h * (ml/90)**0.75 * xg_weight)
+        la = (la * (1 - xg_weight)) + (xg_a * (ml/90)**0.75 * xg_weight)
+
+    # 🌟 4. Dynamic Rho (คำนวณอัตโนมัติจากเรตประตูรวม ไม่ต้องใช้ Slider อีกต่อไป)
+    # ถ้าเรตน้อยโอกาสเสมอมีเยอะ (Rho ติดลบมาก) ถ้าเรตสูงโอกาสเสมอน้อย (Rho ใกล้ศูนย์)
+    dyn_rho = max(-0.25, min(0.0, -0.15 + (et - 2.5) * 0.05))
+
     mx=[[0.0]*10 for _ in range(10)]
     for i in range(10):
         for j in range(10):
             bp=poisson(i,lh)*poisson(j,la)
-            if i==0 and j==0: tau=1-(lh*la*rho)
-            elif i==0 and j==1: tau=1+(lh*rho)
-            elif i==1 and j==0: tau=1+(la*rho)
-            elif i==1 and j==1: tau=1-rho
+            if i==0 and j==0: tau=1-(lh*la*dyn_rho)
+            elif i==0 and j==1: tau=1+(lh*dyn_rho)
+            elif i==1 and j==0: tau=1+(la*dyn_rho)
+            elif i==1 and j==1: tau=1-dyn_rho
             else: tau=1.0
             mx[i][j]=max(0,bp*tau)
     tp=sum(sum(r) for r in mx)
@@ -627,7 +641,7 @@ st.markdown("""
     </h1>
   </div>
   <div style="text-align:right;">
-    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.13</div>
+    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.14</div>
     <span class="gem-badge">● SYSTEM ONLINE</span>
   </div>
 </div>
@@ -657,13 +671,12 @@ with st.sidebar:
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ PORTFOLIO</div>', unsafe_allow_html=True)
     total_bankroll=st.number_input("Bankroll (THB)",min_value=0.0,value=10000.0)
-    dc_rho=st.slider("Dixon-Coles Rho",-0.30,0.0,-0.10,step=0.01)
     hdba_val=st.slider("HDBA Penalty %",0.0,10.0,1.5,step=0.5)
 
-    # 🌟 เพิ่มระบบจัดการเงินทุนขั้นสูง (Kelly Criterion)
+    # 🌟 1. เพิ่มระบบจัดการเงินทุนขั้นสูง (Kelly Criterion)
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ KELLY CRITERION (MONEY MGT)</div>', unsafe_allow_html=True)
-    kelly_fraction = st.slider("Kelly Fraction", 0.05, 0.50, 0.25, step=0.05, help="สัดส่วน Kelly (ค่าแนะนำคือ 0.25 เพื่อป้องกันความเสี่ยงพอร์ต)")
+    kelly_fraction = st.slider("Kelly Fraction", 0.05, 0.50, 0.25, step=0.05, help="สัดส่วน Kelly (แนะนำ 0.25 เพื่อป้องกันความเสี่ยงพอร์ต)")
     max_bet_cap = st.slider("Max Bet Cap %", 1.0, 10.0, 5.0, step=0.5, help="ลิมิตเงินลงทุนสูงสุดที่จะไม่เกินเปอร์เซ็นต์นี้ต่อบิล")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
@@ -784,7 +797,13 @@ with tab1:
         ou_under_w=st.number_input("UNDER",format="%.2f",key="ou_under_w_val")
         st.markdown('</div>',unsafe_allow_html=True)
 
-    # 🌟 เพิ่ม UI รับกระแสเงิน (Line Movement) ในหน้า Pre-Match
+    # 🌟 2. เพิ่ม UI รับค่า xG (Expected Goals)
+    st.markdown('<div class="gem-label">◈ EXPECTED GOALS (xG) INTEGRATION</div>',unsafe_allow_html=True)
+    c_xg1, c_xg2, c_xg3 = st.columns(3)
+    xg_h = c_xg1.number_input("xG Home", min_value=0.0, format="%.2f", step=0.1, key="xg_h_val")
+    xg_a = c_xg2.number_input("xG Away", min_value=0.0, format="%.2f", step=0.1, key="xg_a_val")
+    xg_weight = c_xg3.slider("xG Weight (เชื่อสถิติ %)", 0.0, 1.0, 0.50, step=0.1, help="ถ้า 0.5 คือเอาสถิติ xG มาผสมกับราคาบ่อนคนละครึ่ง")
+    
     st.markdown('<div class="gem-label">◈ CONTEXT & MARKET FLOW</div>',unsafe_allow_html=True)
     col_st1, col_st2 = st.columns([2, 1])
     with col_st1:
@@ -797,7 +816,10 @@ with tab1:
         ho,do_,ao=fix(h1x2),fix(d1x2),fix(a1x2)
         hwo,awo,owo,uwo=fix(hdp_h_w),fix(hdp_a_w),fix(ou_over_w),fix(ou_under_w)
         ph,pd_,pa=shin_devig(ho,do_,ao)
-        hw2,hw1,dex,aw1,aw2,pt=calc_dixon_coles_matrix(ph,pd_,pa,ou_line,owo,uwo,dc_rho)
+        
+        # 🌟 ส่งค่า xG และ xG Weight เข้าไปเบลนด์ใน Matrix
+        hw2,hw1,dex,aw1,aw2,pt=calc_dixon_coles_matrix(ph,pd_,pa,ou_line,owo,uwo,0,0,90,False,False, xg_h, xg_a, xg_weight)
+        
         fav_h=ph>=pa
         evh=ev_ah(hdp_line,hw2,hw1,dex,aw1,aw2,hwo,fav_h)
         eva=ev_ah(hdp_line,aw2,aw1,dex,hw1,hw2,awo,not fav_h)-(hdba_val/100)
@@ -860,7 +882,7 @@ with tab1:
                     # 🌟 คำนวณเงินลงทุนด้วย Fractional Kelly Criterion
                     kelly_opt = nev / (tc['odds'] - 1)
                     inv = min(kelly_opt * kelly_fraction, max_bet_cap / 100.0) * total_bankroll
-                    inv = max(inv, 0.0) # ป้องกันค่าติดลบ
+                    inv = max(inv, 0.0)
                     
                     tz_th=timezone(timedelta(hours=7))
                     save_db([{"Time":datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"),"Match":match_name,
@@ -1113,7 +1135,6 @@ with tab3:
         louov=ow1.number_input("OVER",value=st.session_state.get('live_ou_over',0.9),format="%.2f",key="live_ou_over")
         louun=ow2.number_input("UNDER",value=st.session_state.get('live_ou_under',0.9),format="%.2f",key="live_ou_under")
 
-    # 🌟 เพิ่ม UI รับกระแสเงิน (Line Movement) ในหน้า In-Play
     line_movement_live = st.selectbox("กระแสราคา (Live Line Movement)", ["➖ Stable (นิ่ง/ปกติ)", "🔥 Steam (ราคาไหลลง/เงินเข้า)", "❄️ Drift (ราคาไหลขึ้น/เงินออก)"], key="lm_live")
 
     ac1,ac2=st.columns([4,1])
@@ -1123,7 +1144,10 @@ with tab3:
     if snap:
         lph,lpd,lpa=shin_devig(fix(preh),fix(pred),fix(prea))
         ml=max(90-cmin,1)
-        hw2l,hw1l,dexl,aw1l,aw2l,ptl=calc_dixon_coles_matrix(lph,lpd,lpa,lou,fix(louov),fix(louun),dc_rho,csh,csa,ml,rch,rca)
+        
+        # 🌟 xG Integration สำหรับบอลสด
+        hw2l,hw1l,dexl,aw1l,aw2l,ptl=calc_dixon_coles_matrix(lph,lpd,lpa,lou,fix(louov),fix(louun),csh,csa,ml,rch,rca, st.session_state.get('xg_h_val',0.0), st.session_state.get('xg_a_val',0.0), 0.5)
+        
         fvl=lph>=lpa
         evhl=ev_ah(lhdp,hw2l,hw1l,dexl,aw1l,aw2l,fix(lhdph),fvl)
         eval_=ev_ah(lhdp,aw2l,aw1l,dexl,hw1l,hw2l,fix(lhdpa),not fvl)-(hdba_val/100)
@@ -1165,10 +1189,9 @@ with tab3:
                     st.balloons()
                     st.markdown(f'<div class="gem-panel" style="border-top:2px solid #ff3b5c;border-left:2px solid #ff3b5c;"><div class="gem-label" style="border-color:#ff3b5c;color:#ff3b5c;">◈ SNIPER APPROVED — TARGET LOCKED</div><p style="color:#ff3b5c;font-family:\'Share Tech Mono\';">TARGET: {tl2["n"]} | NET EV: {nlev*100:.2f}%</p><p style="color:#c8e6d4;">{al.get("final_comment","")}</p></div>',unsafe_allow_html=True)
                     
-                    # 🌟 คำนวณเงินลงทุนด้วย Fractional Kelly Criterion สำหรับหน้า Live
                     kelly_opt_live = nlev / (tl2['odds'] - 1)
                     inv = min(kelly_opt_live * kelly_fraction, max_bet_cap / 100.0) * total_bankroll
-                    inv = max(inv, 0.0) # ป้องกันค่าติดลบ
+                    inv = max(inv, 0.0)
                     
                     tz2=timezone(timedelta(hours=7))
                     save_db([{"Time":datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"),
@@ -1230,6 +1253,28 @@ with tab4:
                 st.plotly_chart(fig_bt,use_container_width=True)
                 with st.expander("◈ RAW DATA"):
                     st.dataframe(fin[['Time','Match','Target','Odds','Result','Net_Profit','Actual','BP','OP']],use_container_width=True)
+
+                # 🌟 5. ระบบ ML Auto-Tuning ค้นหาจุดคุ้มทุนอัตโนมัติ
+                st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
+                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>',unsafe_allow_html=True)
+                if st.button("🧪 RUN BACKTEST OPTIMIZATION", type="primary", use_container_width=True):
+                    with st.spinner("AI กำลังวนลูปย้อนหลังเพื่อหาจุดทำกำไรสูงสุด..."):
+                        best_ah_thr, best_ah_pnl = 0, -99999
+                        best_ou_thr, best_ou_pnl = 0, -99999
+                        ah_logs = fin[fin['Target'].isin(['เจ้าบ้าน', 'ทีมเยือน'])]
+                        ou_logs = fin[fin['Target'].isin(['สูง', 'ต่ำ'])]
+
+                        for t in np.arange(1.0, 30.0, 0.5):
+                            pnl_ah = ah_logs[ah_logs['EV_Pct'] >= t]['Net_Profit'].sum()
+                            if pnl_ah > best_ah_pnl: best_ah_pnl, best_ah_thr = pnl_ah, t
+                            pnl_ou = ou_logs[ou_logs['EV_Pct'] >= t]['Net_Profit'].sum()
+                            if pnl_ou > best_ou_pnl: best_ou_pnl, best_ou_thr = pnl_ou, t
+
+                        st.success(f"**🎯 ผลการวิเคราะห์หาจุดคุ้มทุน (Optimized Thresholds):**\n\n"
+                                   f"👉 **ตลาดแฮนดิแคป (AH):** ควรตั้ง EV ขั้นต่ำที่ **{best_ah_thr}%** (กำไรตามทฤษฎีสูงสุด: ฿{best_ah_pnl:,.0f})\n\n"
+                                   f"👉 **ตลาดสูง/ต่ำ (O/U):** ควรตั้ง EV ขั้นต่ำที่ **{best_ou_thr}%** (กำไรตามทฤษฎีสูงสุด: ฿{best_ou_pnl:,.0f})")
+                        st.info("นำตัวเลขนี้ไปปรับที่แถบ Sidebar (EV THRESHOLDS) เพื่อรีดกำไรให้สุดหลอดเลยครับ!")
+
             else: st.info("◈ No records with calculable outcomes")
         else: st.info("◈ No settled results — update Result column in Dashboard first")
     else: st.warning("◈ No investment log found")
