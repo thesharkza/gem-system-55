@@ -323,10 +323,10 @@ hr { border-color: var(--border-neon) !important; }
 }
 [data-testid="stNumberInput"] button:hover { background: var(--neon-dim) !important; }
 
-/* ซ่อนเมนู Header ที่ไม่จำเป็น */
-header {visibility: hidden;}
+/* 🌟 แก้ไข CSS ซ่อน Header: เก็บ Header ไว้แบบโปร่งใส เพื่อให้ปุ่ม Hamburger ของ Sidebar ทำงานได้ */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
+[data-testid="stHeader"] { background-color: transparent; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -495,7 +495,6 @@ def ev_ou(line,pt,odds,over):
 # ==========================================
 # 🧠 AI ENGINE
 # ==========================================
-# 🌟 อัปเกรด AI Engine ให้รับข้อมูล Line Movement เข้าไปพิจารณาด้วย
 def ai_engine(match_name,target,base_ev,hdp,odds,live=False,min=0,score="0-0",thr=0.08,stats="",fav=None, line_movement="➖ Stable (นิ่ง)"):
     raw=load_gem_rules()
     try: db=get_dynamic_rules(target,live,raw)
@@ -628,7 +627,7 @@ st.markdown("""
     </h1>
   </div>
   <div style="text-align:right;">
-    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.12</div>
+    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.13</div>
     <span class="gem-badge">● SYSTEM ONLINE</span>
   </div>
 </div>
