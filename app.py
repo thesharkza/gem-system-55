@@ -176,6 +176,11 @@ h3, h4, h5 {
     box-shadow: 0 0 0 2px #00ff8818 !important;
     outline: none !important;
 }
+[data-testid="stSelectbox"] > div {
+    background: var(--bg-card2) !important;
+    border-color: var(--border) !important;
+    color: var(--neon-green) !important;
+}
 label[data-testid="stWidgetLabel"] {
     color: var(--text-dim) !important;
     font-size: 0.75rem !important;
@@ -317,6 +322,11 @@ hr { border-color: var(--border-neon) !important; }
     border-color: var(--border) !important;
 }
 [data-testid="stNumberInput"] button:hover { background: var(--neon-dim) !important; }
+
+/* ซ่อนเมนู Header ที่ไม่จำเป็น */
+header {visibility: hidden;}
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -339,7 +349,8 @@ def init_session_state():
         'hdp_line_val': 0.0, 'hdp_h_w_val': 0.0, 'hdp_a_w_val': 0.0,
         'ou_line_val': 2.5, 'ou_over_w_val': 0.0, 'ou_under_w_val': 0.0,
         'raw_text': "", 'live_hdp': 0.0, 'live_ou': 2.50,
-        'lh_s': 0, 'la_s': 0, 'current_min': 45
+        'lh_s_input': 0, 'la_s_input': 0, 'current_min': 45,
+        'rc_h_chk': False, 'rc_a_chk': False
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
@@ -347,11 +358,12 @@ def init_session_state():
 init_session_state()
 
 def clear_inplay_data():
-    for k, v in {'lh_s_input':0,'la_s_input':0,'rc_h':False,'rc_a':False,'current_min':45,
+    for k, v in {'lh_s_input':0,'la_s_input':0,'rc_h_chk':False,'rc_a_chk':False,'current_min':45,
                  'pre_h':2.0,'pre_d':3.0,'pre_a':3.0,'pre_ou':2.5,
                  'live_hdp':0.0,'live_hdp_h':0.9,'live_hdp_a':0.9,
                  'live_ou':2.5,'live_ou_over':0.9,'live_ou_under':0.9}.items():
         st.session_state[k] = v
+    if 'match_name_live' in st.session_state: del st.session_state['match_name_live']
 
 @st.cache_data(ttl=60)
 def load_gem_rules():
@@ -483,7 +495,8 @@ def ev_ou(line,pt,odds,over):
 # ==========================================
 # 🧠 AI ENGINE
 # ==========================================
-def ai_engine(match_name,target,base_ev,hdp,odds,live=False,min=0,score="0-0",thr=0.08,stats="",fav=None):
+# 🌟 อัปเกรด AI Engine ให้รับข้อมูล Line Movement เข้าไปพิจารณาด้วย
+def ai_engine(match_name,target,base_ev,hdp,odds,live=False,min=0,score="0-0",thr=0.08,stats="",fav=None, line_movement="➖ Stable (นิ่ง)"):
     raw=load_gem_rules()
     try: db=get_dynamic_rules(target,live,raw)
     except: db=raw
@@ -493,8 +506,14 @@ def ai_engine(match_name,target,base_ev,hdp,odds,live=False,min=0,score="0-0",th
         f"CRO — Quant Sports Betting Fund\n[Match] {match_name}\n"
         f"[Situation] {'Live '+str(min)+'min ('+score+')' if live else 'Pre-Match'}\n"
         f"[Target] {target}{ri} line={abs(hdp)} odds={odds} BaseEV={base_ev*100:.2f}%\n"
+        f"[Line Movement] {line_movement}\n"
         f"[Stats] {stats}\n[Mode] {mode}\n[GEM RULES]\n{db}\n\n"
-        "Rules: 1.ห้ามสับสนทีมต่อ/รอง 2.Market Isolation AH≠OU 3.ระบุ RuleID 4.impact_score -1..1\n"
+        "Rules:\n"
+        "1. ห้ามสับสนทีมต่อ/รอง\n"
+        "2. Market Isolation: แยกพิจารณา AH กับ OU ห้ามนำมาปนกัน\n"
+        "3. ระบุ RuleID ให้ชัดเจนหากมีการใช้กฎ\n"
+        "4. impact_score ต้องเป็นทศนิยม -1.0 ถึง 1.0\n"
+        "5. 🌟 หาก Line Movement เป็น 'Steam (ไหลเข้า)' ให้ถือเป็นสัญญาณบวกจาก Smart Money (เพิ่มความมั่นใจ), หากเป็น 'Drift (ไหลสวน)' ให้ระวังกับดักบ่อน (Trap) และอาจพิจารณาลดคะแนนลง\n\n"
         'JSON Thai: {"pros_analysis":"","cons_analysis":"","rule_triggered":"","impact_score":0.0,"final_decision":true,"final_comment":"","confidence_level":3}'
     )
     for attempt in range(3):
@@ -609,7 +628,7 @@ st.markdown("""
     </h1>
   </div>
   <div style="text-align:right;">
-    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.8</div>
+    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.12</div>
     <span class="gem-badge">● SYSTEM ONLINE</span>
   </div>
 </div>
@@ -641,6 +660,12 @@ with st.sidebar:
     total_bankroll=st.number_input("Bankroll (THB)",min_value=0.0,value=10000.0)
     dc_rho=st.slider("Dixon-Coles Rho",-0.30,0.0,-0.10,step=0.01)
     hdba_val=st.slider("HDBA Penalty %",0.0,10.0,1.5,step=0.5)
+
+    # 🌟 เพิ่มระบบจัดการเงินทุนขั้นสูง (Kelly Criterion)
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ KELLY CRITERION (MONEY MGT)</div>', unsafe_allow_html=True)
+    kelly_fraction = st.slider("Kelly Fraction", 0.05, 0.50, 0.25, step=0.05, help="สัดส่วน Kelly (ค่าแนะนำคือ 0.25 เพื่อป้องกันความเสี่ยงพอร์ต)")
+    max_bet_cap = st.slider("Max Bet Cap %", 1.0, 10.0, 5.0, step=0.5, help="ลิมิตเงินลงทุนสูงสุดที่จะไม่เกินเปอร์เซ็นต์นี้ต่อบิล")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
@@ -732,7 +757,7 @@ with tab1:
                         if um: st.session_state.ou_under_w_val=float(um.group(1))
                         st.toast("✅ Parsed!", icon="🎯")
                         time.sleep(1)
-                        st.rerun() # 🌟 เพิ่มบรรทัดนี้ เพื่อให้ระบบรีเซ็ตและอัปเดตหน้าจอทันที ไม่ชนกับ Widget ด้านล่าง
+                        st.rerun()
                     except Exception as e: st.error(str(e))
             with tp2: st.button("🗑 CLEAR",use_container_width=True,on_click=clear_form_data)
 
@@ -760,8 +785,13 @@ with tab1:
         ou_under_w=st.number_input("UNDER",format="%.2f",key="ou_under_w_val")
         st.markdown('</div>',unsafe_allow_html=True)
 
-    st.markdown('<div class="gem-label">◈ SUPPLEMENTARY STATS (OPTIONAL)</div>',unsafe_allow_html=True)
-    match_stats=st.text_area("Paste H2H / form data...",height=70, label_visibility="collapsed")
+    # 🌟 เพิ่ม UI รับกระแสเงิน (Line Movement) ในหน้า Pre-Match
+    st.markdown('<div class="gem-label">◈ CONTEXT & MARKET FLOW</div>',unsafe_allow_html=True)
+    col_st1, col_st2 = st.columns([2, 1])
+    with col_st1:
+        match_stats=st.text_area("H2H / Stats (Optional)",height=70, label_visibility="collapsed", placeholder="วางสถิติ H2H, ฟอร์มย้อนหลัง เพื่อให้ AI ช่วยวิเคราะห์...")
+    with col_st2:
+        line_movement = st.selectbox("กระแสราคา (Line Movement)", ["➖ Stable (นิ่ง/ปกติ)", "🔥 Steam (ราคาไหลลง/เงินเข้า)", "❄️ Drift (ราคาไหลขึ้น/เงินออก)"])
     st.markdown('<div style="height:6px"></div>',unsafe_allow_html=True)
 
     if st.button("⚡  RUN ORACLE ANALYSIS",use_container_width=True,type="primary"):
@@ -805,7 +835,7 @@ with tab1:
                     if tc['n']=="เจ้าบ้าน": tf=fav_h
                     elif tc['n']=="ทีมเยือน": tf=not fav_h
                     v=ai_engine(match_name,tc['n'],tc['ev'],tc['hdp'],tc['odds'],
-                                live=False,thr=pre_ah_lim,stats=match_stats,fav=tf)
+                                live=False,thr=pre_ah_lim,stats=match_stats,fav=tf, line_movement=line_movement)
                     nev=tc['ev']+v.get('impact_score',0)
 
                 st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
@@ -825,9 +855,14 @@ with tab1:
                 col_v="#00ff88" if v.get('final_decision',False) and nev>0 else "#ff3b5c"
                 label="◈ ORACLE APPROVED — EXECUTE" if v.get('final_decision',False) and nev>0 else "◈ ORACLE REJECTED — STAND DOWN"
                 st.markdown(f'<div class="gem-panel" style="border-top:2px solid {col_v};"><div class="gem-label" style="border-color:{col_v};color:{col_v};">{label}</div><p style="color:{col_v};font-family:\'Share Tech Mono\';font-size:0.82rem;">{v.get("final_comment","")}</p></div>',unsafe_allow_html=True)
+                
                 if v.get('final_decision',False) and nev>0:
                     st.balloons()
-                    inv=min((((tc['odds']-1)*((nev+1)/tc['odds'])-(1-((nev+1)/tc['odds'])))/(tc['odds']-1))*0.25,0.05)*total_bankroll
+                    # 🌟 คำนวณเงินลงทุนด้วย Fractional Kelly Criterion
+                    kelly_opt = nev / (tc['odds'] - 1)
+                    inv = min(kelly_opt * kelly_fraction, max_bet_cap / 100.0) * total_bankroll
+                    inv = max(inv, 0.0) # ป้องกันค่าติดลบ
+                    
                     tz_th=timezone(timedelta(hours=7))
                     save_db([{"Time":datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"),"Match":match_name,
                               "HDP":tc['hdp'],"Target":tc['n'],"EV_Pct":round(nev*100,2),
@@ -873,7 +908,6 @@ with tab2:
         else: fl=tfl
         il=fl[fl['Investment']>0]
 
-        # 🌟 คำนวณ Institutional Metrics (MDD & % Beating CLV)
         max_drawdown = 0.0
         mdd_pct = 0.0
         if not fl.empty:
@@ -989,7 +1023,6 @@ with tab3:
                         imgs=[Image.open(f) for f in limgs]
                         model=genai.GenerativeModel('models/gemma-4-31b-it')
                         
-                        # 🌟 อัปเกรด PROMPT สกัดข้อมูล Live แบบสมบูรณ์ (เพิ่มชื่อทีมและเน้นตำแหน่งสกอร์)
                         pl='''คุณคือ AI Quant Analyst สกัดข้อมูลฟุตบอล LIVE สด จากภาพให้ออกมาเป็น JSON เท่านั้น อิงจากโครงสร้างดังนี้:
 1. ข้อมูลทั่วไป:
    - match_name: ชื่อทีมเหย้า (แถวบน) + " VS " + ชื่อทีมเยือน (แถวล่าง)
@@ -1013,7 +1046,6 @@ with tab3:
                         
                         d=safe_json_loads(model.generate_content([pl]+imgs).text)
                         
-                        # 🌟 ระบบตะแกรงกรองข้อมูลและแมป Widget Key ให้ตรงช่อง (Safeguard)
                         for k, v in d.items():
                             if k == 'match_name':
                                 st.session_state['match_name_live'] = str(v)
@@ -1040,19 +1072,18 @@ with tab3:
                     except Exception as e: st.error(f"⚠️ พลาด: {e}")
 
     st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
-    
-    # 🌟 เพิ่มช่องบันทึกชื่อทีม (ดึงค่าจากหน้า Pre-Match มาเป็นค่าเริ่มต้น)
-    st.text_input("MATCH (Live)", value=st.session_state.get('match_name', ''), key="match_name_live", placeholder="Home Team VS Away Team")
+    default_live_mn = st.session_state.get('match_name_live', st.session_state.get('match_name',''))
+    live_mn = st.text_input("MATCH (Live)", value=default_live_mn, key="match_name_live_input")
 
     gl1,gl2=st.columns(2)
     with gl1:
         st.markdown('<div class="gem-label">◈ LIVE MATCH STATE</div>',unsafe_allow_html=True)
         s1,s2=st.columns(2)
-        csh=s1.number_input("HOME SCORE",min_value=0,value=st.session_state.get('current_score_h',0),key="lh_s_input")
-        rch=s2.checkbox("🟥 HOME RED",value=st.session_state.get('rc_h',False),key="rc_h_chk")
+        csh=s1.number_input("HOME SCORE",min_value=0,value=st.session_state.get('lh_s_input',0),key="lh_s_input")
+        rch=s2.checkbox("🟥 HOME RED",value=st.session_state.get('rc_h_chk',False),key="rc_h_chk")
         s3,s4=st.columns(2)
-        csa=s3.number_input("AWAY SCORE",min_value=0,value=st.session_state.get('current_score_a',0),key="la_s_input")
-        rca=s4.checkbox("🟥 AWAY RED",value=st.session_state.get('rc_a',False),key="rc_a_chk")
+        csa=s3.number_input("AWAY SCORE",min_value=0,value=st.session_state.get('la_s_input',0),key="la_s_input")
+        rca=s4.checkbox("🟥 AWAY RED",value=st.session_state.get('rc_a_chk',False),key="rc_a_chk")
         cmin=st.slider("MINUTE",0,120,st.session_state.get('current_min',45))
     with gl2:
         st.markdown('<div class="gem-label">◈ PRE-MATCH REFERENCE</div>',unsafe_allow_html=True)
@@ -1082,6 +1113,9 @@ with tab3:
         ow1,ow2=st.columns(2)
         louov=ow1.number_input("OVER",value=st.session_state.get('live_ou_over',0.9),format="%.2f",key="live_ou_over")
         louun=ow2.number_input("UNDER",value=st.session_state.get('live_ou_under',0.9),format="%.2f",key="live_ou_under")
+
+    # 🌟 เพิ่ม UI รับกระแสเงิน (Line Movement) ในหน้า In-Play
+    line_movement_live = st.selectbox("กระแสราคา (Live Line Movement)", ["➖ Stable (นิ่ง/ปกติ)", "🔥 Steam (ราคาไหลลง/เงินเข้า)", "❄️ Drift (ราคาไหลขึ้น/เงินออก)"], key="lm_live")
 
     ac1,ac2=st.columns([4,1])
     snap=ac1.button("⚡  ENGAGE SNIPER",use_container_width=True,type="primary")
@@ -1115,11 +1149,9 @@ with tab3:
                     if tl2['n']=="เจ้าบ้าน": tf2=fvl
                     elif tl2['n']=="ทีมเยือน": tf2=not fvl
                     
-                    # 🌟 ดึงชื่อทีมที่กรอกจากหน้า Live ไปวิเคราะห์
-                    live_mn = st.session_state.get('match_name_live')
-                    if not live_mn: live_mn = st.session_state.get('match_name', 'Live Match')
+                    live_mn_val = st.session_state.get('match_name_live_input', live_mn)
                     
-                    al=ai_engine(live_mn,tl2['n'],tl2['ev'],tl2['hdp'],tl2['odds'],True,cmin,f"{csh}-{csa}",thr=live_ah_lim,fav=tf2)
+                    al=ai_engine(live_mn_val,tl2['n'],tl2['ev'],tl2['hdp'],tl2['odds'],True,cmin,f"{csh}-{csa}",thr=live_ah_lim,fav=tf2, line_movement=line_movement_live)
                     nlev=tl2['ev']+al.get('impact_score',0)
                 lc1,lc2,lc3=st.columns(3)
                 lc1.metric("LIVE EV",f"{tl2['ev']*100:.2f}%")
@@ -1133,14 +1165,18 @@ with tab3:
                 if al.get('final_decision',False) and nlev>=lim:
                     st.balloons()
                     st.markdown(f'<div class="gem-panel" style="border-top:2px solid #ff3b5c;border-left:2px solid #ff3b5c;"><div class="gem-label" style="border-color:#ff3b5c;color:#ff3b5c;">◈ SNIPER APPROVED — TARGET LOCKED</div><p style="color:#ff3b5c;font-family:\'Share Tech Mono\';">TARGET: {tl2["n"]} | NET EV: {nlev*100:.2f}%</p><p style="color:#c8e6d4;">{al.get("final_comment","")}</p></div>',unsafe_allow_html=True)
-                    inv=min((((tl2['odds']-1)*((nlev+1)/tl2['odds'])-(1-((nlev+1)/tl2['odds'])))/(tl2['odds']-1))*0.25,0.05)*total_bankroll
-                    tz2=timezone(timedelta(hours=7))
                     
-                    # 🌟 บันทึกชื่อทีมพร้อมประทับเวลานาทีแข่งขัน (Auto-Timestamp Minute)
+                    # 🌟 คำนวณเงินลงทุนด้วย Fractional Kelly Criterion สำหรับหน้า Live
+                    kelly_opt_live = nlev / (tl2['odds'] - 1)
+                    inv = min(kelly_opt_live * kelly_fraction, max_bet_cap / 100.0) * total_bankroll
+                    inv = max(inv, 0.0) # ป้องกันค่าติดลบ
+                    
+                    tz2=timezone(timedelta(hours=7))
                     save_db([{"Time":datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"),
-                              "Match":f"[LIVE {cmin}'] {live_mn}",
+                              "Match":f"[LIVE {cmin}'] {live_mn_val if live_mn_val else 'Live Match'}",
                               "HDP":tl2['hdp'],"Target":tl2['n'],"EV_Pct":round(nlev*100,2),
                               "Investment":round(inv,2),"Odds":tl2['odds'],"Closing_Odds":0.0,"Result":""}])
+                    st.toast("✅ SNIPER DEPLOYED: บันทึกข้อมูลแล้ว", icon="🚀")
                 else:
                     st.markdown(f'<div class="gem-panel" style="border-top:2px solid #ffd600;"><div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ ORACLE STAND DOWN</div><p class="gem-warn">{al.get("final_comment","")}</p></div>',unsafe_allow_html=True)
         else:
