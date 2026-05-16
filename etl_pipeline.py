@@ -25,7 +25,8 @@ headers = {
 # ==========================================
 def get_today_fixtures():
     tz_th = timezone(timedelta(hours=7))
-    today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
+    # today_str = datetime.now(tz_th).strftime("%Y-%m-%d")   <-- ใส่ # ปิดบรรทัดนี้ไว้ก่อน
+    today_str = "2026-05-10"                                 <-- เพิ่มบรรทัดนี้ลงไปแทน
     
     print(f"📅 กำลังเช็คตารางแข่งขันของวันที่ {today_str}...")
     url = "https://v3.football.api-sports.io/fixtures"
