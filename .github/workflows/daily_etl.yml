@@ -2,23 +2,29 @@ name: GEM System Stats Sniper
 
 on:
   schedule:
-    - cron: '0 0 * * *' # ตั้งเวลาทำงานทุกเช้า
-  workflow_dispatch: # สร้างปุ่มให้เรากดรันมือได้ตลอดเวลา
+    # 💡 ปรับจากเดิม (0 0 * * *) ที่รันตอน 7 โมงเช้าไทย มาเป็นรันเวลา '0 5 * * *' (เที่ยงวันเวลาไทย 12:00 น.) 
+    # เพื่อให้ระบบ Football-Data.org ได้ทำการสรุปผลคะแนนและอัปเดตตาราง Standings ของคู่เมื่อคืนให้เสร็จสมบูรณ์ก่อนที่บอทจะไปสแกนครับ
+    - cron: '0 5 * * *'
+  workflow_dispatch: # สร้างปุ่มให้เรากดรันมือได้ตลอดเวลาเหมือนเดิม
 
 jobs:
   run-sniper:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
+
       - name: Install dependencies
         run: pip install requests supabase
+
       - name: Execute ETL Pipeline
-          env:
-            SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-            SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-            FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }} 
-          run: python etl_pipeline.py
+        # ✅ แก้ไขการเคาะเว้นวรรค (Indentation) ตรง env ให้ตรงตามมาตรฐานของ GitHub Actions แล้ว
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }} 
+        run: python etl_pipeline.py
