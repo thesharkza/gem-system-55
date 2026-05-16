@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import os
 import re
 import math
 import json
@@ -260,9 +259,7 @@ label[data-testid="stWidgetLabel"] {
     padding: 10px 14px !important;
 }
 [data-testid="stExpander"] summary:hover { color: var(--neon-green) !important; }
-
 [data-testid="stRadio"] label { color: var(--text-main) !important; font-family: var(--font-ui) !important; font-size: 0.83rem !important; }
-
 hr { border-color: var(--border-neon) !important; }
 
 ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -270,7 +267,6 @@ hr { border-color: var(--border-neon) !important; }
 ::-webkit-scrollbar-thumb { background: var(--text-label); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--neon-green2); }
 
-/* helpers */
 .gem-panel {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -323,7 +319,6 @@ hr { border-color: var(--border-neon) !important; }
 }
 [data-testid="stNumberInput"] button:hover { background: var(--neon-dim) !important; }
 
-/* 🌟 แก้ไข CSS ซ่อน Header: เก็บ Header ไว้แบบโปร่งใส เพื่อให้ปุ่ม Hamburger ของ Sidebar ทำงานได้ */
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 [data-testid="stHeader"] { background-color: transparent; }
@@ -351,7 +346,7 @@ def init_session_state():
         'raw_text': "", 'live_hdp': 0.0, 'live_ou': 2.50,
         'lh_s_input': 0, 'la_s_input': 0, 'current_min': 45,
         'rc_h_chk': False, 'rc_a_chk': False,
-        'xg_h_val': 0.0, 'xg_a_val': 0.0 # 🌟 เพิ่ม Session State สำหรับ xG
+        'xg_h_val': 0.0, 'xg_a_val': 0.0,
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
@@ -359,28 +354,33 @@ def init_session_state():
 init_session_state()
 
 def clear_inplay_data():
-    for k, v in {'lh_s_input':0,'la_s_input':0,'rc_h_chk':False,'rc_a_chk':False,'current_min':45,
-                 'pre_h':2.0,'pre_d':3.0,'pre_a':3.0,'pre_ou':2.5,
-                 'live_hdp':0.0,'live_hdp_h':0.9,'live_hdp_a':0.9,
-                 'live_ou':2.5,'live_ou_over':0.9,'live_ou_under':0.9}.items():
+    for k, v in {
+        'lh_s_input': 0, 'la_s_input': 0,
+        'rc_h_chk': False, 'rc_a_chk': False, 'current_min': 45,
+        'pre_h': 2.0, 'pre_d': 3.0, 'pre_a': 3.0, 'pre_ou': 2.5,
+        'live_hdp': 0.0, 'live_hdp_h': 0.9, 'live_hdp_a': 0.9,
+        'live_ou': 2.5, 'live_ou_over': 0.9, 'live_ou_under': 0.9,
+    }.items():
         st.session_state[k] = v
-    if 'match_name_live' in st.session_state: del st.session_state['match_name_live']
+    if 'match_name_live' in st.session_state:
+        del st.session_state['match_name_live']
 
 @st.cache_data(ttl=60)
 def load_gem_rules():
     if not supabase: return "⚠️ ไม่สามารถเชื่อมต่อ Supabase"
     try:
-        r = supabase.table("gem_knowledge").select("rule_id,category,rule_text").eq("is_active",True).execute()
+        r = supabase.table("gem_knowledge").select("rule_id,category,rule_text").eq("is_active", True).execute()
         if r.data:
             return "\n".join([f"[{i['rule_id']} - หมวด {i['category']}] {i['rule_text']}" for i in r.data])
         return "ยังไม่มีข้อมูลกฎ"
-    except Exception as e: return f"Error: {e}"
+    except Exception as e:
+        return f"Error: {e}"
 
 def get_dynamic_rules(target, is_live, raw_rules):
     rules = raw_rules.split('\n')
     out = []
-    is_ah = target in ["เจ้าบ้าน","ทีมเยือน"]
-    is_ou = target in ["สูง","ต่ำ"]
+    is_ah = target in ["เจ้าบ้าน", "ทีมเยือน"]
+    is_ou = target in ["สูง", "ต่ำ"]
     for rule in rules:
         if not rule.strip(): continue
         rl = rule.lower()
@@ -392,239 +392,296 @@ def get_dynamic_rules(target, is_live, raw_rules):
     return "\n".join(out)
 
 def clear_form_data():
-    st.session_state.raw_text = ""; st.session_state.match_name = "ชื่อคู่แข่งขัน"
-    st.session_state.h1x2_val=1.0; st.session_state.d1x2_val=1.0; st.session_state.a1x2_val=1.0
-    st.session_state.hdp_line_val=0.0; st.session_state.hdp_h_w_val=0.0; st.session_state.hdp_a_w_val=0.0
-    st.session_state.ou_line_val=2.5; st.session_state.ou_over_w_val=0.0; st.session_state.ou_under_w_val=0.0
-    st.session_state.xg_h_val=0.0; st.session_state.xg_a_val=0.0
+    st.session_state.raw_text = ""
+    st.session_state.match_name = "ชื่อคู่แข่งขัน"
+    for k, v in {
+        'h1x2_val': 1.0, 'd1x2_val': 1.0, 'a1x2_val': 1.0,
+        'hdp_line_val': 0.0, 'hdp_h_w_val': 0.0, 'hdp_a_w_val': 0.0,
+        'ou_line_val': 2.5, 'ou_over_w_val': 0.0, 'ou_under_w_val': 0.0,
+        'xg_h_val': 0.0, 'xg_a_val': 0.0,
+    }.items():
+        st.session_state[k] = v
 
 def parse_line(s):
-    s = str(s).replace(' ','').replace('+','')
-    neg = '-' in s; s = s.replace('-','')
+    s = str(s).replace(' ', '').replace('+', '')
+    neg = '-' in s
+    s = s.replace('-', '')
     try:
         if '/' in s or ',' in s:
             sep = '/' if '/' in s else ','
-            return (-1 if neg else 1)*((float(s.split(sep)[0])+float(s.split(sep)[1]))/2)
-        return float(s)*(-1 if neg else 1)
-    except: return 0.0
+            return (-1 if neg else 1) * ((float(s.split(sep)[0]) + float(s.split(sep)[1])) / 2)
+        return float(s) * (-1 if neg else 1)
+    except:
+        return 0.0
 
 # ==========================================
 # 🧮 MATH ENGINE
 # ==========================================
-def shin_devig(oh,od,oa):
-    pi=[1/oh,1/od,1/oa]; sp=sum(pi)
-    if sp<=1.0: return pi[0]/sp,pi[1]/sp,pi[2]/sp
-    lo,hi=0.0,1.0
+def shin_devig(oh, od, oa):
+    pi = [1/oh, 1/od, 1/oa]
+    sp = sum(pi)
+    if sp <= 1.0: return pi[0]/sp, pi[1]/sp, pi[2]/sp
+    lo, hi = 0.0, 1.0
     for _ in range(100):
-        z=(lo+hi)/2
+        z = (lo + hi) / 2
         try:
-            p=[(math.sqrt(z**2+4*(1-z)*pi_i)-z)/(2*(1-z)) for pi_i in pi]
-            if sum(p)>1: lo=z
-            else: hi=z
-        except ZeroDivisionError: break
-    try: p=[(math.sqrt(z**2+4*(1-z)*pi_i)-z)/(2*(1-z)) for pi_i in pi]
-    except: p=pi
-    sp=sum(p); return p[0]/sp,p[1]/sp,p[2]/sp
+            p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
+            if sum(p) > 1: lo = z
+            else: hi = z
+        except ZeroDivisionError:
+            break
+    try:
+        p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
+    except:
+        p = pi
+    sp = sum(p)
+    return p[0]/sp, p[1]/sp, p[2]/sp
 
-def poisson(k,lam): return (lam**k*math.exp(-lam))/math.factorial(k)
+def poisson(k, lam):
+    return (lam**k * math.exp(-lam)) / math.factorial(k)
 
-# 🌟 อัปเกรด 2 อย่าง: Dynamic Rho และ xG Integration
-def calc_dixon_coles_matrix(ph,pd,pa,ou,oow,uuw,ch=0,ca=0,ml=90,rch=False,rca=False, xg_h=0.0, xg_a=0.0, xg_weight=0.0):
-    ow=oow+1 if oow<1.1 else oow; uw=uuw+1 if uuw<1.1 else uuw
-    op=1/ow; up=1/uw; top=op/(op+up)
-    bet=ou+0.20+((top-0.5)*2.5)
-    et=max(0.5,bet+(0.25-pd)*8.0)
-    sup=(ph-pa)*(et**0.60)
-    lh=max(0.15,(et+sup)/2)*(ml/90)**0.75; la=max(0.15,(et-sup)/2)*(ml/90)**0.75
-    
-    if rch: lh*=0.50; la*=1.30
-    if rca: la*=0.50; lh*=1.30
-    
-    # 🌟 2. xG Blending (หลอมรวมสถิติความคาดหวังจริง เข้ากับราคาบ่อน)
+# [แก้ไข] ลบ parameter rho ออก → ใช้ Dynamic Rho คำนวณอัตโนมัติแทน
+def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
+                             ch=0, ca=0, ml=90,
+                             rch=False, rca=False,
+                             xg_h=0.0, xg_a=0.0, xg_weight=0.0):
+    ow = oow + 1 if oow < 1.1 else oow
+    uw = uuw + 1 if uuw < 1.1 else uuw
+    op = 1/ow; up = 1/uw
+    top = op / (op + up)
+
+    bet = ou + 0.20 + ((top - 0.5) * 2.5)
+    et = max(0.5, bet + (0.25 - pd) * 8.0)
+    sup = (ph - pa) * (et ** 0.60)
+
+    lh = max(0.15, (et + sup) / 2) * (ml / 90) ** 0.75
+    la = max(0.15, (et - sup) / 2) * (ml / 90) ** 0.75
+
+    if rch: lh *= 0.50; la *= 1.30
+    if rca: la *= 0.50; lh *= 1.30
+
+    # xG Blending
     if xg_h > 0.0 or xg_a > 0.0:
-        lh = (lh * (1 - xg_weight)) + (xg_h * (ml/90)**0.75 * xg_weight)
-        la = (la * (1 - xg_weight)) + (xg_a * (ml/90)**0.75 * xg_weight)
+        lh = lh * (1 - xg_weight) + xg_h * (ml / 90) ** 0.75 * xg_weight
+        la = la * (1 - xg_weight) + xg_a * (ml / 90) ** 0.75 * xg_weight
 
-    # 🌟 4. Dynamic Rho (คำนวณอัตโนมัติจากเรตประตูรวม ไม่ต้องใช้ Slider อีกต่อไป)
-    # ถ้าเรตน้อยโอกาสเสมอมีเยอะ (Rho ติดลบมาก) ถ้าเรตสูงโอกาสเสมอน้อย (Rho ใกล้ศูนย์)
+    # Dynamic Rho — คำนวณจากเรตประตูรวมอัตโนมัติ ไม่ต้องใช้ Slider
     dyn_rho = max(-0.25, min(0.0, -0.15 + (et - 2.5) * 0.05))
 
-    mx=[[0.0]*10 for _ in range(10)]
+    mx = [[0.0] * 10 for _ in range(10)]
     for i in range(10):
         for j in range(10):
-            bp=poisson(i,lh)*poisson(j,la)
-            if i==0 and j==0: tau=1-(lh*la*dyn_rho)
-            elif i==0 and j==1: tau=1+(lh*dyn_rho)
-            elif i==1 and j==0: tau=1+(la*dyn_rho)
-            elif i==1 and j==1: tau=1-dyn_rho
-            else: tau=1.0
-            mx[i][j]=max(0,bp*tau)
-    tp=sum(sum(r) for r in mx)
-    h2=h1=dr=a1=a2=0.0; pou={}
-    for i in range(10):
-        for j in range(10):
-            p=mx[i][j]/tp; fh=i+ch; fa=j+ca; d=fh-fa
-            if d>=2: h2+=p
-            elif d==1: h1+=p
-            elif d==0: dr+=p
-            elif d==-1: a1+=p
-            elif d<=-2: a2+=p
-            tg=fh+fa; pou[tg]=pou.get(tg,0)+p
-    return (h2,h1,dr,a1,a2,pou)
+            bp = poisson(i, lh) * poisson(j, la)
+            if i == 0 and j == 0:   tau = 1 - (lh * la * dyn_rho)
+            elif i == 0 and j == 1: tau = 1 + (lh * dyn_rho)
+            elif i == 1 and j == 0: tau = 1 + (la * dyn_rho)
+            elif i == 1 and j == 1: tau = 1 - dyn_rho
+            else: tau = 1.0
+            mx[i][j] = max(0, bp * tau)
 
-def ev_ah(hdp,w2,w1,d,l1,l2,odds,fav):
-    b=odds-1; h=abs(hdp)
-    if h==0: return (w2+w1)*b-(l1+l2)
+    tp = sum(sum(r) for r in mx)
+    h2 = h1 = dr = a1 = a2 = 0.0
+    pou = {}
+    for i in range(10):
+        for j in range(10):
+            p = mx[i][j] / tp
+            fh = i + ch; fa = j + ca; d = fh - fa
+            if d >= 2:   h2 += p
+            elif d == 1: h1 += p
+            elif d == 0: dr += p
+            elif d == -1: a1 += p
+            elif d <= -2: a2 += p
+            tg = fh + fa
+            pou[tg] = pou.get(tg, 0) + p
+    return (h2, h1, dr, a1, a2, pou)
+
+def ev_ah(hdp, w2, w1, d, l1, l2, odds, fav):
+    b = odds - 1
+    h = abs(hdp)
+    if h == 0: return (w2 + w1) * b - (l1 + l2)
     if fav:
-        if h==0.25: return (w2+w1)*b-d*0.5-(l1+l2)
-        elif h==0.5: return (w2+w1)*b-(d+l1+l2)
-        elif h==0.75: return w2*b+w1*(b/2)-(d+l1+l2)
-        elif h==1.0: return w2*b-(d+l1+l2)
-        elif h==1.25: return w2*b-w1*0.5-(d+l1+l2)
-        elif h==1.5: return w2*b-(w1+d+l1+l2)
+        if h == 0.25:  return (w2 + w1) * b - d * 0.5 - (l1 + l2)
+        elif h == 0.5:  return (w2 + w1) * b - (d + l1 + l2)
+        elif h == 0.75: return w2 * b + w1 * (b/2) - (d + l1 + l2)
+        elif h == 1.0:  return w2 * b - (d + l1 + l2)
+        elif h == 1.25: return w2 * b - w1 * 0.5 - (d + l1 + l2)
+        elif h == 1.5:  return w2 * b - (w1 + d + l1 + l2)
     else:
-        if h==0.25: return (w2+w1)*b+d*(b/2)-(l1+l2)
-        elif h==0.5: return (w2+w1+d)*b-(l1+l2)
-        elif h==0.75: return (w2+w1+d)*b-l1*0.5-l2
-        elif h==1.0: return (w2+w1+d)*b-l2
-        elif h==1.25: return (w2+w1+d)*b+l1*(b/2)-l2
-        elif h==1.5: return (w2+w1+d+l1)*b-l2
+        if h == 0.25:  return (w2 + w1) * b + d * (b/2) - (l1 + l2)
+        elif h == 0.5:  return (w2 + w1 + d) * b - (l1 + l2)
+        elif h == 0.75: return (w2 + w1 + d) * b - l1 * 0.5 - l2
+        elif h == 1.0:  return (w2 + w1 + d) * b - l2
+        elif h == 1.25: return (w2 + w1 + d) * b + l1 * (b/2) - l2
+        elif h == 1.5:  return (w2 + w1 + d + l1) * b - l2
     return 0.0
 
-def ev_ou(line,pt,odds,over):
-    b=odds-1; fl=math.floor(line); rm=line-fl
-    g=lambda cond: sum(pt.get(k,0) for k in pt if cond(k))
+def ev_ou(line, pt, odds, over):
+    b = odds - 1
+    fl = math.floor(line)
+    rm = line - fl
+    g = lambda cond: sum(pt.get(k, 0) for k in pt if cond(k))
     if over:
-        if rm==0.0:  return g(lambda k:k>fl)*b - g(lambda k:k<fl)
-        elif rm==0.25: return g(lambda k:k>=fl+1)*b - pt.get(fl,0)*0.5 - g(lambda k:k<fl)
-        elif rm==0.5:  return g(lambda k:k>=fl+1)*b - g(lambda k:k<=fl)
-        elif rm==0.75: return g(lambda k:k>=fl+2)*b + pt.get(fl+1,0)*(b/2) - g(lambda k:k<=fl)
+        if rm == 0.0:   return g(lambda k: k > fl) * b - g(lambda k: k < fl)
+        elif rm == 0.25: return g(lambda k: k >= fl+1) * b - pt.get(fl, 0) * 0.5 - g(lambda k: k < fl)
+        elif rm == 0.5:  return g(lambda k: k >= fl+1) * b - g(lambda k: k <= fl)
+        elif rm == 0.75: return g(lambda k: k >= fl+2) * b + pt.get(fl+1, 0) * (b/2) - g(lambda k: k <= fl)
     else:
-        if rm==0.0:  return g(lambda k:k<fl)*b - g(lambda k:k>fl)
-        elif rm==0.25: return g(lambda k:k<fl)*b + pt.get(fl,0)*(b/2) - g(lambda k:k>=fl+1)
-        elif rm==0.5:  return g(lambda k:k<=fl)*b - g(lambda k:k>=fl+1)
-        elif rm==0.75: return g(lambda k:k<=fl)*b - pt.get(fl+1,0)*0.5 - g(lambda k:k>=fl+2)
+        if rm == 0.0:   return g(lambda k: k < fl) * b - g(lambda k: k > fl)
+        elif rm == 0.25: return g(lambda k: k < fl) * b + pt.get(fl, 0) * (b/2) - g(lambda k: k >= fl+1)
+        elif rm == 0.5:  return g(lambda k: k <= fl) * b - g(lambda k: k >= fl+1)
+        elif rm == 0.75: return g(lambda k: k <= fl) * b - pt.get(fl+1, 0) * 0.5 - g(lambda k: k >= fl+2)
     return 0.0
 
 # ==========================================
 # 🧠 AI ENGINE
 # ==========================================
-def ai_engine(match_name,target,base_ev,hdp,odds,live=False,min=0,score="0-0",thr=0.08,stats="",fav=None, line_movement="➖ Stable (นิ่ง)"):
-    raw=load_gem_rules()
-    try: db=get_dynamic_rules(target,live,raw)
-    except: db=raw
-    mode="[PRE-MATCH] เน้น Math-First 70% + GEM Rules 30%" if not live else "[IN-PLAY] Real-time + Full GEM RULES"
-    ri="" if fav is None else (" [ทีมต่อ]" if fav else " [ทีมรอง]")
-    prompt=(
-        f"CRO — Quant Sports Betting Fund\n[Match] {match_name}\n"
-        f"[Situation] {'Live '+str(min)+'min ('+score+')' if live else 'Pre-Match'}\n"
+def ai_engine(match_name, target, base_ev, hdp, odds,
+              live=False, current_min=0, score="0-0",
+              thr=0.08, stats="", fav=None,
+              line_movement="➖ Stable (นิ่ง)"):
+    raw = load_gem_rules()
+    try:
+        db = get_dynamic_rules(target, live, raw)
+    except:
+        db = raw
+
+    mode = ("[PRE-MATCH] เน้น Math-First 70% + GEM Rules 30%"
+            if not live else
+            "[IN-PLAY] Real-time + Full GEM RULES")
+    ri = ("" if fav is None else (" [ทีมต่อ]" if fav else " [ทีมรอง]"))
+
+    prompt = (
+        f"CRO — Quant Sports Betting Fund\n"
+        f"[Match] {match_name}\n"
+        f"[Situation] {'Live ' + str(current_min) + 'min (' + score + ')' if live else 'Pre-Match'}\n"
         f"[Target] {target}{ri} line={abs(hdp)} odds={odds} BaseEV={base_ev*100:.2f}%\n"
         f"[Line Movement] {line_movement}\n"
-        f"[Stats] {stats}\n[Mode] {mode}\n[GEM RULES]\n{db}\n\n"
+        f"[Stats] {stats}\n"
+        f"[Mode] {mode}\n"
+        f"[GEM RULES]\n{db}\n\n"
         "Rules:\n"
         "1. ห้ามสับสนทีมต่อ/รอง\n"
         "2. Market Isolation: แยกพิจารณา AH กับ OU ห้ามนำมาปนกัน\n"
         "3. ระบุ RuleID ให้ชัดเจนหากมีการใช้กฎ\n"
         "4. impact_score ต้องเป็นทศนิยม -1.0 ถึง 1.0\n"
-        "5. 🌟 หาก Line Movement เป็น 'Steam (ไหลเข้า)' ให้ถือเป็นสัญญาณบวกจาก Smart Money (เพิ่มความมั่นใจ), หากเป็น 'Drift (ไหลสวน)' ให้ระวังกับดักบ่อน (Trap) และอาจพิจารณาลดคะแนนลง\n\n"
+        "5. หาก Line Movement เป็น 'Steam (ไหลเข้า)' ให้ถือเป็นสัญญาณบวกจาก Smart Money, "
+        "หากเป็น 'Drift (ไหลสวน)' ให้ระวังกับดักบ่อน (Trap)\n\n"
         'JSON Thai: {"pros_analysis":"","cons_analysis":"","rule_triggered":"","impact_score":0.0,"final_decision":true,"final_comment":"","confidence_level":3}'
     )
+
     for attempt in range(3):
         try:
             model = genai.GenerativeModel('models/gemma-4-31b-it')
-            res=model.generate_content(prompt)
-            data=safe_json_loads(res.text)
+            res = model.generate_content(prompt)
+            data = safe_json_loads(res.text)
             if data:
-                imp=float(data.get('impact_score',0.0))
-                if abs(imp)>=1.0: imp/=100.0
-                data['impact_score']=imp; return data
+                imp = float(data.get('impact_score', 0.0))
+                if abs(imp) >= 1.0: imp /= 100.0
+                data['impact_score'] = imp
+                return data
         except Exception as e:
-            if attempt==2:
-                return {"pros_analysis":"AI ขัดข้อง","cons_analysis":str(e),"rule_triggered":"Fallback",
-                        "impact_score":0.0,"final_decision":base_ev>=thr,
-                        "final_comment":"⚠ ยืนยันด้วย Base EV","confidence_level":1}
+            if attempt == 2:
+                return {
+                    "pros_analysis": "AI ขัดข้อง", "cons_analysis": str(e),
+                    "rule_triggered": "Fallback", "impact_score": 0.0,
+                    "final_decision": base_ev >= thr,
+                    "final_comment": "⚠ ยืนยันด้วย Base EV", "confidence_level": 1
+                }
             time.sleep(2)
 
 # ==========================================
 # 📊 CHART HELPERS
 # ==========================================
-def ev_gauge(val,title,thr=8.0):
-    pct=val*100
-    c="#00ff88" if pct>=thr else ("#ffd600" if pct>0 else "#ff3b5c")
-    fig=go.Figure(go.Indicator(
-        mode="gauge+number",value=pct,
-        number={'suffix':"%",'font':{'color':c,'size':30,'family':'Share Tech Mono'}},
-        title={'text':title,'font':{'size':12,'color':'#4a7a60','family':'Rajdhani'}},
-        gauge={'axis':{'range':[-20,20],'tickwidth':1,'tickcolor':"#0f2535",'tickfont':{'color':'#1a3528','size':8}},
-               'bar':{'color':c,'thickness':0.22},'bgcolor':"rgba(0,0,0,0)",'borderwidth':0,
-               'steps':[{'range':[-20,0],'color':"rgba(255,59,92,0.07)"},
-                        {'range':[0,thr],'color':"rgba(255,214,0,0.05)"},
-                        {'range':[thr,20],'color':"rgba(0,255,136,0.07)"}],
-               'threshold':{'line':{'color':c,'width':2},'thickness':0.8,'value':pct}}))
-    fig.update_layout(height=185,margin=dict(l=12,r=12,t=26,b=6),
-                      paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)")
+def ev_gauge(val, title, thr=8.0):
+    pct = val * 100
+    c = "#00ff88" if pct >= thr else ("#ffd600" if pct > 0 else "#ff3b5c")
+    fig = go.Figure(go.Indicator(
+        mode="gauge+number", value=pct,
+        number={'suffix': "%", 'font': {'color': c, 'size': 30, 'family': 'Share Tech Mono'}},
+        title={'text': title, 'font': {'size': 12, 'color': '#4a7a60', 'family': 'Rajdhani'}},
+        gauge={
+            'axis': {'range': [-20, 20], 'tickwidth': 1, 'tickcolor': "#0f2535",
+                     'tickfont': {'color': '#1a3528', 'size': 8}},
+            'bar': {'color': c, 'thickness': 0.22},
+            'bgcolor': "rgba(0,0,0,0)", 'borderwidth': 0,
+            'steps': [
+                {'range': [-20, 0],   'color': "rgba(255,59,92,0.07)"},
+                {'range': [0, thr],   'color': "rgba(255,214,0,0.05)"},
+                {'range': [thr, 20],  'color': "rgba(0,255,136,0.07)"},
+            ],
+            'threshold': {'line': {'color': c, 'width': 2}, 'thickness': 0.8, 'value': pct}
+        }
+    ))
+    fig.update_layout(height=185, margin=dict(l=12, r=12, t=26, b=6),
+                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     return fig
 
-def neon_layout(fig,title=""):
+def neon_layout(fig, title=""):
     fig.update_layout(
-        title=dict(text=title,font=dict(family="Rajdhani",size=12,color="#2a5040")),
-        paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(9,21,32,0.55)",
-        font=dict(family="Share Tech Mono",color="#4a7a60"),
-        xaxis=dict(gridcolor="#0f2535",linecolor="#0f2535",tickfont=dict(color="#2a5040")),
-        yaxis=dict(gridcolor="#0f2535",linecolor="#0f2535",tickfont=dict(color="#2a5040")),
-        legend=dict(bgcolor="rgba(0,0,0,0)",font=dict(color="#4a7a60")),
-        margin=dict(l=8,r=8,t=36,b=8))
+        title=dict(text=title, font=dict(family="Rajdhani", size=12, color="#2a5040")),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(9,21,32,0.55)",
+        font=dict(family="Share Tech Mono", color="#4a7a60"),
+        xaxis=dict(gridcolor="#0f2535", linecolor="#0f2535", tickfont=dict(color="#2a5040")),
+        yaxis=dict(gridcolor="#0f2535", linecolor="#0f2535", tickfont=dict(color="#2a5040")),
+        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#4a7a60")),
+        margin=dict(l=8, r=8, t=36, b=8)
+    )
     return fig
 
-def adj_hdp(v): st.session_state['live_hdp']+=v
-def adj_ou(v):  st.session_state['live_ou']+=v
+def adj_hdp(v): st.session_state['live_hdp'] += v
+def adj_ou(v):  st.session_state['live_ou']  += v
+def fix(o): return o + 1.0 if o < 1.1 else o
 
 def save_db(rows):
     if not rows or not supabase: return
-    try: supabase.table("investment_logs").insert(rows).execute()
-    except Exception as e: st.error(f"DB Error: {e}")
+    try:
+        supabase.table("investment_logs").insert(rows).execute()
+    except Exception as e:
+        st.error(f"DB Error: {e}")
 
 def load_logs():
     if not supabase: return pd.DataFrame()
     try:
-        r=supabase.table("investment_logs").select("*").order("Time",desc=True).execute()
+        r = supabase.table("investment_logs").select("*").order("Time", desc=True).execute()
         if r.data:
-            df=pd.DataFrame(r.data)
-            df['Time']=pd.to_datetime(df['Time'],errors='coerce')
-            for c in ['EV_Pct','Investment','Odds','Closing_Odds']:
-                df[c]=pd.to_numeric(df[c],errors='coerce').fillna(0.0)
-            if 'Result' in df.columns: df['Result']=df['Result'].fillna("")
+            df = pd.DataFrame(r.data)
+            df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
+            for c in ['EV_Pct', 'Investment', 'Odds', 'Closing_Odds']:
+                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
+            if 'Result' in df.columns: df['Result'] = df['Result'].fillna("")
             return df.dropna(subset=['Time'])
         return pd.DataFrame()
-    except: return pd.DataFrame()
+    except:
+        return pd.DataFrame()
 
 def calc_pnl(row):
     try:
-        if pd.isna(row['Result']) or str(row['Result']).strip()=="" or float(row['Investment'])<=0: return 0.0
-        sc=re.findall(r'\d+',str(row['Result']).strip())
-        if len(sc)<2: return 0.0
-        hs,as_=int(sc[0]),int(sc[1])
-        hdp,tgt,odds,inv=float(row['HDP']),str(row['Target']).strip(),float(row['Odds']),float(row['Investment'])
-        diff=hs-as_
-        if tgt=="เจ้าบ้าน": nm=diff-hdp
-        elif tgt=="ทีมเยือน": nm=(as_-hs)+hdp
-        elif tgt=="สูง": nm=(hs+as_)-hdp
-        elif tgt=="ต่ำ": nm=hdp-(hs+as_)
+        if pd.isna(row['Result']) or str(row['Result']).strip() == "" or float(row['Investment']) <= 0:
+            return 0.0
+        sc = re.findall(r'\d+', str(row['Result']).strip())
+        if len(sc) < 2: return 0.0
+        hs, as_ = int(sc[0]), int(sc[1])
+        hdp, tgt, odds, inv = float(row['HDP']), str(row['Target']).strip(), float(row['Odds']), float(row['Investment'])
+        diff = hs - as_
+        if tgt == "เจ้าบ้าน":  nm = diff - hdp
+        elif tgt == "ทีมเยือน": nm = (as_ - hs) + hdp
+        elif tgt == "สูง":      nm = (hs + as_) - hdp
+        elif tgt == "ต่ำ":      nm = hdp - (hs + as_)
         else: return 0.0
-        if nm>0.25: return inv*(odds-1)
-        elif nm==0.25: return inv*(odds-1)/2
-        elif nm==0: return 0.0
-        elif nm==-0.25: return -(inv/2)
+        if nm > 0.25:   return inv * (odds - 1)
+        elif nm == 0.25: return inv * (odds - 1) / 2
+        elif nm == 0:    return 0.0
+        elif nm == -0.25: return -(inv / 2)
         else: return -inv
-    except: return 0.0
+    except:
+        return 0.0
 
 def calc_clv(row):
     try:
-        if pd.isna(row['Closing_Odds']) or float(row['Closing_Odds'])<=1.0: return 0.0
-        return ((float(row['Odds'])/float(row['Closing_Odds']))-1.0)*100.0
-    except: return 0.0
-
-def fix(o): return o+1.0 if o<1.1 else o
+        if pd.isna(row['Closing_Odds']) or float(row['Closing_Odds']) <= 1.0: return 0.0
+        return ((float(row['Odds']) / float(row['Closing_Odds'])) - 1.0) * 100.0
+    except:
+        return 0.0
 
 # ==========================================
 # 🖥️ HEADER
@@ -654,12 +711,16 @@ st.markdown("""
 with st.sidebar:
     st.markdown('<div class="gem-label">◈ AI ORACLE</div>', unsafe_allow_html=True)
     if "GEMINI_API_KEY" in st.secrets:
-        api_key=st.secrets["GEMINI_API_KEY"]; genai.configure(api_key=api_key)
+        api_key = st.secrets["GEMINI_API_KEY"]
+        genai.configure(api_key=api_key)
         st.markdown('<p class="gem-ok">▶ AI ENGINE: CONNECTED</p>', unsafe_allow_html=True)
     else:
-        api_key=st.text_input("Gemini API Key", type="password", placeholder="paste key here...")
-        if api_key: genai.configure(api_key=api_key); st.markdown('<p class="gem-ok">▶ CONNECTED</p>', unsafe_allow_html=True)
-        else: st.markdown('<p class="gem-warn">▶ AWAITING KEY</p>', unsafe_allow_html=True)
+        api_key = st.text_input("Gemini API Key", type="password", placeholder="paste key here...")
+        if api_key:
+            genai.configure(api_key=api_key)
+            st.markdown('<p class="gem-ok">▶ CONNECTED</p>', unsafe_allow_html=True)
+        else:
+            st.markdown('<p class="gem-warn">▶ AWAITING KEY</p>', unsafe_allow_html=True)
 
     st.markdown('<div class="gem-label" style="margin-top:10px;">◈ DATABASE</div>', unsafe_allow_html=True)
     if supabase:
@@ -670,31 +731,34 @@ with st.sidebar:
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ PORTFOLIO</div>', unsafe_allow_html=True)
-    total_bankroll=st.number_input("Bankroll (THB)",min_value=0.0,value=10000.0)
-    hdba_val=st.slider("HDBA Penalty %",0.0,10.0,1.5,step=0.5)
+    total_bankroll = st.number_input("Bankroll (THB)", min_value=0.0, value=10000.0)
+    hdba_val = st.slider("HDBA Penalty %", 0.0, 10.0, 1.5, step=0.5)
 
-    # 🌟 1. เพิ่มระบบจัดการเงินทุนขั้นสูง (Kelly Criterion)
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ KELLY CRITERION (MONEY MGT)</div>', unsafe_allow_html=True)
-    kelly_fraction = st.slider("Kelly Fraction", 0.05, 0.50, 0.25, step=0.05, help="สัดส่วน Kelly (แนะนำ 0.25 เพื่อป้องกันความเสี่ยงพอร์ต)")
-    max_bet_cap = st.slider("Max Bet Cap %", 1.0, 10.0, 5.0, step=0.5, help="ลิมิตเงินลงทุนสูงสุดที่จะไม่เกินเปอร์เซ็นต์นี้ต่อบิล")
+    kelly_fraction = st.slider("Kelly Fraction", 0.05, 0.50, 0.25, step=0.05,
+                               help="สัดส่วน Kelly (แนะนำ 0.25)")
+    max_bet_cap = st.slider("Max Bet Cap %", 1.0, 10.0, 5.0, step=0.5,
+                            help="ลิมิตเงินลงทุนสูงสุดต่อบิล")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
-    pre_ah_thr=st.slider("AH %", 1.0, 50.0, 24.5, step=0.5) # ขยายเพดานเป็น 50% และตั้งต้นที่ 24.5%
-    pre_ou_thr=st.slider("O/U %", 1.0, 50.0, 23.5, step=0.5) # ขยายเพดานเป็น 50% และตั้งต้นที่ 23.5%
+    pre_ah_thr = st.slider("AH %",  1.0, 50.0, 24.5, step=0.5)
+    pre_ou_thr = st.slider("O/U %", 1.0, 50.0, 23.5, step=0.5)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — IN-PLAY</div>', unsafe_allow_html=True)
-    live_ah_thr=st.slider("AH Live %",5.0,50.0,20.0,step=1.0)
-    live_ou_thr=st.slider("O/U Live %",5.0,50.0,20.0,step=1.0)
+    live_ah_thr = st.slider("AH Live %",  5.0, 50.0, 20.0, step=1.0)
+    live_ou_thr = st.slider("O/U Live %", 5.0, 50.0, 20.0, step=1.0)
 
-pre_ah_lim=pre_ah_thr/100; pre_ou_lim=pre_ou_thr/100
-live_ah_lim=live_ah_thr/100; live_ou_lim=live_ou_thr/100
+pre_ah_lim  = pre_ah_thr  / 100
+pre_ou_lim  = pre_ou_thr  / 100
+live_ah_lim = live_ah_thr / 100
+live_ou_lim = live_ou_thr / 100
 
 # ==========================================
 # 📑 TABS
 # ==========================================
-tab1,tab2,tab3,tab4=st.tabs([
-    "  PRE-MATCH  ","  DASHBOARD  ","  IN-PLAY SNIPER  ","  BACKTEST  "
+tab1, tab2, tab3, tab4 = st.tabs([
+    "  PRE-MATCH  ", "  DASHBOARD  ", "  IN-PLAY SNIPER  ", "  BACKTEST  "
 ])
 
 # ╔══════════════╗
@@ -702,579 +766,736 @@ tab1,tab2,tab3,tab4=st.tabs([
 # ╚══════════════╝
 with tab1:
     st.markdown('<div class="gem-label">◈ QUICK IMPORT</div>', unsafe_allow_html=True)
-    qi1,qi2=st.columns(2)
+    qi1, qi2 = st.columns(2)
+
     with qi1:
         with st.expander("📷 AI VISION — Extract from image"):
-            if not api_key: st.markdown('<p class="gem-warn">▸ API Key required</p>',unsafe_allow_html=True)
+            if not api_key:
+                st.markdown('<p class="gem-warn">▸ API Key required</p>', unsafe_allow_html=True)
             else:
-                uf=st.file_uploader("Upload odds screenshot",type=['png','jpg'])
-                if uf and st.button("⚡ EXTRACT IMAGE",use_container_width=True):
+                uf = st.file_uploader("Upload odds screenshot", type=['png', 'jpg'])
+                if uf and st.button("⚡ EXTRACT IMAGE", use_container_width=True):
                     with st.spinner("Scanning Matrix..."):
                         try:
-                            img=Image.open(uf)
+                            img = Image.open(uf)
                             model = genai.GenerativeModel('models/gemma-4-31b-it')
                             prompt_img = """คุณคือ AI Quant Analyst สกัดข้อมูลตารางราคาฟุตบอลจากภาพให้ออกมาเป็น JSON เท่านั้น โดยอิงจากโครงสร้างหน้าจอดังนี้:
 1. match_name: เอาชื่อทีมแถวบน + " VS " + ชื่อทีมแถวล่าง
-2. คอลัมน์ 'แฮนดิแคป' (ซ้ายสุด): 
-   - hdp_line_val = เรตต่อรอง **ต้องแปลงเป็นทศนิยมเท่านั้น** (เช่น 0.5/1 ให้ตอบ 0.75, 1/1.5 ให้ตอบ 1.25, 0/0.5 ให้ตอบ 0.25 โดยไม่ต้องใส่เครื่องหมาย +/-)
+2. คอลัมน์ 'แฮนดิแคป':
+   - hdp_line_val = เรตต่อรอง แปลงเป็นทศนิยม (เช่น 0.5/1 → 0.75, 1/1.5 → 1.25)
    - hdp_h_w_val = ค่าน้ำทีมแถวบน
    - hdp_a_w_val = ค่าน้ำทีมแถวล่าง
-3. คอลัมน์ 'สูง/ต่ำ' (กลาง): 
-   - ou_line_val = เรตประตูรวม **ต้องแปลงเป็นทศนิยมเท่านั้น** (เช่น 3/3.5 ให้ตอบ 3.25, 2.5/3 ให้ตอบ 2.75)
-   - ou_over_w_val = ค่าน้ำที่อยู่ใต้คำว่า 'สูง'
-   - ou_under_w_val = ค่าน้ำที่อยู่ใต้คำว่า 'ต่ำ'
-4. คอลัมน์ '1X2' (ขวาสุด): 
-   - h1x2_val = ค่าน้ำช่องบนสุด (ใต้เลข 1)
-   - a1x2_val = ค่าน้ำช่องที่สอง (ใต้เลข 2)
-   - d1x2_val = ค่าน้ำช่องล่างสุด (ใต้ตัว X)
+3. คอลัมน์ 'สูง/ต่ำ':
+   - ou_line_val = เรตประตูรวม แปลงเป็นทศนิยม (เช่น 3/3.5 → 3.25)
+   - ou_over_w_val = ค่าน้ำสูง
+   - ou_under_w_val = ค่าน้ำต่ำ
+4. คอลัมน์ '1X2':
+   - h1x2_val, d1x2_val, a1x2_val
 
-ตอบกลับมาแค่ JSON ก้อนเดียวเท่านั้น ห้ามมีข้อความอื่น:
+ตอบกลับ JSON เท่านั้น:
 {"match_name":"","h1x2_val":0.0,"d1x2_val":0.0,"a1x2_val":0.0,"hdp_line_val":0.0,"hdp_h_w_val":0.0,"hdp_a_w_val":0.0,"ou_line_val":0.0,"ou_over_w_val":0.0,"ou_under_w_val":0.0}"""
-                            d=safe_json_loads(model.generate_content([prompt_img,img]).text)
+                            d = safe_json_loads(model.generate_content([prompt_img, img]).text)
                             for k, v in d.items():
                                 if k == 'match_name':
                                     st.session_state[k] = str(v)
                                 else:
-                                    try:
-                                        st.session_state[k] = float(v)
-                                    except ValueError:
-                                        st.session_state[k] = 0.0
-                            st.toast("✅ สกัดข้อมูลสำเร็จ!", icon="🎯"); time.sleep(1); st.rerun()
-                        except Exception as e: st.error(str(e))
+                                    try: st.session_state[k] = float(v)
+                                    except: st.session_state[k] = 0.0
+                            st.toast("✅ สกัดข้อมูลสำเร็จ!", icon="🎯")
+                            time.sleep(1); st.rerun()
+                        except Exception as e:
+                            st.error(str(e))
+
     with qi2:
         with st.expander("⌨️ TEXT PARSER — Paste raw text"):
-            st.text_area("Paste odds...",height=75,key="raw_text")
-            tp1,tp2=st.columns(2)
+            st.text_area("Paste odds...", height=75, key="raw_text")
+            tp1, tp2 = st.columns(2)
             with tp1:
-                if st.button("⚡ PARSE",use_container_width=True):
+                if st.button("⚡ PARSE", use_container_width=True):
                     try:
-                        raw=st.session_state.raw_text
-                        mv=re.search(r'(.*VS.*)',raw)
-                        if mv: st.session_state.match_name=mv.group(1).strip()
-                        hm=re.findall(r'^\s*เหย้า\s+([0-9.]+)',raw,re.MULTILINE)
-                        if len(hm)>=1: st.session_state.h1x2_val=float(hm[0])
-                        if len(hm)>=2: st.session_state.hdp_h_w_val=float(hm[1])
-                        dm=re.findall(r'^\s*เสมอ\s+([0-9.]+)',raw,re.MULTILINE)
-                        if dm: st.session_state.d1x2_val=float(dm[0])
-                        am=re.findall(r'^\s*เยือน\s+([0-9.]+)',raw,re.MULTILINE)
-                        if len(am)>=1: st.session_state.a1x2_val=float(am[0])
-                        if len(am)>=2: st.session_state.hdp_a_w_val=float(am[1])
-                        ahm=re.search(r'^\s*AH\s+([-+0-9.,/]+)',raw,re.MULTILINE)
-                        if ahm: st.session_state.hdp_line_val=parse_line(ahm.group(1))
-                        oum=re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)',raw,re.MULTILINE)
-                        if oum: st.session_state.ou_line_val=parse_line(oum.group(1))
-                        om=re.search(r'^\s*สูง\s+([0-9.]+)',raw,re.MULTILINE)
-                        if om: st.session_state.ou_over_w_val=float(om.group(1))
-                        um=re.search(r'^\s*ต่ำ\s+([0-9.]+)',raw,re.MULTILINE)
-                        if um: st.session_state.ou_under_w_val=float(um.group(1))
+                        raw = st.session_state.raw_text
+                        mv = re.search(r'(.*VS.*)', raw)
+                        if mv: st.session_state.match_name = mv.group(1).strip()
+                        hm = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
+                        if len(hm) >= 1: st.session_state.h1x2_val = float(hm[0])
+                        if len(hm) >= 2: st.session_state.hdp_h_w_val = float(hm[1])
+                        dm = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
+                        if dm: st.session_state.d1x2_val = float(dm[0])
+                        am = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
+                        if len(am) >= 1: st.session_state.a1x2_val = float(am[0])
+                        if len(am) >= 2: st.session_state.hdp_a_w_val = float(am[1])
+                        ahm = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
+                        if ahm: st.session_state.hdp_line_val = parse_line(ahm.group(1))
+                        oum = re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)', raw, re.MULTILINE)
+                        if oum: st.session_state.ou_line_val = parse_line(oum.group(1))
+                        om = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
+                        if om: st.session_state.ou_over_w_val = float(om.group(1))
+                        um = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
+                        if um: st.session_state.ou_under_w_val = float(um.group(1))
                         st.toast("✅ Parsed!", icon="🎯")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e: st.error(str(e))
-            with tp2: st.button("🗑 CLEAR",use_container_width=True,on_click=clear_form_data)
+                        time.sleep(1); st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
+            with tp2:
+                st.button("🗑 CLEAR", use_container_width=True, on_click=clear_form_data)
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    match_name=st.text_input("MATCH",key="match_name",placeholder="Home Team VS Away Team")
+    match_name = st.text_input("MATCH", key="match_name", placeholder="Home Team VS Away Team")
 
     st.markdown('<div class="gem-label" style="margin-top:10px;">◈ MARKET DATA</div>', unsafe_allow_html=True)
-    mc1,mc2,mc3=st.columns(3)
+    mc1, mc2, mc3 = st.columns(3)
     with mc1:
-        st.markdown('<div class="gem-panel"><div class="gem-label">1X2 POOL</div>',unsafe_allow_html=True)
-        h1x2=st.number_input("HOME",format="%.2f",key="h1x2_val")
-        d1x2=st.number_input("DRAW",format="%.2f",key="d1x2_val")
-        a1x2=st.number_input("AWAY",format="%.2f",key="a1x2_val")
-        st.markdown('</div>',unsafe_allow_html=True)
+        st.markdown('<div class="gem-panel"><div class="gem-label">1X2 POOL</div>', unsafe_allow_html=True)
+        h1x2  = st.number_input("HOME",  format="%.2f", key="h1x2_val")
+        d1x2  = st.number_input("DRAW",  format="%.2f", key="d1x2_val")
+        a1x2  = st.number_input("AWAY",  format="%.2f", key="a1x2_val")
+        st.markdown('</div>', unsafe_allow_html=True)
     with mc2:
-        st.markdown('<div class="gem-panel"><div class="gem-label">HANDICAP (AH)</div>',unsafe_allow_html=True)
-        hdp_line=st.number_input("LINE",format="%.2f",step=0.25,key="hdp_line_val")
-        hdp_h_w=st.number_input("HOME ODDS",format="%.2f",key="hdp_h_w_val")
-        hdp_a_w=st.number_input("AWAY ODDS",format="%.2f",key="hdp_a_w_val")
-        st.markdown('</div>',unsafe_allow_html=True)
+        st.markdown('<div class="gem-panel"><div class="gem-label">HANDICAP (AH)</div>', unsafe_allow_html=True)
+        hdp_line = st.number_input("LINE",       format="%.2f", step=0.25, key="hdp_line_val")
+        hdp_h_w  = st.number_input("HOME ODDS",  format="%.2f", key="hdp_h_w_val")
+        hdp_a_w  = st.number_input("AWAY ODDS",  format="%.2f", key="hdp_a_w_val")
+        st.markdown('</div>', unsafe_allow_html=True)
     with mc3:
-        st.markdown('<div class="gem-panel"><div class="gem-label">TOTAL GOALS (O/U)</div>',unsafe_allow_html=True)
-        ou_line=st.number_input("LINE",format="%.2f",step=0.25,key="ou_line_val")
-        ou_over_w=st.number_input("OVER",format="%.2f",key="ou_over_w_val")
-        ou_under_w=st.number_input("UNDER",format="%.2f",key="ou_under_w_val")
-        st.markdown('</div>',unsafe_allow_html=True)
+        st.markdown('<div class="gem-panel"><div class="gem-label">TOTAL GOALS (O/U)</div>', unsafe_allow_html=True)
+        ou_line   = st.number_input("LINE",  format="%.2f", step=0.25, key="ou_line_val")
+        ou_over_w = st.number_input("OVER",  format="%.2f", key="ou_over_w_val")
+        ou_under_w= st.number_input("UNDER", format="%.2f", key="ou_under_w_val")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    # 🌟 2. เพิ่ม UI รับค่า xG (Expected Goals)
-    st.markdown('<div class="gem-label">◈ EXPECTED GOALS (xG) INTEGRATION</div>',unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ EXPECTED GOALS (xG) INTEGRATION</div>', unsafe_allow_html=True)
     c_xg1, c_xg2, c_xg3 = st.columns(3)
-    xg_h = c_xg1.number_input("xG Home", min_value=0.0, format="%.2f", step=0.1, key="xg_h_val")
-    xg_a = c_xg2.number_input("xG Away", min_value=0.0, format="%.2f", step=0.1, key="xg_a_val")
-    xg_weight = c_xg3.slider("xG Weight (เชื่อสถิติ %)", 0.0, 1.0, 0.50, step=0.1, help="ถ้า 0.5 คือเอาสถิติ xG มาผสมกับราคาบ่อนคนละครึ่ง")
-    
-    st.markdown('<div class="gem-label">◈ CONTEXT & MARKET FLOW</div>',unsafe_allow_html=True)
+    xg_h      = c_xg1.number_input("xG Home", min_value=0.0, format="%.2f", step=0.1, key="xg_h_val")
+    xg_a      = c_xg2.number_input("xG Away", min_value=0.0, format="%.2f", step=0.1, key="xg_a_val")
+    xg_weight = c_xg3.slider("xG Weight %", 0.0, 1.0, 0.50, step=0.1,
+                              help="0.5 = ผสมสถิติ xG กับราคาบ่อนคนละครึ่ง")
+
+    st.markdown('<div class="gem-label">◈ CONTEXT & MARKET FLOW</div>', unsafe_allow_html=True)
     col_st1, col_st2 = st.columns([2, 1])
     with col_st1:
-        match_stats=st.text_area("H2H / Stats (Optional)",height=70, label_visibility="collapsed", placeholder="วางสถิติ H2H, ฟอร์มย้อนหลัง เพื่อให้ AI ช่วยวิเคราะห์...")
+        match_stats = st.text_area("H2H / Stats (Optional)", height=70,
+                                   label_visibility="collapsed",
+                                   placeholder="วางสถิติ H2H, ฟอร์มย้อนหลัง...")
     with col_st2:
-        line_movement = st.selectbox("กระแสราคา (Line Movement)", ["➖ Stable (นิ่ง/ปกติ)", "🔥 Steam (ราคาไหลลง/เงินเข้า)", "❄️ Drift (ราคาไหลขึ้น/เงินออก)"])
-    st.markdown('<div style="height:6px"></div>',unsafe_allow_html=True)
+        line_movement = st.selectbox("กระแสราคา (Line Movement)",
+                                     ["➖ Stable (นิ่ง/ปกติ)",
+                                      "🔥 Steam (ราคาไหลลง/เงินเข้า)",
+                                      "❄️ Drift (ราคาไหลขึ้น/เงินออก)"])
 
-    if st.button("⚡  RUN ORACLE ANALYSIS",use_container_width=True,type="primary"):
-        ho,do_,ao=fix(h1x2),fix(d1x2),fix(a1x2)
-        hwo,awo,owo,uwo=fix(hdp_h_w),fix(hdp_a_w),fix(ou_over_w),fix(ou_under_w)
-        ph,pd_,pa=shin_devig(ho,do_,ao)
-        
-        # 🌟 ส่งค่า xG และ xG Weight เข้าไปเบลนด์ใน Matrix
-        hw2,hw1,dex,aw1,aw2,pt=calc_dixon_coles_matrix(ph,pd_,pa,ou_line,owo,uwo,0,0,90,False,False, xg_h, xg_a, xg_weight)
-        
-        fav_h=ph>=pa
-        evh=ev_ah(hdp_line,hw2,hw1,dex,aw1,aw2,hwo,fav_h)
-        eva=ev_ah(hdp_line,aw2,aw1,dex,hw1,hw2,awo,not fav_h)-(hdba_val/100)
-        evo=ev_ou(ou_line,pt,owo,True)
-        evu=ev_ou(ou_line,pt,uwo,False)
+    st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
 
-        bah=max([{"n":"เจ้าบ้าน","ev":evh,"odds":hwo,"hdp":hdp_line},
-                 {"n":"ทีมเยือน","ev":eva,"odds":awo,"hdp":hdp_line}],key=lambda x:x['ev'])
-        bou=max([{"n":"สูง","ev":evo,"odds":owo,"hdp":ou_line},
-                 {"n":"ต่ำ","ev":evu,"odds":uwo,"hdp":ou_line}],key=lambda x:x['ev'])
+    if st.button("⚡  RUN ORACLE ANALYSIS", use_container_width=True, type="primary"):
+        ho, do_, ao = fix(h1x2), fix(d1x2), fix(a1x2)
+        hwo, awo, owo, uwo = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
+        ph, pd_, pa = shin_devig(ho, do_, ao)
 
-        st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
-        st.markdown('<div class="gem-label">◈ PROBABILITY ENGINE</div>',unsafe_allow_html=True)
-        p1,p2,p3=st.columns(3)
-        p1.metric("HOME WIN",f"{ph*100:.1f}%")
-        p2.metric("DRAW",f"{pd_*100:.1f}%")
-        p3.metric("AWAY WIN",f"{pa*100:.1f}%")
+        hw2, hw1, dex, aw1, aw2, pt = calc_dixon_coles_matrix(
+            ph, pd_, pa, ou_line, owo, uwo,
+            xg_h=xg_h, xg_a=xg_a, xg_weight=xg_weight
+        )
 
-        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ EV SCANNER</div>',unsafe_allow_html=True)
-        g1,g2=st.columns(2)
+        fav_h = ph >= pa
+        evh   = ev_ah(hdp_line, hw2, hw1, dex, aw1, aw2, hwo, fav_h)
+        eva   = ev_ah(hdp_line, aw2, aw1, dex, hw1, hw2, awo, not fav_h) - (hdba_val / 100)
+        evo   = ev_ou(ou_line, pt, owo, True)
+        evu   = ev_ou(ou_line, pt, uwo, False)
+
+        bah = max([{"n": "เจ้าบ้าน", "ev": evh, "odds": hwo, "hdp": hdp_line},
+                   {"n": "ทีมเยือน", "ev": eva, "odds": awo, "hdp": hdp_line}], key=lambda x: x['ev'])
+        bou = max([{"n": "สูง",     "ev": evo, "odds": owo, "hdp": ou_line},
+                   {"n": "ต่ำ",     "ev": evu, "odds": uwo, "hdp": ou_line}], key=lambda x: x['ev'])
+
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gem-label">◈ PROBABILITY ENGINE</div>', unsafe_allow_html=True)
+        p1, p2, p3 = st.columns(3)
+        p1.metric("HOME WIN", f"{ph*100:.1f}%")
+        p2.metric("DRAW",     f"{pd_*100:.1f}%")
+        p3.metric("AWAY WIN", f"{pa*100:.1f}%")
+
+        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ EV SCANNER</div>', unsafe_allow_html=True)
+        g1, g2 = st.columns(2)
         with g1:
-            st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── HANDICAP ──</div>',unsafe_allow_html=True)
-            st.plotly_chart(ev_gauge(bah['ev'],f"TARGET: {bah['n']}",pre_ah_thr),use_container_width=True)
+            st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── HANDICAP ──</div>', unsafe_allow_html=True)
+            st.plotly_chart(ev_gauge(bah['ev'], f"TARGET: {bah['n']}", pre_ah_thr), use_container_width=True)
         with g2:
-            st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── TOTAL GOALS ──</div>',unsafe_allow_html=True)
-            st.plotly_chart(ev_gauge(bou['ev'],f"TARGET: {bou['n']}",pre_ou_thr),use_container_width=True)
+            st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── TOTAL GOALS ──</div>', unsafe_allow_html=True)
+            st.plotly_chart(ev_gauge(bou['ev'], f"TARGET: {bou['n']}", pre_ou_thr), use_container_width=True)
 
-        if bah['ev']>=pre_ah_lim or bou['ev']>=pre_ou_lim:
-            tc=bah if bah['ev']>bou['ev'] else bou
-            if not api_key: st.warning("API Key required for Oracle")
+        if bah['ev'] >= pre_ah_lim or bou['ev'] >= pre_ou_lim:
+            tc = bah if bah['ev'] > bou['ev'] else bou
+            if not api_key:
+                st.warning("API Key required for Oracle")
             else:
                 with st.spinner("◈ THE ORACLE PROCESSING..."):
-                    tf=None
-                    if tc['n']=="เจ้าบ้าน": tf=fav_h
-                    elif tc['n']=="ทีมเยือน": tf=not fav_h
-                    v=ai_engine(match_name,tc['n'],tc['ev'],tc['hdp'],tc['odds'],
-                                live=False,thr=pre_ah_lim,stats=match_stats,fav=tf, line_movement=line_movement)
-                    nev=tc['ev']+v.get('impact_score',0)
+                    tf = None
+                    if tc['n'] == "เจ้าบ้าน": tf = fav_h
+                    elif tc['n'] == "ทีมเยือน": tf = not fav_h
+                    v = ai_engine(match_name, tc['n'], tc['ev'], tc['hdp'], tc['odds'],
+                                  live=False, thr=pre_ah_lim, stats=match_stats,
+                                  fav=tf, line_movement=line_movement)
+                    nev = tc['ev'] + v.get('impact_score', 0)
 
-                st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
-                st.markdown('<div class="gem-label">◈ ORACLE VERDICT</div>',unsafe_allow_html=True)
-                vc1,vc2,vc3=st.columns(3)
-                vc1.metric("BASE EV",f"{tc['ev']*100:.2f}%")
-                vc2.metric("ORACLE ADJ",f"{v.get('impact_score',0)*100:.2f}%")
-                vc3.metric("NET EV",f"{nev*100:.2f}%")
+                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="gem-label">◈ ORACLE VERDICT</div>', unsafe_allow_html=True)
+                vc1, vc2, vc3 = st.columns(3)
+                vc1.metric("BASE EV",    f"{tc['ev']*100:.2f}%")
+                vc2.metric("ORACLE ADJ", f"{v.get('impact_score', 0)*100:.2f}%")
+                vc3.metric("NET EV",     f"{nev*100:.2f}%")
 
-                with st.expander("◈ FULL ANALYSIS",expanded=True):
-                    stars=v.get('confidence_level',3)
-                    st.markdown(f'<div class="gem-label">CONFIDENCE: {"★"*stars}{"☆"*(5-stars)} ({stars}/5)</div>',unsafe_allow_html=True)
-                    st.success(f"**PROS:** {v.get('pros_analysis','—')}")
-                    st.error(f"**RISK:** {v.get('cons_analysis','—')}")
-                    st.info(f"**RULES:** {v.get('rule_triggered','None')}")
+                with st.expander("◈ FULL ANALYSIS", expanded=True):
+                    stars = v.get('confidence_level', 3)
+                    st.markdown(f'<div class="gem-label">CONFIDENCE: {"★"*stars}{"☆"*(5-stars)} ({stars}/5)</div>',
+                                unsafe_allow_html=True)
+                    st.success(f"**PROS:** {v.get('pros_analysis', '—')}")
+                    st.error(f"**RISK:** {v.get('cons_analysis', '—')}")
+                    st.info(f"**RULES:** {v.get('rule_triggered', 'None')}")
 
-                col_v="#00ff88" if v.get('final_decision',False) and nev>0 else "#ff3b5c"
-                label="◈ ORACLE APPROVED — EXECUTE" if v.get('final_decision',False) and nev>0 else "◈ ORACLE REJECTED — STAND DOWN"
-                st.markdown(f'<div class="gem-panel" style="border-top:2px solid {col_v};"><div class="gem-label" style="border-color:{col_v};color:{col_v};">{label}</div><p style="color:{col_v};font-family:\'Share Tech Mono\';font-size:0.82rem;">{v.get("final_comment","")}</p></div>',unsafe_allow_html=True)
-                
-                if v.get('final_decision',False) and nev>0:
+                col_v = "#00ff88" if v.get('final_decision', False) and nev > 0 else "#ff3b5c"
+                label = ("◈ ORACLE APPROVED — EXECUTE"
+                         if v.get('final_decision', False) and nev > 0
+                         else "◈ ORACLE REJECTED — STAND DOWN")
+                st.markdown(
+                    f'<div class="gem-panel" style="border-top:2px solid {col_v};">'
+                    f'<div class="gem-label" style="border-color:{col_v};color:{col_v};">{label}</div>'
+                    f'<p style="color:{col_v};font-family:\'Share Tech Mono\';font-size:0.82rem;">'
+                    f'{v.get("final_comment", "")}</p></div>',
+                    unsafe_allow_html=True
+                )
+
+                if v.get('final_decision', False) and nev > 0:
                     st.balloons()
-                    # 🌟 คำนวณเงินลงทุนด้วย Fractional Kelly Criterion
+                    # Fractional Kelly Criterion
                     kelly_opt = nev / (tc['odds'] - 1)
                     inv = min(kelly_opt * kelly_fraction, max_bet_cap / 100.0) * total_bankroll
                     inv = max(inv, 0.0)
-                    
-                    tz_th=timezone(timedelta(hours=7))
-                    save_db([{"Time":datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"),"Match":match_name,
-                              "HDP":tc['hdp'],"Target":tc['n'],"EV_Pct":round(nev*100,2),
-                              "Investment":round(inv,2),"Odds":tc['odds'],"Closing_Odds":0.0,"Result":""}])
+                    tz_th = timezone(timedelta(hours=7))
+                    save_db([{
+                        "Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"),
+                        "Match": match_name, "HDP": tc['hdp'], "Target": tc['n'],
+                        "EV_Pct": round(nev * 100, 2), "Investment": round(inv, 2),
+                        "Odds": tc['odds'], "Closing_Odds": 0.0, "Result": ""
+                    }])
         else:
-            st.markdown(f'<div class="gem-panel" style="border-top:2px solid #ffd600;"><div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ BELOW THRESHOLD — NO SIGNAL</div><p class="gem-warn">AH {bah["ev"]*100:.2f}% (min {pre_ah_thr}%) | O/U {bou["ev"]*100:.2f}% (min {pre_ou_thr}%)</p></div>',unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="gem-panel" style="border-top:2px solid #ffd600;">'
+                f'<div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ BELOW THRESHOLD — NO SIGNAL</div>'
+                f'<p class="gem-warn">AH {bah["ev"]*100:.2f}% (min {pre_ah_thr}%) | '
+                f'O/U {bou["ev"]*100:.2f}% (min {pre_ou_thr}%)</p></div>',
+                unsafe_allow_html=True
+            )
 
 # ╔══════════════╗
 # ║  TAB 2       ║
 # ╚══════════════╝
 with tab2:
-    tab2_logs=load_logs()
-    tz_th=timezone(timedelta(hours=7)); today_str=datetime.now(tz_th).strftime("%Y-%m-%d")
+    tab2_logs = load_logs()
+    tz_th = timezone(timedelta(hours=7))
+    today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
 
     if not tab2_logs.empty:
-        st.markdown('<div class="gem-label">◈ POSITION LOG</div>',unsafe_allow_html=True)
-        ef1,_=st.columns([1,3])
-        with ef1: flt=st.selectbox("FILTER",["Today","Pending","All"])
-        df2=tab2_logs.copy()
-        if flt=="Today": df2=df2[df2['Time'].astype(str).str.contains(today_str,na=False)]
-        elif flt=="Pending": df2=df2[df2['Result'].astype(str).str.strip()==""]
-        df2=df2.sort_values('Time',ascending=False).reset_index(drop=True)
-        edf=st.data_editor(df2,column_config={"id":None,"Result":st.column_config.TextColumn("Result"),"Closing_Odds":st.column_config.NumberColumn("Closing Odds",min_value=0.0,format="%.2f")},use_container_width=True,num_rows="dynamic")
-        sb1,sb2=st.columns(2)
-        if sb1.button("💾  SYNC TO CLOUD",use_container_width=True,type="primary"):
+        st.markdown('<div class="gem-label">◈ POSITION LOG</div>', unsafe_allow_html=True)
+        ef1, _ = st.columns([1, 3])
+        with ef1:
+            flt = st.selectbox("FILTER", ["Today", "Pending", "All"])
+        df2 = tab2_logs.copy()
+        if flt == "Today":   df2 = df2[df2['Time'].astype(str).str.contains(today_str, na=False)]
+        elif flt == "Pending": df2 = df2[df2['Result'].astype(str).str.strip() == ""]
+        df2 = df2.sort_values('Time', ascending=False).reset_index(drop=True)
+
+        edf = st.data_editor(
+            df2,
+            column_config={
+                "id": None,
+                "Result": st.column_config.TextColumn("Result"),
+                "Closing_Odds": st.column_config.NumberColumn("Closing Odds", min_value=0.0, format="%.2f")
+            },
+            use_container_width=True, num_rows="dynamic"
+        )
+        sb1, sb2 = st.columns(2)
+        if sb1.button("💾  SYNC TO CLOUD", use_container_width=True, type="primary"):
             with st.spinner("Syncing..."):
-                for _,row in edf.iterrows():
-                    supabase.table("investment_logs").update({"Closing_Odds":float(row['Closing_Odds']),"Result":str(row['Result'])}).eq("id",row['id']).execute()
-            st.toast("✓ Synced", icon="💾"); time.sleep(1); st.rerun()
-        if sb2.button("↺  REFRESH",use_container_width=True): st.rerun()
+                for _, row in edf.iterrows():
+                    supabase.table("investment_logs").update(
+                        {"Closing_Odds": float(row['Closing_Odds']), "Result": str(row['Result'])}
+                    ).eq("id", row['id']).execute()
+            st.toast("✓ Synced", icon="💾")
+            time.sleep(1); st.rerun()
+        if sb2.button("↺  REFRESH", use_container_width=True):
+            st.rerun()
 
-        tab2_logs['Net_Profit']=tab2_logs.apply(calc_pnl,axis=1)
-        tab2_logs['CLV_Pct']=tab2_logs.apply(calc_clv,axis=1)
+        tab2_logs['Net_Profit'] = tab2_logs.apply(calc_pnl, axis=1)
+        tab2_logs['CLV_Pct']   = tab2_logs.apply(calc_clv, axis=1)
 
-        st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
-        st.markdown('<div class="gem-label">◈ PERFORMANCE DASHBOARD</div>',unsafe_allow_html=True)
-        vf1,vf2=st.columns(2)
-        with vf1: tf2=st.radio("PERIOD",["All Time","Today"],horizontal=True)
-        with vf2: vm=st.radio("VIEW",["All","Pre-Match","In-Play"],horizontal=True)
-        tfl=tab2_logs[tab2_logs['Time'].astype(str).str.contains(today_str,na=False)].copy() if tf2=="Today" else tab2_logs.copy()
-        if vm=="In-Play": fl=tfl[tfl['Match'].str.contains(r'\[LIVE\]',na=False,case=False)]
-        elif vm=="Pre-Match": fl=tfl[~tfl['Match'].str.contains(r'\[LIVE\]',na=False,case=False)]
-        else: fl=tfl
-        il=fl[fl['Investment']>0]
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gem-label">◈ PERFORMANCE DASHBOARD</div>', unsafe_allow_html=True)
+        vf1, vf2 = st.columns(2)
+        with vf1: tf2 = st.radio("PERIOD", ["All Time", "Today"], horizontal=True)
+        with vf2: vm  = st.radio("VIEW",   ["All", "Pre-Match", "In-Play"], horizontal=True)
 
-        max_drawdown = 0.0
-        mdd_pct = 0.0
+        tfl = (tab2_logs[tab2_logs['Time'].astype(str).str.contains(today_str, na=False)].copy()
+               if tf2 == "Today" else tab2_logs.copy())
+        if vm == "In-Play":    fl = tfl[tfl['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
+        elif vm == "Pre-Match": fl = tfl[~tfl['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
+        else: fl = tfl
+        il = fl[fl['Investment'] > 0]
+
+        # Max Drawdown
+        max_drawdown = mdd_pct = 0.0
         if not fl.empty:
-            logs_dd = fl.sort_values(by='Time').copy()
-            logs_dd['Cum'] = logs_dd['Net_Profit'].cumsum()
-            running_max = logs_dd['Cum'].cummax()
-            drawdown = logs_dd['Cum'] - running_max
+            dd_df = fl.sort_values('Time').copy()
+            dd_df['Cum'] = dd_df['Net_Profit'].cumsum()
+            drawdown = dd_df['Cum'] - dd_df['Cum'].cummax()
             max_drawdown = drawdown.min()
             if total_bankroll > 0: mdd_pct = (max_drawdown / total_bankroll) * 100
 
-        beating_clv_pct = 0.0
+        # CLV beating rate
         v_clv = il[il['Closing_Odds'] > 1.0]
-        if not v_clv.empty:
-            beating_count = len(v_clv[v_clv['CLV_Pct'] > 0])
-            beating_clv_pct = (beating_count / len(v_clv)) * 100
+        beating_clv_pct = (len(v_clv[v_clv['CLV_Pct'] > 0]) / len(v_clv) * 100) if not v_clv.empty else 0.0
 
-        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ PORTFOLIO OVERVIEW</div>',unsafe_allow_html=True)
-        m1,m2,m3,m4=st.columns(4)
-        m1.metric("NET PROFIT",f"฿{fl['Net_Profit'].sum():,.0f}")
-        m2.metric("DEPLOYED",f"฿{il['Investment'].sum():,.0f}")
-        m3.metric("WIN RATE",f"{(len(il[il['Net_Profit']>0])/len(il)*100 if not il.empty else 0):.1f}%")
-        m4.metric("ROI",f"{(fl['Net_Profit'].sum()/il['Investment'].sum()*100 if not il.empty and il['Investment'].sum()>0 else 0):.2f}%")
+        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ PORTFOLIO OVERVIEW</div>', unsafe_allow_html=True)
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("NET PROFIT", f"฿{fl['Net_Profit'].sum():,.0f}")
+        m2.metric("DEPLOYED",   f"฿{il['Investment'].sum():,.0f}")
+        m3.metric("WIN RATE",   f"{(len(il[il['Net_Profit']>0])/len(il)*100 if not il.empty else 0):.1f}%")
+        m4.metric("ROI",        f"{(fl['Net_Profit'].sum()/il['Investment'].sum()*100 if not il.empty and il['Investment'].sum()>0 else 0):.2f}%")
 
-        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ INSTITUTIONAL METRICS</div>',unsafe_allow_html=True)
-        n1,n2,n3=st.columns(3)
-        n1.metric("MAX DRAWDOWN",f"฿{max_drawdown:,.0f}",f"{mdd_pct:.2f}% of Bankroll",delta_color="inverse")
-        n2.metric("AVG CLV",f"{v_clv['CLV_Pct'].mean():.2f}%" if not v_clv.empty else "—")
-        n3.metric("% BEATING CLV",f"{beating_clv_pct:.1f}%" if not v_clv.empty else "—")
+        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ INSTITUTIONAL METRICS</div>', unsafe_allow_html=True)
+        n1, n2, n3 = st.columns(3)
+        n1.metric("MAX DRAWDOWN", f"฿{max_drawdown:,.0f}", f"{mdd_pct:.2f}% of Bankroll", delta_color="inverse")
+        n2.metric("AVG CLV",       f"{v_clv['CLV_Pct'].mean():.2f}%" if not v_clv.empty else "—")
+        n3.metric("% BEATING CLV", f"{beating_clv_pct:.1f}%"        if not v_clv.empty else "—")
 
         if not fl.empty:
-            ls=fl.sort_values('Time').copy(); ls['Cum']=ls['Net_Profit'].cumsum()
-            lc='#ff8c00' if vm=="In-Play" else ('#00b4ff' if vm=="Pre-Match" else '#00ff88')
-            fill_c = 'rgba(255, 140, 0, 0.12)' if vm=="In-Play" else ('rgba(0, 180, 255, 0.12)' if vm=="Pre-Match" else 'rgba(0, 255, 136, 0.12)')
-            fig_e=go.Figure(go.Scatter(x=ls['Time'],y=ls['Cum'],mode='lines',fill='tozeroy',line=dict(color=lc,width=2),fillcolor=fill_c))
-            neon_layout(fig_e,f"EQUITY CURVE — {vm.upper()}")
-            st.plotly_chart(fig_e,use_container_width=True)
+            ls = fl.sort_values('Time').copy()
+            ls['Cum'] = ls['Net_Profit'].cumsum()
+            lc = '#ff8c00' if vm == "In-Play" else ('#00b4ff' if vm == "Pre-Match" else '#00ff88')
+            fc = (f"rgba(255,140,0,0.12)" if vm == "In-Play"
+                  else ("rgba(0,180,255,0.12)" if vm == "Pre-Match" else "rgba(0,255,136,0.12)"))
 
-            bc1,bc2=st.columns(2)
+            fig_e = go.Figure(go.Scatter(
+                x=ls['Time'], y=ls['Cum'], mode='lines', fill='tozeroy',
+                line=dict(color=lc, width=2), fillcolor=fc
+            ))
+            neon_layout(fig_e, f"EQUITY CURVE — {vm.upper()}")
+            st.plotly_chart(fig_e, use_container_width=True)
+
+            bc1, bc2 = st.columns(2)
             with bc1:
-                st.markdown('<div class="gem-dim" style="margin-bottom:4px;">P&L BY TARGET</div>',unsafe_allow_html=True)
-                tgt=ls.groupby('Target')['Net_Profit'].sum()
-                fig_t=go.Figure(go.Bar(x=tgt.index,y=tgt.values,marker_color=lc,marker_line_color='rgba(0,0,0,0)'))
-                neon_layout(fig_t); fig_t.update_layout(height=210,margin=dict(l=8,r=8,t=10,b=8))
-                st.plotly_chart(fig_t,use_container_width=True)
+                st.markdown('<div class="gem-dim" style="margin-bottom:4px;">P&L BY TARGET</div>', unsafe_allow_html=True)
+                tgt = ls.groupby('Target')['Net_Profit'].sum()
+                fig_t = go.Figure(go.Bar(x=tgt.index, y=tgt.values,
+                                         marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
+                neon_layout(fig_t)
+                fig_t.update_layout(height=210, margin=dict(l=8, r=8, t=10, b=8))
+                st.plotly_chart(fig_t, use_container_width=True)
             with bc2:
-                st.markdown('<div class="gem-dim" style="margin-bottom:4px;">WIN RATE BY ODDS BRACKET</div>',unsafe_allow_html=True)
-                ls['OB']=pd.cut(ls['Odds'],bins=[0,1.8,2.0,2.2,5.0],labels=['<1.80','1.80-2.00','2.00-2.20','>2.20'])
-                wr=(ls[ls['Net_Profit']>0].groupby('OB',observed=False).size()/ls.groupby('OB',observed=False).size()*100).fillna(0)
-                fig_w=go.Figure(go.Bar(x=wr.index.astype(str),y=wr.values,marker_color=lc,marker_line_color='rgba(0,0,0,0)'))
-                neon_layout(fig_w); fig_w.update_layout(height=210,margin=dict(l=8,r=8,t=10,b=8))
-                st.plotly_chart(fig_w,use_container_width=True)
+                st.markdown('<div class="gem-dim" style="margin-bottom:4px;">WIN RATE BY ODDS BRACKET</div>', unsafe_allow_html=True)
+                ls['OB'] = pd.cut(ls['Odds'], bins=[0,1.8,2.0,2.2,5.0],
+                                  labels=['<1.80','1.80-2.00','2.00-2.20','>2.20'])
+                wr = (ls[ls['Net_Profit']>0].groupby('OB', observed=False).size()
+                      / ls.groupby('OB', observed=False).size() * 100).fillna(0)
+                fig_w = go.Figure(go.Bar(x=wr.index.astype(str), y=wr.values,
+                                          marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
+                neon_layout(fig_w)
+                fig_w.update_layout(height=210, margin=dict(l=8, r=8, t=10, b=8))
+                st.plotly_chart(fig_w, use_container_width=True)
 
         # AI Learning
-        st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
-        st.markdown('<div class="gem-label">◈ ORACLE LEARNING ENGINE</div>',unsafe_allow_html=True)
-        comp=tab2_logs[tab2_logs['Result'].astype(str).str.strip()!=""].copy() if 'Net_Profit' in tab2_logs.columns else pd.DataFrame()
-        if len(comp)>0:
-            lm=st.radio("LEARNING MODE",["🔴 Defensive (losses)","🟢 Offensive (wins)","⚪ Mixed"],horizontal=True)
-            if "🔴" in lm: tl=comp[comp['Net_Profit']<0].copy(); task="Post-Mortem: หาสาเหตุขาดทุน สร้าง Defensive Rules"; pfx="GEM_DEF_"
-            elif "🟢" in lm: tl=comp[comp['Net_Profit']>0].copy(); task="Success: หารูปแบบชนะ สร้าง Offensive Rules"; pfx="GEM_OFF_"
-            else: tl=comp.copy(); task="Mixed: สร้างกฎสมดุล"; pfx="GEM_MIX_"
-            if len(tl)>0:
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gem-label">◈ ORACLE LEARNING ENGINE</div>', unsafe_allow_html=True)
+        comp = (tab2_logs[tab2_logs['Result'].astype(str).str.strip() != ""].copy()
+                if 'Net_Profit' in tab2_logs.columns else pd.DataFrame())
+
+        if len(comp) > 0:
+            lm = st.radio("LEARNING MODE",
+                          ["🔴 Defensive (losses)", "🟢 Offensive (wins)", "⚪ Mixed"],
+                          horizontal=True)
+            if "🔴" in lm:
+                tl = comp[comp['Net_Profit'] < 0].copy()
+                task = "Post-Mortem: หาสาเหตุขาดทุน สร้าง Defensive Rules"; pfx = "GEM_DEF_"
+            elif "🟢" in lm:
+                tl = comp[comp['Net_Profit'] > 0].copy()
+                task = "Success: หารูปแบบชนะ สร้าง Offensive Rules"; pfx = "GEM_OFF_"
+            else:
+                tl = comp.copy()
+                task = "Mixed: สร้างกฎสมดุล"; pfx = "GEM_MIX_"
+
+            if len(tl) > 0:
                 st.info(f"◈ {len(tl)} records — tick to include in learning batch")
-                tl.insert(0,"Analyze",False)
-                sel=st.data_editor(tl[['Analyze','Time','Match','HDP','Target','Odds','Result','Net_Profit']],
-                    column_config={"Analyze":st.column_config.CheckboxColumn("✓",default=False),
-                                   "Net_Profit":st.column_config.NumberColumn("P&L",format="%.2f")},
-                    hide_index=True,use_container_width=True,key="debrief_editor")
-                picked=sel[sel['Analyze']==True]
-                if st.button("⚡  EXECUTE ORACLE LEARNING",use_container_width=True,type="primary"):
-                    if picked.empty: st.warning("Select at least one record")
+                tl.insert(0, "Analyze", False)
+                sel = st.data_editor(
+                    tl[['Analyze','Time','Match','HDP','Target','Odds','Result','Net_Profit']],
+                    column_config={
+                        "Analyze": st.column_config.CheckboxColumn("✓", default=False),
+                        "Net_Profit": st.column_config.NumberColumn("P&L", format="%.2f")
+                    },
+                    hide_index=True, use_container_width=True, key="debrief_editor"
+                )
+                picked = sel[sel['Analyze'] == True]
+
+                if st.button("⚡  EXECUTE ORACLE LEARNING", use_container_width=True, type="primary"):
+                    if picked.empty:
+                        st.warning("Select at least one record")
                     else:
-                        with st.spinner(f"Oracle learning..."):
-                            csv_s=picked[['Time','Match','HDP','Target','Odds','Result']].to_csv(index=False)
-                            try: rr=supabase.table("gem_knowledge").select("rule_id,category,rule_text").eq("is_active",True).execute(); rs="\n".join([f"[{r['rule_id']}] {r['rule_text']}" for r in (rr.data or [])])
-                            except: rs=""
-                            pd_=f"CRO task: {task}\nCases:\n{csv_s}\nCurrent rules:\n{rs}\nLabel category [AH]/[OU]/[ALL]\nJSON: {{\"analysis_summary\":\"\",\"new_rules_to_add\":[{{\"rule_text\":\"\",\"category\":\"\"}}]}}"
+                        with st.spinner("Oracle learning..."):
+                            csv_s = picked[['Time','Match','HDP','Target','Odds','Result']].to_csv(index=False)
                             try:
-                                if not api_key: st.error("API Key missing")
+                                rr = supabase.table("gem_knowledge").select("rule_id,category,rule_text").eq("is_active", True).execute()
+                                rs = "\n".join([f"[{r['rule_id']}] {r['rule_text']}" for r in (rr.data or [])])
+                            except:
+                                rs = ""
+                            pd_ = (f"CRO task: {task}\nCases:\n{csv_s}\nCurrent rules:\n{rs}\n"
+                                   "Label category [AH]/[OU]/[ALL]\n"
+                                   'JSON: {"analysis_summary":"","new_rules_to_add":[{"rule_text":"","category":""}]}')
+                            try:
+                                if not api_key:
+                                    st.error("API Key missing")
                                 else:
-                                    m=genai.GenerativeModel('models/gemma-4-31b-it')
-                                    d=safe_json_loads(m.generate_content(pd_).text)
+                                    m = genai.GenerativeModel('models/gemma-4-31b-it')
+                                    d = safe_json_loads(m.generate_content(pd_).text)
                                     if d:
                                         st.success("✓ Learning complete")
-                                        st.info(f"**Analysis:** {d.get('analysis_summary','—')}")
-                                        nr=d.get("new_rules_to_add",[])
+                                        st.info(f"**Analysis:** {d.get('analysis_summary', '—')}")
+                                        nr = d.get("new_rules_to_add", [])
                                         if nr:
-                                            pl=[]; bid=datetime.now(timezone(timedelta(hours=7))).strftime("%Y%m%d_%H%M")
-                                            st.markdown('<div class="gem-label">◈ NEW RULES</div>',unsafe_allow_html=True)
-                                            for i,rule in enumerate(nr):
-                                                rid=f"{pfx}{bid}_{i+1}"; pl.append({"rule_id":rid,"rule_text":rule.get("rule_text",""),"category":rule.get("category","AI")})
-                                                c2="#ff3b5c" if "DEF" in pfx else ("#00ff88" if "OFF" in pfx else "#ffd600")
-                                                st.markdown(f'<div class="gem-panel" style="border-top:2px solid {c2};"><span style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:{c2};">[{rid}]</span><br><span style="color:#c8e6d4;">{rule.get("rule_text","")}</span></div>',unsafe_allow_html=True)
+                                            pl = []
+                                            bid = datetime.now(timezone(timedelta(hours=7))).strftime("%Y%m%d_%H%M")
+                                            st.markdown('<div class="gem-label">◈ NEW RULES</div>', unsafe_allow_html=True)
+                                            for i, rule in enumerate(nr):
+                                                rid = f"{pfx}{bid}_{i+1}"
+                                                pl.append({"rule_id": rid, "rule_text": rule.get("rule_text",""), "category": rule.get("category","AI")})
+                                                c2 = "#ff3b5c" if "DEF" in pfx else ("#00ff88" if "OFF" in pfx else "#ffd600")
+                                                st.markdown(
+                                                    f'<div class="gem-panel" style="border-top:2px solid {c2};">'
+                                                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:{c2};">[{rid}]</span><br>'
+                                                    f'<span style="color:#c8e6d4;">{rule.get("rule_text","")}</span></div>',
+                                                    unsafe_allow_html=True
+                                                )
                                             supabase.table("gem_knowledge").insert(pl).execute()
                                             load_gem_rules.clear()
-                                            st.balloons(); st.success("✓ Rules synced to Cloud")
-                            except Exception as e: st.error(str(e))
-            else: st.info("No records in this category")
-        else: st.info("◈ No settled results to analyse")
+                                            st.balloons()
+                                            st.success("✓ Rules synced to Cloud")
+                                        else:
+                                            st.info("No new rules needed — normal variance")
+                            except Exception as e:
+                                st.error(str(e))
+            else:
+                st.info("No records in this category")
+        else:
+            st.info("◈ No settled results to analyse")
 
 # ╔══════════════╗
 # ║  TAB 3       ║
 # ╚══════════════╝
 with tab3:
-    st.markdown('<div class="gem-label">◈ LIVE SNIPER COMMAND CENTER</div>',unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ LIVE SNIPER COMMAND CENTER</div>', unsafe_allow_html=True)
+
     with st.expander("📷 AI LIVE VISION — Multi-image scan"):
-        if not api_key: st.markdown('<p class="gem-warn">▸ API Key required</p>',unsafe_allow_html=True)
+        if not api_key:
+            st.markdown('<p class="gem-warn">▸ API Key required</p>', unsafe_allow_html=True)
         else:
-            limgs=st.file_uploader("Upload live screenshots",type=['png','jpg'],accept_multiple_files=True)
-            if limgs and st.button("⚡ EXTRACT LIVE DATA",use_container_width=True):
+            limgs = st.file_uploader("Upload live screenshots", type=['png','jpg'], accept_multiple_files=True)
+            if limgs and st.button("⚡ EXTRACT LIVE DATA", use_container_width=True):
                 with st.spinner("Scanning..."):
                     try:
-                        imgs=[Image.open(f) for f in limgs]
-                        model=genai.GenerativeModel('models/gemma-4-31b-it')
-                        
-                        pl='''คุณคือ AI Quant Analyst สกัดข้อมูลฟุตบอล LIVE สด จากภาพให้ออกมาเป็น JSON เท่านั้น อิงจากโครงสร้างดังนี้:
-1. ข้อมูลทั่วไป:
-   - match_name: ชื่อทีมเหย้า (แถวบน) + " VS " + ชื่อทีมเยือน (แถวล่าง)
-2. เวลา, สกอร์ และ ใบแดง:
-   - current_min: ตัวเลขเวลาที่กำลังแข่ง (เช่น 27:06 ให้ตอบ 27)
-   - current_score_h: สกอร์ทีมเหย้า (ตัวเลขที่อยู่ติดกับชื่อทีมแถวบน)
-   - current_score_a: สกอร์ทีมเยือน (ตัวเลขที่อยู่ติดกับชื่อทีมแถวล่าง)
-   - rc_h: true หากมีสัญลักษณ์ "ใบแดง" หลังชื่อทีมเหย้า
-   - rc_a: true หากมีสัญลักษณ์ "ใบแดง" หลังชื่อทีมเยือน
-3. คอลัมน์ 'แฮนดิแคป' (ซ้ายสุด):
-   - live_hdp: เรตปัจจุบัน (ต้องแปลงเป็นทศนิยม เช่น 0/0.5 ตอบ 0.25, 0.5/1 ตอบ 0.75, 1/1.5 ตอบ 1.25)
-   - live_hdp_h: ค่าน้ำทีมแถวบน
-   - live_hdp_a: ค่าน้ำทีมแถวล่าง
-4. คอลัมน์ 'สูง/ต่ำ' (กลาง):
-   - live_ou: เรตสกอร์รวม (ต้องแปลงเป็นทศนิยม เช่น 3.5/4 ตอบ 3.75, 2.5/3 ตอบ 2.75)
-   - live_ou_over: ค่าน้ำใต้คำว่า 'สูง'
-   - live_ou_under: ค่าน้ำใต้คำว่า 'ต่ำ'
+                        imgs = [Image.open(f) for f in limgs]
+                        model = genai.GenerativeModel('models/gemma-4-31b-it')
+                        pl = '''คุณคือ AI Quant Analyst สกัดข้อมูลฟุตบอล LIVE สด จากภาพให้ออกมาเป็น JSON เท่านั้น:
+- match_name, current_min (int), current_score_h (int), current_score_a (int)
+- rc_h (bool), rc_a (bool)
+- live_hdp (float, แปลงเป็นทศนิยม เช่น 0/0.5→0.25), live_hdp_h, live_hdp_a
+- live_ou (float, แปลงเป็นทศนิยม), live_ou_over, live_ou_under
 
-ตอบกลับเป็น JSON ก้อนเดียวเท่านั้น ห้ามมีข้อความอื่น:
+ตอบ JSON เท่านั้น:
 {"match_name":"","current_min":0,"current_score_h":0,"current_score_a":0,"rc_h":false,"rc_a":false,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}'''
-                        
-                        d=safe_json_loads(model.generate_content([pl]+imgs).text)
-                        
+                        d = safe_json_loads(model.generate_content([pl] + imgs).text)
                         for k, v in d.items():
                             if k == 'match_name':
                                 st.session_state['match_name_live'] = str(v)
                             elif k == 'current_score_h':
                                 try: st.session_state['lh_s_input'] = int(v)
-                                except ValueError: pass
+                                except: pass
                             elif k == 'current_score_a':
                                 try: st.session_state['la_s_input'] = int(v)
-                                except ValueError: pass
+                                except: pass
                             elif k == 'rc_h':
                                 st.session_state['rc_h_chk'] = bool(v)
                             elif k == 'rc_a':
                                 st.session_state['rc_a_chk'] = bool(v)
                             elif k == 'current_min':
                                 try: st.session_state['current_min'] = int(v)
-                                except ValueError: pass
-                            else: 
+                                except: pass
+                            else:
                                 try: st.session_state[k] = float(v)
-                                except ValueError: st.session_state[k] = 0.0
-                                
-                        st.toast("✅ สกัดเป้าหมาย Live ชัดเจน 100%!", icon="🎯")
-                        time.sleep(1)
-                        st.rerun()
-                    except Exception as e: st.error(f"⚠️ พลาด: {e}")
+                                except: st.session_state[k] = 0.0
+                        st.toast("✅ สกัดเป้าหมาย Live ชัดเจน!", icon="🎯")
+                        time.sleep(1); st.rerun()
+                    except Exception as e:
+                        st.error(f"⚠️ พลาด: {e}")
 
-    st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
-    default_live_mn = st.session_state.get('match_name_live', st.session_state.get('match_name',''))
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    default_live_mn = st.session_state.get('match_name_live', st.session_state.get('match_name', ''))
     live_mn = st.text_input("MATCH (Live)", value=default_live_mn, key="match_name_live_input")
 
-    gl1,gl2=st.columns(2)
+    gl1, gl2 = st.columns(2)
     with gl1:
-        st.markdown('<div class="gem-label">◈ LIVE MATCH STATE</div>',unsafe_allow_html=True)
-        s1,s2=st.columns(2)
-        csh=s1.number_input("HOME SCORE",min_value=0,value=st.session_state.get('lh_s_input',0),key="lh_s_input")
-        rch=s2.checkbox("🟥 HOME RED",value=st.session_state.get('rc_h_chk',False),key="rc_h_chk")
-        s3,s4=st.columns(2)
-        csa=s3.number_input("AWAY SCORE",min_value=0,value=st.session_state.get('la_s_input',0),key="la_s_input")
-        rca=s4.checkbox("🟥 AWAY RED",value=st.session_state.get('rc_a_chk',False),key="rc_a_chk")
-        cmin=st.slider("MINUTE",0,120,st.session_state.get('current_min',45))
+        st.markdown('<div class="gem-label">◈ LIVE MATCH STATE</div>', unsafe_allow_html=True)
+        s1, s2 = st.columns(2)
+        csh = s1.number_input("HOME SCORE", min_value=0,
+                              value=st.session_state.get('lh_s_input', 0), key="lh_s_input")
+        rch = s2.checkbox("🟥 HOME RED", value=st.session_state.get('rc_h_chk', False), key="rc_h_chk")
+        s3, s4 = st.columns(2)
+        csa = s3.number_input("AWAY SCORE", min_value=0,
+                              value=st.session_state.get('la_s_input', 0), key="la_s_input")
+        rca = s4.checkbox("🟥 AWAY RED", value=st.session_state.get('rc_a_chk', False), key="rc_a_chk")
+        cmin = st.slider("MINUTE", 0, 120, st.session_state.get('current_min', 45))
     with gl2:
-        st.markdown('<div class="gem-label">◈ PRE-MATCH REFERENCE</div>',unsafe_allow_html=True)
-        preh=st.number_input("HOME (open)",value=st.session_state.get('pre_h',2.0),format="%.2f",key="pre_h")
-        pred=st.number_input("DRAW (open)",value=st.session_state.get('pre_d',3.0),format="%.2f",key="pre_d")
-        prea=st.number_input("AWAY (open)",value=st.session_state.get('pre_a',3.0),format="%.2f",key="pre_a")
-        preou=st.number_input("O/U (open)",value=st.session_state.get('pre_ou',2.5),format="%.2f",step=0.25,key="pre_ou")
+        st.markdown('<div class="gem-label">◈ PRE-MATCH REFERENCE</div>', unsafe_allow_html=True)
+        preh  = st.number_input("HOME (open)", value=st.session_state.get('pre_h', 2.0), format="%.2f", key="pre_h")
+        pred  = st.number_input("DRAW (open)", value=st.session_state.get('pre_d', 3.0), format="%.2f", key="pre_d")
+        prea  = st.number_input("AWAY (open)", value=st.session_state.get('pre_a', 3.0), format="%.2f", key="pre_a")
+        preou = st.number_input("O/U (open)",  value=st.session_state.get('pre_ou', 2.5), format="%.2f", step=0.25, key="pre_ou")
 
-    st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
-    st.markdown('<div class="gem-label">◈ LIVE MARKET FEED</div>',unsafe_allow_html=True)
-    lm1,lm2=st.columns(2)
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ LIVE MARKET FEED</div>', unsafe_allow_html=True)
+    lm1, lm2 = st.columns(2)
     with lm1:
-        st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── HANDICAP ──</div>',unsafe_allow_html=True)
-        bh1,bh2,bh3=st.columns([1,2,1])
-        bh1.button("◀ -0.25",key="h_sub",on_click=adj_hdp,args=(-0.25,))
-        lhdp=bh2.number_input("HDP",value=st.session_state['live_hdp'],step=0.25,key="live_hdp",label_visibility="collapsed",format="%.2f")
-        bh3.button("▶ +0.25",key="h_add",on_click=adj_hdp,args=(0.25,))
-        hw1,hw2_=st.columns(2)
-        lhdph=hw1.number_input("HOME",value=st.session_state.get('live_hdp_h',0.9),format="%.2f",key="live_hdp_h")
-        lhdpa=hw2_.number_input("AWAY",value=st.session_state.get('live_hdp_a',0.9),format="%.2f",key="live_hdp_a")
+        st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── HANDICAP ──</div>', unsafe_allow_html=True)
+        bh1, bh2, bh3 = st.columns([1, 2, 1])
+        bh1.button("◀ -0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
+        lhdp = bh2.number_input("HDP", value=st.session_state['live_hdp'], step=0.25,
+                                 key="live_hdp", label_visibility="collapsed", format="%.2f")
+        bh3.button("▶ +0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
+        hw1, hw2_ = st.columns(2)
+        lhdph = hw1.number_input("HOME", value=st.session_state.get('live_hdp_h', 0.9), format="%.2f", key="live_hdp_h")
+        lhdpa = hw2_.number_input("AWAY", value=st.session_state.get('live_hdp_a', 0.9), format="%.2f", key="live_hdp_a")
     with lm2:
-        st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── TOTAL GOALS ──</div>',unsafe_allow_html=True)
-        bo1,bo2,bo3=st.columns([1,2,1])
-        bo1.button("◀ -0.25",key="o_sub",on_click=adj_ou,args=(-0.25,))
-        lou=bo2.number_input("O/U",value=st.session_state['live_ou'],step=0.25,key="live_ou",label_visibility="collapsed",format="%.2f")
-        bo3.button("▶ +0.25",key="o_add",on_click=adj_ou,args=(0.25,))
-        ow1,ow2=st.columns(2)
-        louov=ow1.number_input("OVER",value=st.session_state.get('live_ou_over',0.9),format="%.2f",key="live_ou_over")
-        louun=ow2.number_input("UNDER",value=st.session_state.get('live_ou_under',0.9),format="%.2f",key="live_ou_under")
+        st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── TOTAL GOALS ──</div>', unsafe_allow_html=True)
+        bo1, bo2, bo3 = st.columns([1, 2, 1])
+        bo1.button("◀ -0.25", key="o_sub", on_click=adj_ou, args=(-0.25,))
+        lou = bo2.number_input("O/U", value=st.session_state['live_ou'], step=0.25,
+                                key="live_ou", label_visibility="collapsed", format="%.2f")
+        bo3.button("▶ +0.25", key="o_add", on_click=adj_ou, args=(0.25,))
+        ow1, ow2 = st.columns(2)
+        louov = ow1.number_input("OVER",  value=st.session_state.get('live_ou_over', 0.9),  format="%.2f", key="live_ou_over")
+        louun = ow2.number_input("UNDER", value=st.session_state.get('live_ou_under', 0.9), format="%.2f", key="live_ou_under")
 
-    line_movement_live = st.selectbox("กระแสราคา (Live Line Movement)", ["➖ Stable (นิ่ง/ปกติ)", "🔥 Steam (ราคาไหลลง/เงินเข้า)", "❄️ Drift (ราคาไหลขึ้น/เงินออก)"], key="lm_live")
+    line_movement_live = st.selectbox(
+        "กระแสราคา (Live Line Movement)",
+        ["➖ Stable (นิ่ง/ปกติ)", "🔥 Steam (ราคาไหลลง/เงินเข้า)", "❄️ Drift (ราคาไหลขึ้น/เงินออก)"],
+        key="lm_live"
+    )
 
-    ac1,ac2=st.columns([4,1])
-    snap=ac1.button("⚡  ENGAGE SNIPER",use_container_width=True,type="primary")
-    ac2.button("↺ RESET",use_container_width=True,on_click=clear_inplay_data)
+    ac1, ac2 = st.columns([4, 1])
+    snap = ac1.button("⚡  ENGAGE SNIPER", use_container_width=True, type="primary")
+    ac2.button("↺ RESET", use_container_width=True, on_click=clear_inplay_data)
 
     if snap:
-        lph,lpd,lpa=shin_devig(fix(preh),fix(pred),fix(prea))
-        ml=max(90-cmin,1)
-        
-        # 🌟 xG Integration สำหรับบอลสด
-        hw2l,hw1l,dexl,aw1l,aw2l,ptl=calc_dixon_coles_matrix(lph,lpd,lpa,lou,fix(louov),fix(louun),csh,csa,ml,rch,rca, st.session_state.get('xg_h_val',0.0), st.session_state.get('xg_a_val',0.0), 0.5)
-        
-        fvl=lph>=lpa
-        evhl=ev_ah(lhdp,hw2l,hw1l,dexl,aw1l,aw2l,fix(lhdph),fvl)
-        eval_=ev_ah(lhdp,aw2l,aw1l,dexl,hw1l,hw2l,fix(lhdpa),not fvl)-(hdba_val/100)
-        evol=ev_ou(lou,ptl,fix(louov),True)
-        evul=ev_ou(lou,ptl,fix(louun),False)
-        bav=max(evhl,eval_); tah="เจ้าบ้าน" if evhl>eval_ else "ทีมเยือน"
-        bov=max(evol,evul); tou="สูง" if evol>evul else "ต่ำ"
+        lph, lpd, lpa = shin_devig(fix(preh), fix(pred), fix(prea))
+        ml = max(90 - cmin, 1)
 
-        st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
-        gg1,gg2=st.columns(2)
-        with gg1: st.plotly_chart(ev_gauge(bav,f"AH: {tah}",live_ah_thr),use_container_width=True)
-        with gg2: st.plotly_chart(ev_gauge(bov,f"O/U: {tou}",live_ou_thr),use_container_width=True)
+        # xG Integration for Live — ใช้ค่า xG จาก Pre-match session
+        hw2l, hw1l, dexl, aw1l, aw2l, ptl = calc_dixon_coles_matrix(
+            lph, lpd, lpa, lou, fix(louov), fix(louun),
+            ch=csh, ca=csa, ml=ml, rch=rch, rca=rca,
+            xg_h=st.session_state.get('xg_h_val', 0.0),
+            xg_a=st.session_state.get('xg_a_val', 0.0),
+            xg_weight=0.5
+        )
 
-        if bav>=live_ah_lim or bov>=live_ou_lim:
-            tl2=({"n":tah,"ev":bav,"hdp":lhdp,"odds":fix(lhdph) if tah=="เจ้าบ้าน" else fix(lhdpa)}
-                 if bav>bov else
-                 {"n":tou,"ev":bov,"hdp":lou,"odds":fix(louov) if tou=="สูง" else fix(louun)})
-            if not api_key: st.warning("API Key required")
+        fvl  = lph >= lpa
+        evhl = ev_ah(lhdp, hw2l, hw1l, dexl, aw1l, aw2l, fix(lhdph), fvl)
+        eval_ = ev_ah(lhdp, aw2l, aw1l, dexl, hw1l, hw2l, fix(lhdpa), not fvl) - (hdba_val / 100)
+        evol = ev_ou(lou, ptl, fix(louov), True)
+        evul = ev_ou(lou, ptl, fix(louun), False)
+
+        bav = max(evhl, eval_)
+        tah = "เจ้าบ้าน" if evhl > eval_ else "ทีมเยือน"
+        bov = max(evol, evul)
+        tou = "สูง" if evol > evul else "ต่ำ"
+
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        gg1, gg2 = st.columns(2)
+        with gg1: st.plotly_chart(ev_gauge(bav, f"AH: {tah}", live_ah_thr), use_container_width=True)
+        with gg2: st.plotly_chart(ev_gauge(bov, f"O/U: {tou}", live_ou_thr), use_container_width=True)
+
+        if bav >= live_ah_lim or bov >= live_ou_lim:
+            tl2 = ({"n": tah, "ev": bav, "hdp": lhdp, "odds": fix(lhdph) if tah == "เจ้าบ้าน" else fix(lhdpa)}
+                   if bav > bov else
+                   {"n": tou, "ev": bov, "hdp": lou,  "odds": fix(louov) if tou == "สูง" else fix(louun)})
+
+            if not api_key:
+                st.warning("API Key required")
             else:
                 with st.spinner("◈ SNIPER ORACLE..."):
-                    tf2=None
-                    if tl2['n']=="เจ้าบ้าน": tf2=fvl
-                    elif tl2['n']=="ทีมเยือน": tf2=not fvl
-                    
+                    tf2 = None
+                    if tl2['n'] == "เจ้าบ้าน": tf2 = fvl
+                    elif tl2['n'] == "ทีมเยือน": tf2 = not fvl
                     live_mn_val = st.session_state.get('match_name_live_input', live_mn)
-                    
-                    al=ai_engine(live_mn_val,tl2['n'],tl2['ev'],tl2['hdp'],tl2['odds'],True,cmin,f"{csh}-{csa}",thr=live_ah_lim,fav=tf2, line_movement=line_movement_live)
-                    nlev=tl2['ev']+al.get('impact_score',0)
-                lc1,lc2,lc3=st.columns(3)
-                lc1.metric("LIVE EV",f"{tl2['ev']*100:.2f}%")
-                lc2.metric("ORACLE ADJ",f"{al.get('impact_score',0)*100:.2f}%")
-                lc3.metric("NET EV",f"{nlev*100:.2f}%")
-                with st.expander("◈ LIVE ANALYSIS",expanded=True):
-                    st.success(f"**PROS:** {al.get('pros_analysis','—')}")
-                    st.error(f"**RISK:** {al.get('cons_analysis','—')}")
-                    st.info(f"**RULES:** {al.get('rule_triggered','None')}")
-                lim=live_ah_lim if tl2['n'] in ["เจ้าบ้าน","ทีมเยือน"] else live_ou_lim
-                if al.get('final_decision',False) and nlev>=lim:
+                    al = ai_engine(
+                        live_mn_val, tl2['n'], tl2['ev'], tl2['hdp'], tl2['odds'],
+                        live=True, current_min=cmin, score=f"{csh}-{csa}",
+                        thr=live_ah_lim, fav=tf2, line_movement=line_movement_live
+                    )
+                    nlev = tl2['ev'] + al.get('impact_score', 0)
+
+                lc1, lc2, lc3 = st.columns(3)
+                lc1.metric("LIVE EV",    f"{tl2['ev']*100:.2f}%")
+                lc2.metric("ORACLE ADJ", f"{al.get('impact_score', 0)*100:.2f}%")
+                lc3.metric("NET EV",     f"{nlev*100:.2f}%")
+
+                with st.expander("◈ LIVE ANALYSIS", expanded=True):
+                    st.success(f"**PROS:** {al.get('pros_analysis', '—')}")
+                    st.error(f"**RISK:** {al.get('cons_analysis', '—')}")
+                    st.info(f"**RULES:** {al.get('rule_triggered', 'None')}")
+
+                lim = live_ah_lim if tl2['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_lim
+                if al.get('final_decision', False) and nlev >= lim:
                     st.balloons()
-                    st.markdown(f'<div class="gem-panel" style="border-top:2px solid #ff3b5c;border-left:2px solid #ff3b5c;"><div class="gem-label" style="border-color:#ff3b5c;color:#ff3b5c;">◈ SNIPER APPROVED — TARGET LOCKED</div><p style="color:#ff3b5c;font-family:\'Share Tech Mono\';">TARGET: {tl2["n"]} | NET EV: {nlev*100:.2f}%</p><p style="color:#c8e6d4;">{al.get("final_comment","")}</p></div>',unsafe_allow_html=True)
-                    
+                    st.markdown(
+                        f'<div class="gem-panel" style="border-top:2px solid #ff3b5c;border-left:2px solid #ff3b5c;">'
+                        f'<div class="gem-label" style="border-color:#ff3b5c;color:#ff3b5c;">◈ SNIPER APPROVED — TARGET LOCKED</div>'
+                        f'<p style="color:#ff3b5c;font-family:\'Share Tech Mono\';">TARGET: {tl2["n"]} | NET EV: {nlev*100:.2f}%</p>'
+                        f'<p style="color:#c8e6d4;">{al.get("final_comment", "")}</p></div>',
+                        unsafe_allow_html=True
+                    )
+                    # Fractional Kelly Criterion (Live)
                     kelly_opt_live = nlev / (tl2['odds'] - 1)
                     inv = min(kelly_opt_live * kelly_fraction, max_bet_cap / 100.0) * total_bankroll
                     inv = max(inv, 0.0)
-                    
-                    tz2=timezone(timedelta(hours=7))
-                    save_db([{"Time":datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"),
-                              "Match":f"[LIVE {cmin}'] {live_mn_val if live_mn_val else 'Live Match'}",
-                              "HDP":tl2['hdp'],"Target":tl2['n'],"EV_Pct":round(nlev*100,2),
-                              "Investment":round(inv,2),"Odds":tl2['odds'],"Closing_Odds":0.0,"Result":""}])
+                    tz2 = timezone(timedelta(hours=7))
+                    save_db([{
+                        "Time": datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"),
+                        "Match": f"[LIVE {cmin}'] {live_mn_val if live_mn_val else 'Live Match'}",
+                        "HDP": tl2['hdp'], "Target": tl2['n'],
+                        "EV_Pct": round(nlev * 100, 2), "Investment": round(inv, 2),
+                        "Odds": tl2['odds'], "Closing_Odds": 0.0, "Result": ""
+                    }])
                     st.toast("✅ SNIPER DEPLOYED: บันทึกข้อมูลแล้ว", icon="🚀")
                 else:
-                    st.markdown(f'<div class="gem-panel" style="border-top:2px solid #ffd600;"><div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ ORACLE STAND DOWN</div><p class="gem-warn">{al.get("final_comment","")}</p></div>',unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="gem-panel" style="border-top:2px solid #ffd600;">'
+                        f'<div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ ORACLE STAND DOWN</div>'
+                        f'<p class="gem-warn">{al.get("final_comment", "")}</p></div>',
+                        unsafe_allow_html=True
+                    )
         else:
-            st.markdown(f'<div class="gem-panel" style="border-top:2px solid #0f2535;"><div class="gem-label">◈ WITHIN NORMAL RANGE</div><p class="gem-dim">AH {bav*100:.2f}% (min {live_ah_thr}%) | O/U {bov*100:.2f}% (min {live_ou_thr}%)</p></div>',unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="gem-panel" style="border-top:2px solid #0f2535;">'
+                f'<div class="gem-label">◈ WITHIN NORMAL RANGE</div>'
+                f'<p class="gem-dim">AH {bav*100:.2f}% (min {live_ah_thr}%) | O/U {bov*100:.2f}% (min {live_ou_thr}%)</p></div>',
+                unsafe_allow_html=True
+            )
 
 # ╔══════════════╗
 # ║  TAB 4       ║
 # ╚══════════════╝
 with tab4:
-    st.markdown('<div class="gem-label">◈ BRIER SCORE ACCURACY ENGINE</div>',unsafe_allow_html=True)
-    st.markdown('<p style="font-family:\'Rajdhani\';font-size:0.85rem;color:#4a7a60;">Compares GEM estimates vs bookmaker implied probabilities. Lower Brier Score = More Accurate.</p>',unsafe_allow_html=True)
-    t4l=load_logs()
+    st.markdown('<div class="gem-label">◈ BRIER SCORE ACCURACY ENGINE</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="font-family:\'Rajdhani\';font-size:0.85rem;color:#4a7a60;">'
+        'Compares GEM estimates vs bookmaker implied probabilities. Lower Brier Score = More Accurate.</p>',
+        unsafe_allow_html=True
+    )
+
+    t4l = load_logs()
     if t4l is not None and not t4l.empty:
-        t4l['Net_Profit']=t4l.apply(calc_pnl,axis=1)
-        fin=t4l[t4l['Result'].astype(str).str.strip()!=""].copy()
+        t4l['Net_Profit'] = t4l.apply(calc_pnl, axis=1)
+        fin = t4l[t4l['Result'].astype(str).str.strip() != ""].copy()
+
         if not fin.empty:
             def score_row(row):
                 try:
-                    inv,net,odds=float(row['Investment']),float(row['Net_Profit']),float(row['Odds'])
-                    if inv<=0: return np.nan
-                    mw=inv*(odds-1)
-                    if net>=mw*0.95: return 1.0
-                    elif net>0: return 0.75
-                    elif net==0: return 0.50
-                    elif net<=-inv*0.95: return 0.0
-                    elif net<0: return 0.25
+                    inv, net, odds = float(row['Investment']), float(row['Net_Profit']), float(row['Odds'])
+                    if inv <= 0: return np.nan
+                    mw = inv * (odds - 1)
+                    if net >= mw * 0.95:  return 1.0
+                    elif net > 0:          return 0.75
+                    elif net == 0:         return 0.50
+                    elif net <= -inv*0.95: return 0.0
+                    elif net < 0:          return 0.25
                     return np.nan
-                except: return np.nan
-            fin['Actual']=fin.apply(score_row,axis=1); fin=fin.dropna(subset=['Actual'])
+                except:
+                    return np.nan
+
+            fin['Actual'] = fin.apply(score_row, axis=1)
+            fin = fin.dropna(subset=['Actual'])
+
             if not fin.empty:
-                fin['BP']=(1/fin['Odds']).clip(0,1)
-                rp=(((fin['EV_Pct']/100)+1)/fin['Odds']).clip(0,1)
-                fin['OP']=((rp*0.85)+(fin['BP']*0.15)).clip(0,1)
-                fin['OE']=(fin['OP']-fin['Actual'])**2
-                fin['BE']=(fin['BP']-fin['Actual'])**2
-                ao=fin['OE'].mean(); ab=fin['BE'].mean(); diff=ab-ao
-                st.markdown(f'<div class="gem-label">◈ ACCURACY — {len(fin)} SETTLED BETS</div>',unsafe_allow_html=True)
-                rc1,rc2,rc3=st.columns(3)
-                rc1.metric("GEM SCORE",f"{ao:.4f}",f"{-diff:.4f} vs bookie",delta_color="inverse")
-                rc2.metric("BOOKIE SCORE",f"{ab:.4f}")
-                col3="#00ff88" if ao<ab else "#ff3b5c"; lab3="▲ GEM BEATS MARKET" if ao<ab else "▼ CALIBRATION NEEDED"
-                rc3.markdown(f'<div class="gem-panel" style="border-top:2px solid {col3};text-align:center;padding:10px;"><span style="font-family:\'Share Tech Mono\';color:{col3};font-size:0.78rem;">{lab3}</span></div>',unsafe_allow_html=True)
+                fin['BP'] = (1 / fin['Odds']).clip(0, 1)
+                rp = (((fin['EV_Pct'] / 100) + 1) / fin['Odds']).clip(0, 1)
+                fin['OP'] = ((rp * 0.85) + (fin['BP'] * 0.15)).clip(0, 1)
+                fin['OE'] = (fin['OP'] - fin['Actual']) ** 2
+                fin['BE'] = (fin['BP'] - fin['Actual']) ** 2
 
-                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE ERROR</div>',unsafe_allow_html=True)
-                fin=fin.sort_values('Time').reset_index(drop=True)
-                fin['CumO']=fin['OE'].cumsum(); fin['CumB']=fin['BE'].cumsum()
-                fig_bt=go.Figure()
-                fig_bt.add_trace(go.Scatter(x=fin.index,y=fin['CumO'],mode='lines',name='GEM',line=dict(color='#00ff88',width=2)))
-                fig_bt.add_trace(go.Scatter(x=fin.index,y=fin['CumB'],mode='lines',name='Bookmaker',line=dict(color='#ff3b5c',width=2,dash='dot')))
-                neon_layout(fig_bt,"CUMULATIVE BRIER ERROR")
-                fig_bt.update_layout(xaxis_title="Settled Bets",yaxis_title="Cumulative Error")
-                st.plotly_chart(fig_bt,use_container_width=True)
+                ao = fin['OE'].mean()
+                ab = fin['BE'].mean()
+                diff = ab - ao
+
+                st.markdown(f'<div class="gem-label">◈ ACCURACY — {len(fin)} SETTLED BETS</div>',
+                            unsafe_allow_html=True)
+                rc1, rc2, rc3 = st.columns(3)
+                rc1.metric("GEM SCORE",   f"{ao:.4f}", f"{-diff:.4f} vs bookie", delta_color="inverse")
+                rc2.metric("BOOKIE SCORE", f"{ab:.4f}")
+                col3 = "#00ff88" if ao < ab else "#ff3b5c"
+                lab3 = "▲ GEM BEATS MARKET" if ao < ab else "▼ CALIBRATION NEEDED"
+                rc3.markdown(
+                    f'<div class="gem-panel" style="border-top:2px solid {col3};text-align:center;padding:10px;">'
+                    f'<span style="font-family:\'Share Tech Mono\';color:{col3};font-size:0.78rem;">{lab3}</span></div>',
+                    unsafe_allow_html=True
+                )
+
+                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE ERROR</div>',
+                            unsafe_allow_html=True)
+                fin = fin.sort_values('Time').reset_index(drop=True)
+                fin['CumO'] = fin['OE'].cumsum()
+                fin['CumB'] = fin['BE'].cumsum()
+                fig_bt = go.Figure()
+                fig_bt.add_trace(go.Scatter(x=fin.index, y=fin['CumO'], mode='lines',
+                                             name='GEM', line=dict(color='#00ff88', width=2)))
+                fig_bt.add_trace(go.Scatter(x=fin.index, y=fin['CumB'], mode='lines',
+                                             name='Bookmaker', line=dict(color='#ff3b5c', width=2, dash='dot')))
+                neon_layout(fig_bt, "CUMULATIVE BRIER ERROR")
+                fig_bt.update_layout(xaxis_title="Settled Bets", yaxis_title="Cumulative Error")
+                st.plotly_chart(fig_bt, use_container_width=True)
+
                 with st.expander("◈ RAW DATA"):
-                    st.dataframe(fin[['Time','Match','Target','Odds','Result','Net_Profit','Actual','BP','OP']],use_container_width=True)
+                    st.dataframe(
+                        fin[['Time','Match','Target','Odds','Result','Net_Profit','Actual','BP','OP']],
+                        use_container_width=True
+                    )
 
-                # 🌟 5. ระบบ ML Auto-Tuning ค้นหาจุดคุ้มทุนอัตโนมัติ
-                st.markdown('<div class="gem-divider"></div>',unsafe_allow_html=True)
-                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>',unsafe_allow_html=True)
+                # ML Auto-Tuning
+                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>',
+                            unsafe_allow_html=True)
                 if st.button("🧪 RUN BACKTEST OPTIMIZATION", type="primary", use_container_width=True):
                     with st.spinner("AI กำลังวนลูปย้อนหลังเพื่อหาจุดทำกำไรสูงสุด..."):
-                        best_ah_thr, best_ah_pnl = 0, -99999
-                        best_ou_thr, best_ou_pnl = 0, -99999
+                        best_ah_thr_opt, best_ah_pnl = 0.0, -99999.0
+                        best_ou_thr_opt, best_ou_pnl = 0.0, -99999.0
                         ah_logs = fin[fin['Target'].isin(['เจ้าบ้าน', 'ทีมเยือน'])]
                         ou_logs = fin[fin['Target'].isin(['สูง', 'ต่ำ'])]
 
                         for t in np.arange(1.0, 30.0, 0.5):
                             pnl_ah = ah_logs[ah_logs['EV_Pct'] >= t]['Net_Profit'].sum()
-                            if pnl_ah > best_ah_pnl: best_ah_pnl, best_ah_thr = pnl_ah, t
+                            if pnl_ah > best_ah_pnl:
+                                best_ah_pnl, best_ah_thr_opt = pnl_ah, t
                             pnl_ou = ou_logs[ou_logs['EV_Pct'] >= t]['Net_Profit'].sum()
-                            if pnl_ou > best_ou_pnl: best_ou_pnl, best_ou_thr = pnl_ou, t
+                            if pnl_ou > best_ou_pnl:
+                                best_ou_pnl, best_ou_thr_opt = pnl_ou, t
 
-                        st.success(f"**🎯 ผลการวิเคราะห์หาจุดคุ้มทุน (Optimized Thresholds):**\n\n"
-                                   f"👉 **ตลาดแฮนดิแคป (AH):** ควรตั้ง EV ขั้นต่ำที่ **{best_ah_thr}%** (กำไรตามทฤษฎีสูงสุด: ฿{best_ah_pnl:,.0f})\n\n"
-                                   f"👉 **ตลาดสูง/ต่ำ (O/U):** ควรตั้ง EV ขั้นต่ำที่ **{best_ou_thr}%** (กำไรตามทฤษฎีสูงสุด: ฿{best_ou_pnl:,.0f})")
-                        st.info("นำตัวเลขนี้ไปปรับที่แถบ Sidebar (EV THRESHOLDS) เพื่อรีดกำไรให้สุดหลอดเลยครับ!")
+                        st.success(
+                            f"**🎯 Optimized Thresholds:**\n\n"
+                            f"👉 **AH:** ตั้ง EV ขั้นต่ำที่ **{best_ah_thr_opt}%** "
+                            f"(กำไรสูงสุด: ฿{best_ah_pnl:,.0f})\n\n"
+                            f"👉 **O/U:** ตั้ง EV ขั้นต่ำที่ **{best_ou_thr_opt}%** "
+                            f"(กำไรสูงสุด: ฿{best_ou_pnl:,.0f})"
+                        )
+                        st.info("นำตัวเลขนี้ไปปรับที่ Sidebar → EV THRESHOLDS ได้เลยครับ!")
 
-            else: st.info("◈ No records with calculable outcomes")
-        else: st.info("◈ No settled results — update Result column in Dashboard first")
-    else: st.warning("◈ No investment log found")
+            else:
+                st.info("◈ No records with calculable outcomes")
+        else:
+            st.info("◈ No settled results — update Result column in Dashboard first")
+    else:
+        st.warning("◈ No investment log found")
