@@ -528,14 +528,14 @@ def ev_ou(line, pt, odds, over):
     g = lambda cond: sum(pt.get(k, 0) for k in pt if cond(k))
     res = 0.0
     if over:
-        if rm == 0.0:   return g(lambda k: k > fl) * b - g(lambda k: k < fl)
+        if rm == 0.0:   res = g(lambda k: k > fl) * b - g(lambda k: k < fl)
         elif rm == 0.25: res = g(lambda k: k >= fl+1) * b - pt.get(fl, 0) * 0.5 - g(lambda k: k < fl)
-        elif rm == 0.5:  return g(lambda k: k >= fl+1) * b - g(lambda k: k <= fl)
+        elif rm == 0.5:  res = g(lambda k: k >= fl+1) * b - g(lambda k: k <= fl)
         elif rm == 0.75: res = g(lambda k: k >= fl+2) * b + pt.get(fl+1, 0) * (b/2) - g(lambda k: k <= fl)
     else:
-        if rm == 0.0:   return g(lambda k: k < fl) * b - g(lambda k: k > fl)
+        if rm == 0.0:   res = g(lambda k: k < fl) * b - g(lambda k: k > fl)
         elif rm == 0.25: res = g(lambda k: k < fl) * b + pt.get(fl, 0) * (b/2) - g(lambda k: k >= fl+1)
-        elif rm == 0.5:  return g(lambda k: k <= fl) * b - g(lambda k: k >= fl+1)
+        elif rm == 0.5:  res = g(lambda k: k <= fl) * b - g(lambda k: k >= fl+1)
         elif rm == 0.75: res = g(lambda k: k <= fl) * b - pt.get(fl+1, 0) * 0.5 - g(lambda k: k >= fl+2)
     return apply_quant_penalties(res, line, odds)
 
@@ -682,32 +682,66 @@ def neon_layout(fig, title=""):
     )
     return fig
 
-# ── helper bindings ──
 def adj_hdp(v): st.session_state['live_hdp'] += v
 def adj_ou(v):  st.session_state['live_ou']  += v
 def fix(o): return o + 1.0 if o < 1.1 else o
 
 # ==========================================
-# 🖥️ HEADER GRAPHIC
+# 🔧 SIDEBAR & CONFIGURATION ZONE (กู้คืนส่วนที่ขาดหาย)
 # ==========================================
-st.markdown("""
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;">
-  <div style="flex:1;">
-    <div style="font-family:'Share Tech Mono';font-size:0.62rem;color:#1a3528;letter-spacing:0.22em;margin-bottom:3px;">
-      ◈ QUANTITATIVE SPORTS ANALYTICS PLATFORM ◈
-    </div>
-    <h1 style="margin:0;padding:0;line-height:1.1;">
-      GEM SYSTEM <span style="color:#00cc6a;font-size:1.5rem;">10.0</span>
-      &nbsp;<span style="font-size:0.9rem;color:#2a5040;font-family:'Share Tech Mono';font-weight:400;text-shadow:none;">THE ORACLE</span>
-    </h1>
-  </div>
-  <div style="text-align:right;">
-    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.23</div>
-    <span class="gem-badge">● SYSTEM ONLINE</span>
-  </div>
-</div>
-<div class="gem-divider"></div>
-""", unsafe_allow_html=True)
+api_key = None
+with st.sidebar:
+    st.markdown('<div class="gem-label">◈ AI ORACLE</div>', unsafe_allow_html=True)
+    if "GEMINI_API_KEY" in st.secrets:
+        api_key = st.secrets["GEMINI_API_KEY"]
+        genai.configure(api_key=api_key)
+        st.markdown('<p class="gem-ok">▶ AI ENGINE: CONNECTED</p>', unsafe_allow_html=True)
+    else:
+        api_key = st.text_input("Gemini API Key", type="password", placeholder="paste key here...")
+        if api_key:
+            genai.configure(api_key=api_key)
+            st.markdown('<p class="gem-ok">▶ CONNECTED</p>', unsafe_allow_html=True)
+        else:
+            st.markdown('<p class="gem-warn">▶ AWAITING KEY</p>', unsafe_allow_html=True)
+
+    st.markdown('<div class="gem-label" style="margin-top:10px;">◈ DATABASE</div>', unsafe_allow_html=True)
+    if supabase:
+        st.markdown('<p class="gem-ok">▶ SUPABASE: ONLINE</p>', unsafe_allow_html=True)
+        st.markdown('<p class="gem-dim">▸ CLOUD SYNC ACTIVE</p>', unsafe_allow_html=True)
+    else:
+        st.markdown('<p class="gem-err">▶ SUPABASE: OFFLINE</p>', unsafe_allow_html=True)
+
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ PORTFOLIO</div>', unsafe_allow_html=True)
+    total_bankroll = st.number_input("Bankroll (THB)", min_value=0.0, value=10000.0)
+    hdba_val = st.slider("HDBA Penalty %", 0.0, 10.0, 1.5, step=0.5)
+
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ KELLY CRITERION (MONEY MGT)</div>', unsafe_allow_html=True)
+    kelly_fraction = st.slider("Kelly Fraction", 0.05, 0.50, 0.25, step=0.05,
+                               help="สัดส่วน Kelly (แนะนำ 0.25)")
+    max_bet_cap = st.slider("Max Bet Cap %", 1.0, 10.0, 5.0, step=0.5,
+                            help="ลิมิตเงินลงทุนสูงสุดต่อบิล")
+
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
+    pre_ah_thr = st.slider("AH %",  1.0, 50.0, 24.5, step=0.5)
+    pre_ou_thr = st.slider("O/U %", 1.0, 50.0, 23.5, step=0.5)
+    st.markdown('<div class="gem-label">◈ EV THRESHOLDS — IN-PLAY</div>', unsafe_allow_html=True)
+    live_ah_thr = st.slider("AH Live %",  5.0, 50.0, 24.0, step=1.0)
+    live_ou_thr = st.slider("O/U Live %", 5.0, 50.0, 23.0, step=1.0)
+
+pre_ah_lim  = pre_ah_thr  / 100
+pre_ou_lim  = pre_ou_thr  / 100
+live_ah_lim = live_ah_thr / 100
+live_ou_lim = live_ou_thr / 100
+
+# ==========================================
+# 📑 TABS DECLARATION (แก้ไขสาเหตุ NameError หลัก)
+# ==========================================
+tab1, tab2, tab3, tab4 = st.tabs([
+    "  PRE-MATCH  ", "  DASHBOARD  ", "  IN-PLAY SNIPER  ", "  BACKTEST  "
+])
 
 # ==========================================
 # 📑 TABS STRUCTURE
@@ -851,11 +885,15 @@ with tab1:
         p2.metric("DRAW",     f"{pd_*100:.1f}%")
         p3.metric("AWAY WIN", f"{pa*100:.1f}%")
 
+        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ EV SCANNER</div>', unsafe_allow_html=True)
         g1, g2 = st.columns(2)
-        with g1: st.plotly_chart(ev_gauge(bah['ev'], f"TARGET: {bah['n']}", pre_ah_thr), use_container_width=True)
-        with g2: st.plotly_chart(ev_gauge(bou['ev'], f"TARGET: {bou['n']}", pre_ou_thr), use_container_width=True)
+        with g1:
+            st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── HANDICAP ──</div>', unsafe_allow_html=True)
+            st.plotly_chart(ev_gauge(bah['ev'], f"TARGET: {bah['n']}", pre_ah_thr), use_container_width=True)
+        with g2:
+            st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── TOTAL GOALS ──</div>', unsafe_allow_html=True)
+            st.plotly_chart(ev_gauge(bou['ev'], f"TARGET: {bou['n']}", pre_ou_thr), use_container_width=True)
 
-        # 🌟 [แก้ไขวิกฤตที่ 3] เปิดสวิตช์ระบบ Cross-Market Dutching คัดกรองไม้ลงทุนคู่ขนานแยกกระดานอิสระตามงานวิจัย
         valid_bets = []
         if bah['ev'] >= pre_ah_lim: valid_bets.append(bah)
         if bou['ev'] >= pre_ou_lim: valid_bets.append(bou)
@@ -913,32 +951,19 @@ with tab2:
     if not tab2_logs.empty:
         st.markdown('<div class="gem-label">◈ POSITION LOG</div>', unsafe_allow_html=True)
         ef1, _ = st.columns([1, 3])
-        with ef1:
-            flt = st.selectbox("FILTER", ["Today", "Pending", "All"])
+        with ef1: flt = st.selectbox("FILTER", ["Today", "Pending", "All"])
         df2 = tab2_logs.copy()
         if flt == "Today":   df2 = df2[df2['Time'].astype(str).str.contains(today_str, na=False)]
         elif flt == "Pending": df2 = df2[df2['Result'].astype(str).str.strip() == ""]
         df2 = df2.sort_values('Time', ascending=False).reset_index(drop=True)
 
-        edf = st.data_editor(
-            df2,
-            column_config={
-                "id": None,
-                "Result": st.column_config.TextColumn("Result"),
-                "Closing_Odds": st.column_config.NumberColumn("Closing Odds", min_value=0.0, format="%.2f")
-            },
-            use_container_width=True, num_rows="dynamic"
-        )
-        sb1, sb2 = st.columns(2)
-        if sb1.button("💾  SYNC TO CLOUD", use_container_width=True, type="primary"):
+        edf = st.data_editor(df2, column_config={"id": None, "Result": st.column_config.TextColumn("Result"), "Closing_Odds": st.column_config.NumberColumn("Closing Odds", min_value=0.0, format="%.2f")}, use_container_width=True, num_rows="dynamic")
+        if st.button("💾  SYNC TO CLOUD", use_container_width=True, type="primary"):
             with st.spinner("Syncing..."):
                 for _, row in edf.iterrows():
-                    supabase.table("investment_logs").update(
-                        {"Closing_Odds": float(row['Closing_Odds']), "Result": str(row['Result'])}
-                    ).eq("id", row['id']).execute()
-            st.toast("✓ Synced", icon="💾")
-            time.sleep(1); st.rerun()
-        if sb2.button("↺  REFRESH", use_container_width=True):
+                    supabase.table("investment_logs").update({"Closing_Odds": float(row['Closing_Odds']), "Result": str(row['Result'])}).eq("id", row['id']).execute()
+            st.toast("✓ Synced", icon="💾"); time.sleep(1); st.rerun()
+        if st.button("↺  REFRESH", use_container_width=True):
             st.rerun()
 
         tab2_logs['Net_Profit'] = tab2_logs.apply(calc_pnl, axis=1)
@@ -999,30 +1024,26 @@ with tab2:
             with bc1:
                 st.markdown('<div class="gem-dim" style="margin-bottom:4px;">P&L BY TARGET</div>', unsafe_allow_html=True)
                 tgt = ls.groupby('Target')['Net_Profit'].sum()
-                fig_t = go.Figure(go.Bar(x=tgt.index, y=tgt.values,
-                                         marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
+                fig_t = go.Figure(go.Bar(x=tgt.index, y=tgt.values, marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
                 neon_layout(fig_t)
                 fig_t.update_layout(height=210, margin=dict(l=8, r=8, t=10, b=8))
                 st.plotly_chart(fig_t, use_container_width=True)
             with bc2:
                 st.markdown('<div class="gem-dim" style="margin-bottom:4px;">WIN RATE BY ODDS BRACKET</div>', unsafe_allow_html=True)
-                ls['OB'] = pd.cut(ls['Odds'], bins=[0,1.8,2.0,2.2,5.0],
-                                  labels=['<1.80','1.80-2.00','2.00-2.20','>2.20'])
-                wr = (ls[ls['Net_Profit']>0].groupby('OB', observed=False).size()
-                      / ls.groupby('OB', observed=False).size() * 100).fillna(0)
-                fig_w = go.Figure(go.Bar(x=wr.index.astype(str), y=wr.values,
-                                          marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
+                ls['OB'] = pd.cut(ls['Odds'], bins=[0,1.8,2.0,2.2,5.0], labels=['<1.80','1.80-2.00','2.00-2.20','>2.20'])
+                wr = (ls[ls['Net_Profit']>0].groupby('OB', observed=False).size() / ls.groupby('OB', observed=False).size() * 100).fillna(0)
+                fig_w = go.Figure(go.Bar(x=wr.index.astype(str), y=wr.values, marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
                 neon_layout(fig_w)
                 fig_w.update_layout(height=210, margin=dict(l=8, r=8, t=10, b=8))
                 st.plotly_chart(fig_w, use_container_width=True)
 
-        # 🌟 [เพิ่มกลับคืนมาอย่างสะอาดและสมบูรณ์] GEM SYSTEM AI LEARNING ENGINE 
+        # 🌟 [กู้คืนโหมดวิเคราะห์สำเร็จ] GEM SYSTEM AI LEARNING ENGINE 
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
         st.markdown('<div class="gem-label">◈ ORACLE LEARNING ENGINE (AI LEARNING)</div>', unsafe_allow_html=True)
         comp = tab2_logs[tab2_logs['Result'].astype(str).str.strip() != ""].copy() if 'Net_Profit' in tab2_logs.columns else pd.DataFrame()
         
         if len(comp) > 0:
-            lm = st.radio("LEARNING MODE", ["🔴 Defensive (losses)", "🟢 Offensive (wins)", "⚪ Mixed"], horizontal=True, key="learning_mode_radio_tab2")
+            lm = st.radio("LEARNING MODE", ["🔴 Defensive (losses)", "🟢 Offensive (wins)", "⚪ Mixed"], horizontal=True, key="learning_mode_radio_tab2_final")
             if "🔴" in lm:
                 tl = comp[comp['Net_Profit'] < 0].copy()
                 task = "Post-Mortem: หาสาเหตุขาดทุน สร้าง Defensive Rules"; pfx = "GEM_DEF_"
@@ -1042,11 +1063,11 @@ with tab2:
                         "Analyze": st.column_config.CheckboxColumn("✓", default=False),
                         "Net_Profit": st.column_config.NumberColumn("P&L", format="%.2f")
                     },
-                    hide_index=True, use_container_width=True, key="debrief_editor_tab2"
+                    hide_index=True, use_container_width=True, key="debrief_editor_tab2_final"
                 )
                 picked = sel[sel['Analyze'] == True]
 
-                if st.button("⚡  EXECUTE ORACLE LEARNING", use_container_width=True, type="primary", key="execute_learning_btn_tab2"):
+                if st.button("⚡  EXECUTE ORACLE LEARNING", use_container_width=True, type="primary", key="execute_learning_btn_tab2_final"):
                     if picked.empty:
                         st.warning("Select at least one record")
                     else:
@@ -1096,6 +1117,8 @@ with tab2:
                 st.info("No records in this category")
         else:
             st.info("◈ No settled results to analyse")
+    else:
+        st.info("คลังข้อมูลการลงทุนยังไม่มีบิลบันทึกไว้")
 
 # ╔══════════════╗
 # ║  TAB 3       ║
@@ -1151,12 +1174,10 @@ with tab3:
     with gl1:
         st.markdown('<div class="gem-label">◈ LIVE MATCH STATE</div>', unsafe_allow_html=True)
         s1, s2 = st.columns(2)
-        csh = s1.number_input("HOME SCORE", min_value=0,
-                             value=st.session_state.get('lh_s_input', 0), key="lh_s_input")
+        csh = s1.number_input("HOME SCORE", min_value=0, value=st.session_state.get('lh_s_input', 0), key="lh_s_input")
         rch = s2.checkbox("🟥 HOME RED", value=st.session_state.get('rc_h_chk', False), key="rc_h_chk")
         s3, s4 = st.columns(2)
-        csa = s3.number_input("AWAY SCORE", min_value=0,
-                             value=st.session_state.get('la_s_input', 0), key="la_s_input")
+        csa = s3.number_input("AWAY SCORE", min_value=0, value=st.session_state.get('la_s_input', 0), key="la_s_input")
         rca = s4.checkbox("🟥 AWAY RED", value=st.session_state.get('rc_a_chk', False), key="rc_a_chk")
         cmin = st.slider("MINUTE", 0, 120, key="current_min")
     with gl2:
@@ -1173,8 +1194,7 @@ with tab3:
         st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── HANDICAP ──</div>', unsafe_allow_html=True)
         bh1, bh2, bh3 = st.columns([1, 2, 1])
         bh1.button("◀ -0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
-        lhdp = bh2.number_input("HDP", value=st.session_state['live_hdp'], step=0.25,
-                                 key="live_hdp", label_visibility="collapsed", format="%.2f")
+        lhdp = bh2.number_input("HDP", value=st.session_state['live_hdp'], step=0.25, key="live_hdp")
         bh3.button("▶ +0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
         hw1, hw2_ = st.columns(2)
         lhdph = hw1.number_input("HOME WATER", value=st.session_state.get('live_hdp_h', 0.9), format="%.2f", key="live_hdp_h")
@@ -1183,8 +1203,7 @@ with tab3:
         st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── TOTAL GOALS ──</div>', unsafe_allow_html=True)
         bo1, bo2, bo3 = st.columns([1, 2, 1])
         bo1.button("◀ -0.25", key="o_sub", on_click=adj_ou, args=(-0.25,))
-        lou = bo2.number_input("O/U Line", value=st.session_state['live_ou'], step=0.25,
-                                key="live_ou", label_visibility="collapsed", format="%.2f")
+        lou = bo2.number_input("O/U Line", value=st.session_state['live_ou'], step=0.25, key="live_ou")
         bo3.button("▶ +0.25", key="o_add", on_click=adj_ou, args=(0.25,))
         ow1, ow2 = st.columns(2)
         louov = ow1.number_input("OVER WATER",  value=st.session_state.get('live_ou_over', 0.9),  format="%.2f", key="live_ou_over")
@@ -1224,7 +1243,7 @@ with tab3:
                     lc2.metric("ORACLE ADJ", f"{al.get('impact_score', 0)*100:.2f}%")
                     lc3.metric("NET EV", f"{nlev*100:.2f}%")
                     
-                    with st.expander(f"◈ LIVE ANALYSIS : {tl2['n']}", expanded=True):
+                    with st.expander(f"◈ LIVE ANALYTICS : {tl2['n']}", expanded=True):
                         st.success(f"**PROS:** {al.get('pros_analysis', '—')}")
                         st.error(f"**RISK:** {al.get('cons_analysis', '—')}")
                         
@@ -1284,8 +1303,7 @@ with tab4:
                 ab = fin['BE'].mean()
                 diff = ab - ao
 
-                st.markdown(f'<div class="gem-label">◈ ACCURACY — {len(fin)} SETTLED BETS</div>',
-                            unsafe_allow_html=True)
+                st.markdown(f'<div class="gem-label">◈ ACCURACY — {len(fin)} SETTLED BETS</div>', unsafe_allow_html=True)
                 rc1, rc2, rc3 = st.columns(3)
                 rc1.metric("GEM SCORE",   f"{ao:.4f}", f"{-diff:.4f} vs bookie", delta_color="inverse")
                 rc2.metric("BOOKIE SCORE", f"{ab:.4f}")
@@ -1297,29 +1315,22 @@ with tab4:
                     unsafe_allow_html=True
                 )
 
-                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE ERROR</div>',
-                            unsafe_allow_html=True)
+                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE ERROR</div>', unsafe_allow_html=True)
                 fin = fin.sort_values('Time').reset_index(drop=True)
                 fin['CumO'] = fin['OE'].cumsum()
                 fin['CumB'] = fin['BE'].cumsum()
                 fig_bt = go.Figure()
-                fig_bt.add_trace(go.Scatter(x=fin.index, y=fin['CumO'], mode='lines',
-                                             name='GEM', line=dict(color='#00ff88', width=2)))
-                fig_bt.add_trace(go.Scatter(x=fin.index, y=fin['CumB'], mode='lines',
-                                             name='Bookmaker', line=dict(color='#ff3b5c', width=2, dash='dot')))
+                fig_bt.add_trace(go.Scatter(x=fin.index, y=fin['CumO'], mode='lines', name='GEM', line=dict(color='#00ff88', width=2)))
+                fig_bt.add_trace(go.Scatter(x=fin.index, y=fin['CumB'], mode='lines', name='Bookmaker', line=dict(color='#ff3b5c', width=2, dash='dot')))
                 neon_layout(fig_bt, "CUMULATIVE BRIER ERROR")
                 fig_bt.update_layout(xaxis_title="Settled Bets", yaxis_title="Cumulative Error")
                 st.plotly_chart(fig_bt, use_container_width=True)
 
                 with st.expander("◈ RAW DATA"):
-                    st.dataframe(
-                        fin[['Time','Match','Target','Odds','Result','Net_Profit','Actual','BP','OP']],
-                        use_container_width=True
-                    )
+                    st.dataframe(fin[['Time','Match','Target','Odds','Result','Net_Profit','Actual','BP','OP']], use_container_width=True)
 
                 st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>',
-                            unsafe_allow_html=True)
+                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>', unsafe_allow_html=True)
                 if st.button("🧪 RUN BACKTEST OPTIMIZATION", type="primary", use_container_width=True):
                     with st.spinner("AI กำลังวนลูปย้อนหลังเพื่อหาจุดทำกำไรสูงสุด..."):
                         best_ah_thr_opt, best_ah_pnl = 0.0, -99999.0
@@ -1337,13 +1348,13 @@ with tab4:
 
                         st.success(
                             f"**🎯 Optimized Thresholds:**\n\n"
-                            f"👉 **AH:** ตั้ง EV ขั้นต่ำที่ **{best_ah_thr_opt}%** "
-                            f"(กำไรสูงสุด: ฿{best_ah_pnl:,.0f})\n\n"
-                            f"👉 **O/U:** ตั้ง EV ขั้นต่ำที่ **{best_ou_thr_opt}%** "
-                            f"(กำไรสูงสุด: ฿{best_ou_pnl:,.0f})"
+                            f"👉 **AH:** ตั้ง EV ขั้นต่ำที่ **{best_ah_thr_opt}%** (กำไรสูงสุด: ฿{best_ah_pnl:,.0f})\n\n"
+                            f"👉 **O/U:** ตั้ง EV ขั้นต่ำที่ **{best_ou_thr_opt}%** (กำไรสูงสุด: ฿{best_ou_pnl:,.0f})"
                         )
                         st.info("นำตัวเลขนี้ไปปรับที่ Sidebar → EV THRESHOLDS ได้เลยครับ!")
-
-            else: st.info("◈ No records with calculable outcomes")
-        else: st.info("◈ No settled results — update Result column in Dashboard first")
-    else: st.warning("◈ No investment log found")
+            else:
+                st.info("◈ No records with calculable outcomes")
+        else:
+            st.info("◈ No settled results — update Result column in Dashboard first")
+    else:
+        st.warning("◈ No investment log found")
