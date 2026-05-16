@@ -825,7 +825,54 @@ with tab1:
                         st.error(str(e))
             with tp2:
                 st.button("🗑 CLEAR", use_container_width=True, on_click=clear_form_data)
+# 🛰️ =======================================================================
+    # 📡 [START] COUPLING PIPELINE: ORACLE LIVE STATS DETECTOR (SUPABASE)
+    # =======================================================================
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ ORACLE LIVE STATS DETECTOR (SUPABASE)</div>', unsafe_allow_html=True)
+    col_db1, col_db2 = st.columns([2, 1])
 
+    with col_db1:
+        # ดึงข้อมูลรายชื่อทีมและสถิติ xG ที่พึ่งกวาดมาจากคลาวด์วันต่อวัน
+        @st.cache_data(ttl=30)  # ป้องกันแอปหน่วงโดยการดึง Cache และจะ Auto-refresh ทุกๆ 30 วินาที
+        def load_daily_cached_stats():
+            if not supabase: return {}
+            try:
+                tz_th = timezone(timedelta(hours=7))
+                today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
+                
+                # ทำการ Query ดึงเฉพาะคู่ในวันปัจจุบันขึ้นมาแมปปิ้ง
+                r = supabase.table("daily_matches").select("match_name, xg_home, xg_away").eq("match_date", today_str).execute()
+                if r.data:
+                    return {row['match_name']: {"xg_h": row['xg_home'], "xg_a": row['xg_away']} for row in r.data}
+                return {}
+            except:
+                return {}
+
+        cached_matches = load_daily_cached_stats()
+        
+        if cached_matches:
+            options = ["-- เลือกล็อคเป้าหมายเพื่อดึงสถิติ xG อัตโนมัติ --"] + list(cached_matches.keys())
+            selected_match = st.selectbox("🎯 TARGET ACQUISITION (LIVE STATS)", options, key="supabase_stats_dropdown")
+            
+            # บังคับอัดฉีดข้อมูลเข้า Session State หลัก เพื่อเชื่อมโยงเข้ากลไกวิเคราะห์คณิตศาสตร์ทันที
+            if selected_match != "-- เลือกล็อคเป้าหมายเพื่อดึงสถิติ xG อัตโนมัติ --":
+                target_data = cached_matches[selected_match]
+                st.session_state.match_name = selected_match
+                st.session_state.xg_h_val = target_data['xg_h']
+                st.session_state.xg_a_val = target_data['xg_a']
+                st.toast(f"🎯 ล็อคเป้าข้อมูลสถิติ xG ของ {selected_match} สำเร็จ!", icon="✅")
+        else:
+            st.markdown('<p class="gem-dim">▸ คลังข้อมูลสถิติมหาภาควันนี้ยังว่างเปล่า (รอรอบการทำงานของระบบบอทหลังบ้าน)</p>', unsafe_allow_html=True)
+
+    with col_db2:
+        # ปุ่มเคลียร์แคชข้อมูลบน UI เพื่อดึงค่าสดใหม่จากฐานข้อมูลแบบเรียลไทม์
+        if st.button("🔄 REFRESH CLOUD STATS", use_container_width=True):
+            st.cache_data.clear()
+            st.rerun()
+    # =======================================================================
+    # 📡 [END] COUPLING PIPELINE
+    # =======================================================================
     
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     match_name = st.text_input("MATCH", key="match_name", placeholder="Home Team VS Away Team")
