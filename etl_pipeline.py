@@ -24,8 +24,11 @@ headers = {
 # 2. 📡 สเต็ป 1: ดึงโปรแกรมเตะของวันนี้
 # ==========================================
 def get_today_fixtures():
-    tz_th = timezone(timedelta(hours=7))
-    today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
+     tz_th = timezone(timedelta(hours=7))
+     # today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
+     today_str = "2026-05-10"  # 👈 บังคับดึงข้อมูลของวันที่ 10 พฤษภาคม
+#    tz_th = timezone(timedelta(hours=7))
+#    today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
     
     print(f"📅 กำลังเช็คตารางแข่งขันของวันที่ {today_str}...")
     url = "https://v3.football.api-sports.io/fixtures"
