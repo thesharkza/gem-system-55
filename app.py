@@ -743,8 +743,8 @@ with st.sidebar:
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
-    pre_ah_thr = st.slider("AH %",  1.0, 50.0, 5, step=0.5)
-    pre_ou_thr = st.slider("O/U %", 1.0, 50.0, 5, step=0.5)
+    pre_ah_thr = st.slider("AH %",  1.0, 50.0, 5.0, step=0.5)
+    pre_ou_thr = st.slider("O/U %", 1.0, 50.0, 5.0, step=0.5)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — IN-PLAY</div>', unsafe_allow_html=True)
     live_ah_thr = st.slider("AH Live %",  5.0, 50.0, 20.0, step=1.0)
     live_ou_thr = st.slider("O/U Live %", 5.0, 50.0, 20.0, step=1.0)
