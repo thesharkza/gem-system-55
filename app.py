@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import os
 import re
 import math
 import json
@@ -27,17 +26,14 @@ def safe_json_loads(text):
     if not text: return {}
     try:
         start_idx = text.find('{')
-        end_idx = text.rfind('}')
+        end_idx   = text.rfind('}')
         if start_idx != -1 and end_idx != -1:
-            clean_text = text[start_idx:end_idx+1]
-            return json.loads(clean_text)
+            return json.loads(text[start_idx:end_idx+1])
         return json.loads(text)
     except Exception:
         clean = text.replace("```json", "").replace("```", "").strip()
-        try:
-            return json.loads(clean)
-        except:
-            return {}
+        try:    return json.loads(clean)
+        except: return {}
 
 # ==========================================
 # 🎨  NEON QUANT THEME
@@ -47,25 +43,25 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@300;400;600;800&display=swap');
 
 :root {
-    --bg-primary:   #050a0e;
-    --bg-panel:     #0a1520;
-    --bg-card:      #0d1e2e;
-    --bg-card2:     #091520;
-    --neon-green:   #00ff88;
-    --neon-green2:  #00cc6a;
-    --neon-dim:     #00ff8820;
-    --neon-glow:    0 0 8px #00ff8870, 0 0 24px #00ff8828;
-    --neon-red:     #ff3b5c;
-    --neon-yellow:  #ffd600;
-    --neon-blue:    #00b4ff;
-    --border:       #0f2535;
-    --border-neon:  #00ff8835;
-    --text-main:    #c8e6d4;
-    --text-dim:     #4a7a60;
-    --text-label:   #2a5040;
-    --font-mono:    'Share Tech Mono', monospace;
-    --font-ui:      'Rajdhani', sans-serif;
-    --font-head:    'Exo 2', sans-serif;
+    --bg-primary:  #050a0e;
+    --bg-panel:    #0a1520;
+    --bg-card:     #0d1e2e;
+    --bg-card2:    #091520;
+    --neon-green:  #00ff88;
+    --neon-green2: #00cc6a;
+    --neon-dim:    #00ff8820;
+    --neon-glow:   0 0 8px #00ff8870, 0 0 24px #00ff8828;
+    --neon-red:    #ff3b5c;
+    --neon-yellow: #ffd600;
+    --neon-blue:   #00b4ff;
+    --border:      #0f2535;
+    --border-neon: #00ff8835;
+    --text-main:   #c8e6d4;
+    --text-dim:    #4a7a60;
+    --text-label:  #2a5040;
+    --font-mono:   'Share Tech Mono', monospace;
+    --font-ui:     'Rajdhani', sans-serif;
+    --font-head:   'Exo 2', sans-serif;
 }
 
 html, body, [data-testid="stAppViewContainer"] {
@@ -84,9 +80,8 @@ html, body, [data-testid="stAppViewContainer"] {
     pointer-events: none;
     z-index: 0;
 }
-
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #060d14 0%, #050a0e 100%) !important;
+    background: linear-gradient(180deg,#060d14 0%,#050a0e 100%) !important;
     border-right: 1px solid var(--border-neon) !important;
 }
 [data-testid="stSidebar"] * { font-family: var(--font-ui) !important; }
@@ -105,7 +100,6 @@ html, body, [data-testid="stAppViewContainer"] {
     letter-spacing: 0.05em !important;
     text-transform: uppercase !important;
 }
-
 h1 {
     font-family: var(--font-head) !important;
     font-weight: 800 !important;
@@ -122,204 +116,141 @@ h2 {
     letter-spacing: 0.06em !important;
     text-transform: uppercase !important;
 }
-h3, h4, h5 {
-    font-family: var(--font-ui) !important;
-    color: var(--text-main) !important;
-    letter-spacing: 0.04em !important;
-}
+h3, h4, h5 { font-family: var(--font-ui) !important; color: var(--text-main) !important; }
 
 [data-testid="stTabs"] [role="tablist"] {
     background: var(--bg-panel) !important;
     border-bottom: 1px solid var(--border-neon) !important;
-    gap: 2px !important;
-    padding: 4px 8px 0 !important;
+    gap: 2px !important; padding: 4px 8px 0 !important;
     border-radius: 6px 6px 0 0 !important;
 }
 [data-testid="stTabs"] button[role="tab"] {
-    font-family: var(--font-ui) !important;
-    font-weight: 600 !important;
-    font-size: 0.8rem !important;
-    letter-spacing: 0.1em !important;
-    text-transform: uppercase !important;
-    color: var(--text-dim) !important;
-    background: transparent !important;
-    border: none !important;
-    border-bottom: 2px solid transparent !important;
-    padding: 8px 16px !important;
+    font-family: var(--font-ui) !important; font-weight: 600 !important;
+    font-size: 0.8rem !important; letter-spacing: 0.1em !important;
+    text-transform: uppercase !important; color: var(--text-dim) !important;
+    background: transparent !important; border: none !important;
+    border-bottom: 2px solid transparent !important; padding: 8px 16px !important;
     transition: all 0.2s !important;
 }
 [data-testid="stTabs"] button[role="tab"]:hover {
-    color: var(--neon-green) !important;
-    background: var(--neon-dim) !important;
+    color: var(--neon-green) !important; background: var(--neon-dim) !important;
 }
 [data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
     color: var(--neon-green) !important;
     border-bottom: 2px solid var(--neon-green) !important;
     text-shadow: 0 0 12px #00ff88 !important;
 }
-
 [data-testid="stNumberInput"] input,
 [data-testid="stTextInput"] input,
 [data-testid="stTextArea"] textarea {
-    background: var(--bg-card2) !important;
-    color: var(--neon-green) !important;
-    font-family: var(--font-mono) !important;
-    font-size: 1rem !important;
-    border: 1px solid var(--border) !important;
-    border-radius: 4px !important;
+    background: var(--bg-card2) !important; color: var(--neon-green) !important;
+    font-family: var(--font-mono) !important; font-size: 1rem !important;
+    border: 1px solid var(--border) !important; border-radius: 4px !important;
     transition: border-color 0.2s, box-shadow 0.2s !important;
 }
 [data-testid="stNumberInput"] input:focus,
 [data-testid="stTextInput"] input:focus,
 [data-testid="stTextArea"] textarea:focus {
     border-color: var(--neon-green2) !important;
-    box-shadow: 0 0 0 2px #00ff8818 !important;
-    outline: none !important;
+    box-shadow: 0 0 0 2px #00ff8818 !important; outline: none !important;
 }
 [data-testid="stSelectbox"] > div {
     background: var(--bg-card2) !important;
-    border-color: var(--border) !important;
-    color: var(--neon-green) !important;
+    border-color: var(--border) !important; color: var(--neon-green) !important;
 }
 label[data-testid="stWidgetLabel"] {
-    color: var(--text-dim) !important;
-    font-size: 0.75rem !important;
-    letter-spacing: 0.07em !important;
-    text-transform: uppercase !important;
+    color: var(--text-dim) !important; font-size: 0.75rem !important;
+    letter-spacing: 0.07em !important; text-transform: uppercase !important;
     font-family: var(--font-ui) !important;
 }
-
 .stButton > button {
-    font-family: var(--font-head) !important;
-    font-weight: 700 !important;
-    font-size: 0.8rem !important;
-    letter-spacing: 0.14em !important;
-    text-transform: uppercase !important;
-    background: transparent !important;
-    color: var(--neon-green) !important;
-    border: 1px solid var(--neon-green2) !important;
-    border-radius: 3px !important;
-    padding: 8px 18px !important;
+    font-family: var(--font-head) !important; font-weight: 700 !important;
+    font-size: 0.8rem !important; letter-spacing: 0.14em !important;
+    text-transform: uppercase !important; background: transparent !important;
+    color: var(--neon-green) !important; border: 1px solid var(--neon-green2) !important;
+    border-radius: 3px !important; padding: 8px 18px !important;
     transition: all 0.15s ease !important;
 }
 .stButton > button:hover {
-    background: var(--neon-dim) !important;
-    box-shadow: var(--neon-glow) !important;
-    border-color: var(--neon-green) !important;
-    color: #fff !important;
+    background: var(--neon-dim) !important; box-shadow: var(--neon-glow) !important;
+    border-color: var(--neon-green) !important; color: #fff !important;
 }
 .stButton > button[kind="primary"] {
-    background: linear-gradient(135deg, #00ff8815, #00cc6a10) !important;
-    border-color: var(--neon-green) !important;
-    box-shadow: 0 0 10px #00ff8835 !important;
+    background: linear-gradient(135deg,#00ff8815,#00cc6a10) !important;
+    border-color: var(--neon-green) !important; box-shadow: 0 0 10px #00ff8835 !important;
 }
 .stButton > button[kind="primary"]:hover {
-    background: linear-gradient(135deg, #00ff8828, #00cc6a20) !important;
+    background: linear-gradient(135deg,#00ff8828,#00cc6a20) !important;
     box-shadow: var(--neon-glow) !important;
 }
-
 [data-testid="stMetric"] {
-    background: var(--bg-card) !important;
-    border: 1px solid var(--border) !important;
-    border-top: 2px solid var(--neon-green2) !important;
-    border-radius: 4px !important;
-    padding: 14px 16px !important;
-    position: relative !important;
+    background: var(--bg-card) !important; border: 1px solid var(--border) !important;
+    border-top: 2px solid var(--neon-green2) !important; border-radius: 4px !important;
+    padding: 14px 16px !important; position: relative !important;
 }
 [data-testid="stMetric"]::before {
-    content: "";
-    position: absolute;
-    top: 0; left: 0; right: 0; height: 1px;
-    background: linear-gradient(90deg, transparent, var(--neon-green2), transparent);
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg,transparent,var(--neon-green2),transparent);
 }
 [data-testid="stMetricLabel"] {
-    color: var(--text-dim) !important;
-    font-size: 0.7rem !important;
-    letter-spacing: 0.1em !important;
-    text-transform: uppercase !important;
+    color: var(--text-dim) !important; font-size: 0.7rem !important;
+    letter-spacing: 0.1em !important; text-transform: uppercase !important;
     font-family: var(--font-ui) !important;
 }
 [data-testid="stMetricValue"] {
-    color: var(--neon-green) !important;
-    font-family: var(--font-mono) !important;
-    font-size: 1.45rem !important;
-    text-shadow: 0 0 8px #00ff8855 !important;
+    color: var(--neon-green) !important; font-family: var(--font-mono) !important;
+    font-size: 1.45rem !important; text-shadow: 0 0 8px #00ff8855 !important;
 }
 [data-testid="stMetricDelta"] { font-family: var(--font-mono) !important; font-size: 0.76rem !important; }
-
 [data-testid="stExpander"] {
-    border: 1px solid var(--border) !important;
-    border-radius: 4px !important;
+    border: 1px solid var(--border) !important; border-radius: 4px !important;
     background: var(--bg-card2) !important;
 }
 [data-testid="stExpander"] summary {
-    color: var(--text-main) !important;
-    font-family: var(--font-ui) !important;
-    font-size: 0.83rem !important;
-    letter-spacing: 0.07em !important;
-    padding: 10px 14px !important;
+    color: var(--text-main) !important; font-family: var(--font-ui) !important;
+    font-size: 0.83rem !important; letter-spacing: 0.07em !important; padding: 10px 14px !important;
 }
 [data-testid="stExpander"] summary:hover { color: var(--neon-green) !important; }
 [data-testid="stRadio"] label { color: var(--text-main) !important; font-family: var(--font-ui) !important; font-size: 0.83rem !important; }
 hr { border-color: var(--border-neon) !important; }
-
 ::-webkit-scrollbar { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: var(--bg-primary); }
 ::-webkit-scrollbar-thumb { background: var(--text-label); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--neon-green2); }
 
 .gem-panel {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 18px 20px;
-    margin-bottom: 14px;
-    position: relative;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 18px 20px; margin-bottom: 14px; position: relative;
 }
 .gem-panel::before {
-    content: "";
-    position: absolute;
-    top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, var(--neon-green2), transparent);
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg,var(--neon-green2),transparent);
     border-radius: 6px 6px 0 0;
 }
 .gem-label {
-    font-family: var(--font-mono);
-    font-size: 0.65rem;
-    letter-spacing: 0.2em;
-    color: var(--text-label);
-    text-transform: uppercase;
-    margin-bottom: 10px;
-    border-left: 2px solid var(--neon-green2);
-    padding-left: 8px;
+    font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.2em;
+    color: var(--text-label); text-transform: uppercase; margin-bottom: 10px;
+    border-left: 2px solid var(--neon-green2); padding-left: 8px;
 }
 .gem-badge {
-    display: inline-block;
-    background: var(--neon-dim);
-    color: var(--neon-green);
-    font-family: var(--font-mono);
-    font-size: 0.68rem;
-    padding: 2px 10px;
-    border-radius: 2px;
-    border: 1px solid var(--neon-green2);
-    letter-spacing: 0.08em;
+    display: inline-block; background: var(--neon-dim); color: var(--neon-green);
+    font-family: var(--font-mono); font-size: 0.68rem; padding: 2px 10px;
+    border-radius: 2px; border: 1px solid var(--neon-green2); letter-spacing: 0.08em;
 }
-.gem-ok   { color: #00ff88 !important; font-family: 'Share Tech Mono', monospace !important; font-size: 0.78rem !important; }
-.gem-warn { color: #ffd600 !important; font-family: 'Share Tech Mono', monospace !important; font-size: 0.78rem !important; }
-.gem-err  { color: #ff3b5c !important; font-family: 'Share Tech Mono', monospace !important; font-size: 0.78rem !important; }
-.gem-dim  { color: #2a5040 !important; font-family: 'Share Tech Mono', monospace !important; font-size: 0.68rem !important; }
+.gem-ok   { color:#00ff88 !important; font-family:'Share Tech Mono',monospace !important; font-size:0.78rem !important; }
+.gem-warn { color:#ffd600 !important; font-family:'Share Tech Mono',monospace !important; font-size:0.78rem !important; }
+.gem-err  { color:#ff3b5c !important; font-family:'Share Tech Mono',monospace !important; font-size:0.78rem !important; }
+.gem-dim  { color:#2a5040 !important; font-family:'Share Tech Mono',monospace !important; font-size:0.68rem !important; }
 .gem-divider {
     height: 1px;
-    background: linear-gradient(90deg, transparent, #00cc6a25, transparent);
+    background: linear-gradient(90deg,transparent,#00cc6a25,transparent);
     margin: 16px 0;
 }
 [data-testid="stNumberInput"] button {
-    background: var(--bg-card) !important;
-    color: var(--neon-green) !important;
+    background: var(--bg-card) !important; color: var(--neon-green) !important;
     border-color: var(--border) !important;
 }
 [data-testid="stNumberInput"] button:hover { background: var(--neon-dim) !important; }
-
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
 [data-testid="stHeader"] { background-color: transparent; }
@@ -370,9 +301,14 @@ def clear_inplay_data():
 def load_gem_rules():
     if not supabase: return "⚠️ ไม่สามารถเชื่อมต่อ Supabase"
     try:
-        r = supabase.table("gem_knowledge").select("rule_id,category,rule_text").eq("is_active", True).execute()
-        if r.data:
-            return "\n".join([f"[{r['rule_id']} - หมวด {r['category']}] {r['rule_text']}" for r in r.data])
+        # [แก้ไข #1] เปลี่ยนชื่อตัวแปร response เพื่อไม่ให้ชนกับ loop variable
+        response = supabase.table("gem_knowledge").select(
+            "rule_id,category,rule_text").eq("is_active", True).execute()
+        if response.data:
+            return "\n".join([
+                f"[{item['rule_id']} - หมวด {item['category']}] {item['rule_text']}"
+                for item in response.data
+            ])
         return "ยังไม่มีข้อมูลกฎ"
     except Exception as e:
         return f"Error: {e}"
@@ -385,10 +321,13 @@ def get_dynamic_rules(target, is_live, raw_rules):
     for rule in rules:
         if not rule.strip(): continue
         rl = rule.lower()
-        if is_ou and any(w in rl for w in ['เจ้าบ้าน','ทีมเยือน','ต่อ','รอง','ah']) and not any(w in rl for w in ['สูง','ต่ำ','สกอร์','o/u']): continue
-        if is_ah and any(w in rl for w in ['สูง','ต่ำ','สกอร์รวม','o/u']) and not any(w in rl for w in ['เจ้าบ้าน','ทีมเยือน','ต่อ','รอง','ah']): continue
+        if is_ou and any(w in rl for w in ['เจ้าบ้าน','ทีมเยือน','ต่อ','รอง','ah']) \
+                and not any(w in rl for w in ['สูง','ต่ำ','สกอร์','o/u']): continue
+        if is_ah and any(w in rl for w in ['สูง','ต่ำ','สกอร์รวม','o/u']) \
+                and not any(w in rl for w in ['เจ้าบ้าน','ทีมเยือน','ต่อ','รอง','ah']): continue
         if not is_live and any(w in rl for w in ['live','สด','นาที','ใบแดง','สกอร์ปัจจุบัน']): continue
-        if is_live and any(w in rl for w in ['ก่อนเตะ','pre-match','ราคาเปิด']) and not any(w in rl for w in ['live','สด','ไหล']): continue
+        if is_live and any(w in rl for w in ['ก่อนเตะ','pre-match','ราคาเปิด']) \
+                and not any(w in rl for w in ['live','สด','ไหล']): continue
         out.append(rule)
     return "\n".join(out)
 
@@ -423,6 +362,7 @@ def shin_devig(oh, od, oa):
     sp = sum(pi)
     if sp <= 1.0: return pi[0]/sp, pi[1]/sp, pi[2]/sp
     lo, hi = 0.0, 1.0
+    z = 0.0
     for _ in range(100):
         z = (lo + hi) / 2
         try:
@@ -436,43 +376,54 @@ def shin_devig(oh, od, oa):
     except:
         p = pi
     sp = sum(p)
+    # [แก้ไข #5] guard หาก sp = 0 เพื่อหลีกเลี่ยง ZeroDivisionError
+    if sp == 0:
+        return 1/3, 1/3, 1/3
     return p[0]/sp, p[1]/sp, p[2]/sp
+
 
 def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
+
 
 def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
                              ch=0, ca=0, ml=90,
                              rch=False, rca=False,
                              xg_h=0.0, xg_a=0.0, xg_weight=0.0):
-    ow = oow + 1 if oow < 1.1 else oow
-    uw = uuw + 1 if uuw < 1.1 else uuw
-    op = 1/ow; up = 1/uw
+    ow  = oow + 1 if oow < 1.1 else oow
+    uw  = uuw + 1 if uuw < 1.1 else uuw
+    op  = 1/ow; up = 1/uw
     top = op / (op + up)
 
     bet = ou + 0.20 + ((top - 0.5) * 2.5)
-    et = max(0.5, bet + (0.25 - pd) * 8.0)
+    et  = max(0.5, bet + (0.25 - pd) * 8.0)
     sup = (ph - pa) * (et ** 0.60)
 
     lh = max(0.15, (et + sup) / 2) * (ml / 90) ** 0.75
     la = max(0.15, (et - sup) / 2) * (ml / 90) ** 0.75
 
-    if rch: lh *= 0.50; la *= 1.30
-    if rca: la *= 0.50; lh *= 1.30
+    # [แก้ไข #6] ใช้ if block แยกบรรทัด ป้องกัน semicolon bug
+    # Python อ่าน `if cond: a; b` ว่า b อยู่นอก if เสมอ
+    if rch:
+        lh *= 0.50
+        la *= 1.30
+    if rca:
+        la *= 0.50
+        lh *= 1.30
 
     # xG Blending
     if xg_h > 0.0 or xg_a > 0.0:
         lh = lh * (1 - xg_weight) + xg_h * (ml / 90) ** 0.75 * xg_weight
         la = la * (1 - xg_weight) + xg_a * (ml / 90) ** 0.75 * xg_weight
 
-    # Dynamic Rho — คำนวณจากเรตประตูรวมอัตโนมัติ ไม่ต้องใช้ Slider
+    # Dynamic Rho — คำนวณอัตโนมัติจากเรตประตูรวม ไม่ต้องใช้ Slider
     dyn_rho = max(-0.25, min(0.0, -0.15 + (et - 2.5) * 0.05))
 
     mx = [[0.0] * 10 for _ in range(10)]
     for i in range(10):
         for j in range(10):
             bp = poisson(i, lh) * poisson(j, la)
-            if i == 0 and j == 0:   tau = 1 - (lh * la * dyn_rho)
+            if   i == 0 and j == 0: tau = 1 - (lh * la * dyn_rho)
             elif i == 0 and j == 1: tau = 1 + (lh * dyn_rho)
             elif i == 1 and j == 0: tau = 1 + (la * dyn_rho)
             elif i == 1 and j == 1: tau = 1 - dyn_rho
@@ -484,63 +435,83 @@ def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
     pou = {}
     for i in range(10):
         for j in range(10):
-            p = mx[i][j] / tp
+            p  = mx[i][j] / tp
             fh = i + ch; fa = j + ca; d = fh - fa
-            if d >= 2:   h2 += p
-            elif d == 1: h1 += p
-            elif d == 0: dr += p
+            if   d >= 2:  h2 += p
+            elif d == 1:  h1 += p
+            elif d == 0:  dr += p
             elif d == -1: a1 += p
             elif d <= -2: a2 += p
             tg = fh + fa
             pou[tg] = pou.get(tg, 0) + p
     return (h2, h1, dr, a1, a2, pou)
 
-# 🌟 [แก้ไขวิกฤตที่ 2] ฝังโมเดลทำโทษราคาควบ และความบิดเบือนราคาสุดโต่งตามเอกสารวิจัย
-def apply_quant_penalties(ev, line, odds):
+
+# [แก้ไข #4] เปลี่ยน flat penalty เป็น relative (สัดส่วน) และ
+# แยกออกจาก ev_ah/ev_ou เป็น utility function ที่สะอาด
+def _quant_penalty(ev, line, odds):
+    """Relative penalty สำหรับ quarter-ball line และ extreme odds."""
     rm = abs(line) - math.floor(abs(line))
-    if rm in [0.25, 0.75]: ev -= 0.015  # ล้างกำไรแฝงราคาควบลูก 1.5%
-    if odds < 1.30 or odds > 4.00: ev -= 0.030  # ทำโทษกลลวงราคาสุดโต่ง 3.0%
+    if rm in (0.25, 0.75):
+        ev *= 0.985          # หัก 1.5% สัดส่วน แทน flat -0.015
+    if odds < 1.30 or odds > 4.00:
+        ev *= 0.970          # หัก 3.0% สัดส่วน แทน flat -0.030
     return ev
+
 
 def ev_ah(hdp, w2, w1, d, l1, l2, odds, fav):
     b = odds - 1
     h = abs(hdp)
-    res = 0.0
-    if h == 0: res = (w2 + w1) * b - (l1 + l2)
+    if h == 0:
+        res = (w2 + w1) * b - (l1 + l2)
     elif fav:
-        if h == 0.25:  res = (w2 + w1) * b - d * 0.5 - (l1 + l2)
+        if   h == 0.25: res = (w2 + w1) * b - d * 0.5 - (l1 + l2)
         elif h == 0.5:  res = (w2 + w1) * b - (d + l1 + l2)
-        elif h == 0.75: res = w2 * b + w1 * (b/2) - (d + l1 + l2)
+        elif h == 0.75: res = w2 * b + w1 * (b / 2) - (d + l1 + l2)
         elif h == 1.0:  res = w2 * b - (d + l1 + l2)
         elif h == 1.25: res = w2 * b - w1 * 0.5 - (d + l1 + l2)
         elif h == 1.5:  res = w2 * b - (w1 + d + l1 + l2)
+        else: res = 0.0
     else:
-        if h == 0.25:  res = (w2 + w1) * b + d * (b/2) - (l1 + l2)
+        if   h == 0.25: res = (w2 + w1) * b + d * (b / 2) - (l1 + l2)
         elif h == 0.5:  res = (w2 + w1 + d) * b - (l1 + l2)
         elif h == 0.75: res = (w2 + w1 + d) * b - l1 * 0.5 - l2
         elif h == 1.0:  res = (w2 + w1 + d) * b - l2
-        elif h == 1.25: res = (w2 + w1 + d) * b + l1 * (b/2) - l2
+        elif h == 1.25: res = (w2 + w1 + d) * b + l1 * (b / 2) - l2
         elif h == 1.5:  res = (w2 + w1 + d + l1) * b - l2
-    return apply_quant_penalties(res, hdp, odds)
+        else: res = 0.0
+    return _quant_penalty(res, hdp, odds)
 
+
+# [แก้ไข #3] รวมทุก case เข้า res แล้ว return ครั้งเดียว
+# ป้องกัน early return ที่หนีการ apply penalty
 def ev_ou(line, pt, odds, over):
-    b = odds - 1
+    b  = odds - 1
     fl = math.floor(line)
     rm = line - fl
-    g = lambda cond: sum(pt.get(k, 0) for k in pt if cond(k))
-    res = 0.0
-    if over:
-        if rm == 0.0:   return g(lambda k: k > fl) * b - g(lambda k: k < fl)
-        elif rm == 0.25: res = g(lambda k: k >= fl+1) * b - pt.get(fl, 0) * 0.5 - g(lambda k: k < fl)
-        elif rm == 0.5:  return g(lambda k: k >= fl+1) * b - g(lambda k: k <= fl)
-        elif rm == 0.75: res = g(lambda k: k >= fl+2) * b + pt.get(fl+1, 0) * (b/2) - g(lambda k: k <= fl)
-    else:
-        if rm == 0.0:   return g(lambda k: k < fl) * b - g(lambda k: k > fl)
-        elif rm == 0.25: res = g(lambda k: k < fl) * b + pt.get(fl, 0) * (b/2) - g(lambda k: k >= fl+1)
-        elif rm == 0.5:  return g(lambda k: k <= fl) * b - g(lambda k: k >= fl+1)
-        elif rm == 0.75: res = g(lambda k: k <= fl) * b - pt.get(fl+1, 0) * 0.5 - g(lambda k: k >= fl+2)
-    return apply_quant_penalties(res, line, odds)
+    g  = lambda cond: sum(pt.get(k, 0) for k in pt if cond(k))
 
+    if over:
+        if   rm == 0.0:  res = g(lambda k: k > fl)  * b  - g(lambda k: k < fl)
+        elif rm == 0.25: res = g(lambda k: k >= fl+1)* b  - pt.get(fl, 0)*0.5 - g(lambda k: k < fl)
+        elif rm == 0.5:  res = g(lambda k: k >= fl+1)* b  - g(lambda k: k <= fl)
+        elif rm == 0.75: res = g(lambda k: k >= fl+2)* b  + pt.get(fl+1, 0)*(b/2) - g(lambda k: k <= fl)
+        else: res = 0.0
+    else:
+        if   rm == 0.0:  res = g(lambda k: k < fl)  * b  - g(lambda k: k > fl)
+        elif rm == 0.25: res = g(lambda k: k < fl)  * b  + pt.get(fl, 0)*(b/2) - g(lambda k: k >= fl+1)
+        elif rm == 0.5:  res = g(lambda k: k <= fl) * b  - g(lambda k: k >= fl+1)
+        elif rm == 0.75: res = g(lambda k: k <= fl) * b  - pt.get(fl+1, 0)*0.5  - g(lambda k: k >= fl+2)
+        else: res = 0.0
+
+    return _quant_penalty(res, line, odds)
+
+
+# ==========================================
+# 🧠 AI ENGINE
+# ==========================================
+# [แก้ไข #7] เปลี่ยนชื่อ parameter จาก `min` → `current_min`
+# เพื่อไม่ให้ shadow built-in min()
 def ai_engine(match_name, target, base_ev, hdp, odds,
               live=False, current_min=0, score="0-0",
               thr=0.08, stats="", fav=None,
@@ -567,19 +538,18 @@ def ai_engine(match_name, target, base_ev, hdp, odds,
         f"[GEM RULES]\n{db}\n\n"
         "Rules:\n"
         "1. ห้ามสับสนทีมต่อ/รอง\n"
-        "2. Market Isolation: แยกพิจารณา AH กับ OU ห้ามนำมาปนกัน\n"
+        "2. Market Isolation: แยกพิจารณา AH กับ OU ห้ามปนกัน\n"
         "3. ระบุ RuleID ให้ชัดเจนหากมีการใช้กฎ\n"
         "4. impact_score ต้องเป็นทศนิยม -1.0 ถึง 1.0\n"
-        "5. หาก Line Movement เป็น 'Steam (ไหลเข้า)' ให้ถือเป็นสัญญาณบวกจาก Smart Money, "
-        "หากเป็น 'Drift (ไหลสวน)' ให้ระวังกับดักบ่อน (Trap)\n\n"
+        "5. Steam = สัญญาณบวก Smart Money, Drift = ระวังกับดักบ่อน\n\n"
         'JSON Thai: {"pros_analysis":"","cons_analysis":"","rule_triggered":"","impact_score":0.0,"final_decision":true,"final_comment":"","confidence_level":3}'
     )
 
     for attempt in range(3):
         try:
             model = genai.GenerativeModel('models/gemma-4-31b-it')
-            res = model.generate_content(prompt)
-            data = safe_json_loads(res.text)
+            res   = model.generate_content(prompt)
+            data  = safe_json_loads(res.text)
             if data:
                 imp = float(data.get('impact_score', 0.0))
                 if abs(imp) >= 1.0: imp /= 100.0
@@ -595,12 +565,13 @@ def ai_engine(match_name, target, base_ev, hdp, odds,
                 }
             time.sleep(2)
 
+
 # ==========================================
 # 📊 CHART HELPERS
 # ==========================================
 def ev_gauge(val, title, thr=8.0):
     pct = val * 100
-    c = "#00ff88" if pct >= thr else ("#ffd600" if pct > 0 else "#ff3b5c")
+    c   = "#00ff88" if pct >= thr else ("#ffd600" if pct > 0 else "#ff3b5c")
     fig = go.Figure(go.Indicator(
         mode="gauge+number", value=pct,
         number={'suffix': "%", 'font': {'color': c, 'size': 30, 'family': 'Share Tech Mono'}},
@@ -611,9 +582,9 @@ def ev_gauge(val, title, thr=8.0):
             'bar': {'color': c, 'thickness': 0.22},
             'bgcolor': "rgba(0,0,0,0)", 'borderwidth': 0,
             'steps': [
-                {'range': [-20, 0],   'color': "rgba(255,59,92,0.07)"},
-                {'range': [0, thr],   'color': "rgba(255,214,0,0.05)"},
-                {'range': [thr, 20],  'color': "rgba(0,255,136,0.07)"},
+                {'range': [-20, 0],  'color': "rgba(255,59,92,0.07)"},
+                {'range': [0, thr],  'color': "rgba(255,214,0,0.05)"},
+                {'range': [thr, 20], 'color': "rgba(0,255,136,0.07)"},
             ],
             'threshold': {'line': {'color': c, 'width': 2}, 'thickness': 0.8, 'value': pct}
         }
@@ -621,6 +592,7 @@ def ev_gauge(val, title, thr=8.0):
     fig.update_layout(height=185, margin=dict(l=12, r=12, t=26, b=6),
                       paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
     return fig
+
 
 def neon_layout(fig, title=""):
     fig.update_layout(
@@ -634,9 +606,11 @@ def neon_layout(fig, title=""):
     )
     return fig
 
+
 def adj_hdp(v): st.session_state['live_hdp'] += v
 def adj_ou(v):  st.session_state['live_ou']  += v
-def fix(o): return o + 1.0 if o < 1.1 else o
+def fix(o):     return o + 1.0 if o < 1.1 else o
+
 
 def save_db(rows):
     if not rows or not supabase: return
@@ -644,6 +618,7 @@ def save_db(rows):
         supabase.table("investment_logs").insert(rows).execute()
     except Exception as e:
         st.error(f"DB Error: {e}")
+
 
 def load_logs():
     if not supabase: return pd.DataFrame()
@@ -660,31 +635,42 @@ def load_logs():
     except:
         return pd.DataFrame()
 
-# 🌟 [แก้ไขวิกฤตที่ 1] สมการคำนวณผลได้เสียเอเชียแฮนดิแคปและประตูรวมของระบบคลังข้อมูลที่ถูกต้อง 100% ลบความสับสนเรตราคา
+
+# [แก้ไข #2] ใช้ margin-based comparison แทน exact float equality
+# เพื่อหลีกเลี่ยง floating-point precision bugs
 def calc_pnl(row):
     try:
-        if pd.isna(row['Result']) or str(row['Result']).strip() == "" or float(row['Investment']) <= 0:
+        if pd.isna(row['Result']) or str(row['Result']).strip() == "" \
+                or float(row['Investment']) <= 0:
             return 0.0
         sc = re.findall(r'\d+', str(row['Result']).strip())
         if len(sc) < 2: return 0.0
         hs, as_ = int(sc[0]), int(sc[1])
-        hdp, tgt, odds, inv = float(row['HDP']), str(row['Target']).strip(), float(row['Odds']), float(row['Investment'])
-        
-        if tgt in ["เจ้าบ้าน", "ทีมเยือน"]:
-            diff = hs - as_ if tgt == "เจ้าบ้าน" else as_ - hs
-            nm = diff - hdp
-        elif tgt in ["สูง", "ต่ำ"]:
-            tot = hs + as_
-            nm = tot - hdp if tgt == "สูง" else hdp - tot
-        else: return 0.0
-        
-        if nm >= 0.5:   return inv * (odds - 1)
-        elif nm == 0.25: return inv * (odds - 1) / 2
-        elif nm == 0:    return 0.0
-        elif nm == -0.25: return -(inv / 2)
-        else: return -inv
+        hdp  = float(row['HDP'])
+        tgt  = str(row['Target']).strip()
+        odds = float(row['Odds'])
+        inv  = float(row['Investment'])
+
+        if tgt == "เจ้าบ้าน":
+            nm = (hs - as_) - hdp
+        elif tgt == "ทีมเยือน":
+            nm = (as_ - hs) + hdp
+        elif tgt == "สูง":
+            nm = (hs + as_) - hdp
+        elif tgt == "ต่ำ":
+            nm = hdp - (hs + as_)
+        else:
+            return 0.0
+
+        # margin ±0.01 ป้องกัน floating-point drift เช่น 0.2499999
+        if nm > 0.26:    return inv * (odds - 1)         # full win
+        elif nm > 0.0:   return inv * (odds - 1) / 2     # half win  (0 < nm ≤ 0.25)
+        elif nm > -0.01: return 0.0                       # push      (nm ≈ 0)
+        elif nm > -0.26: return -(inv / 2)               # half loss
+        else:            return -inv                      # full loss
     except:
         return 0.0
+
 
 def calc_clv(row):
     try:
@@ -692,6 +678,7 @@ def calc_clv(row):
         return ((float(row['Odds']) / float(row['Closing_Odds'])) - 1.0) * 100.0
     except:
         return 0.0
+
 
 # ==========================================
 # 🖥️ HEADER
@@ -708,7 +695,7 @@ st.markdown("""
     </h1>
   </div>
   <div style="text-align:right;">
-    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.14</div>
+    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.15</div>
     <span class="gem-badge">● SYSTEM ONLINE</span>
   </div>
 </div>
@@ -742,14 +729,14 @@ with st.sidebar:
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ PORTFOLIO</div>', unsafe_allow_html=True)
     total_bankroll = st.number_input("Bankroll (THB)", min_value=0.0, value=10000.0)
-    hdba_val = st.slider("HDBA Penalty %", 0.0, 10.0, 1.5, step=0.5)
+    hdba_val       = st.slider("HDBA Penalty %", 0.0, 10.0, 1.5, step=0.5)
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ KELLY CRITERION (MONEY MGT)</div>', unsafe_allow_html=True)
     kelly_fraction = st.slider("Kelly Fraction", 0.05, 0.50, 0.25, step=0.05,
                                help="สัดส่วน Kelly (แนะนำ 0.25)")
-    max_bet_cap = st.slider("Max Bet Cap %", 1.0, 10.0, 5.0, step=0.5,
-                            help="ลิมิตเงินลงทุนสูงสุดต่อบิล")
+    max_bet_cap    = st.slider("Max Bet Cap %", 1.0, 10.0, 5.0, step=0.5,
+                               help="ลิมิตเงินลงทุนสูงสุดต่อบิล")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
@@ -787,27 +774,17 @@ with tab1:
                 if uf and st.button("⚡ EXTRACT IMAGE", use_container_width=True):
                     with st.spinner("Scanning Matrix..."):
                         try:
-                            img = Image.open(uf)
+                            img   = Image.open(uf)
                             model = genai.GenerativeModel('models/gemma-4-31b-it')
-                            prompt_img = """คุณคือ AI Quant Analyst สกัดข้อมูลตารางราคาฟุตบอลจากภาพให้ออกมาเป็น JSON เท่านั้น โดยอิงจากโครงสร้างหน้าจอดังนี้:
-1. match_name: เอาชื่อทีมแถวบน + " VS " + ชื่อทีมแถวล่าง
-2. คอลัมน์ 'แฮนดิแคป':
-   - hdp_line_val = เรตต่อรอง แปลงเป็นทศนิยม (เช่น 0.5/1 → 0.75, 1/1.5 → 1.25)
-   - hdp_h_w_val = ค่าน้ำทีมแถวบน
-   - hdp_a_w_val = ค่าน้ำทีมแถวล่าง
-3. คอลัมน์ 'สูง/ต่ำ':
-   - ou_line_val = เรตประตูรวม แปลงเป็นทศนิยม (เช่น 3/3.5 → 3.25)
-   - ou_over_w_val = ค่าน้ำสูง
-   - ou_under_w_val = ค่าน้ำต่ำ
-4. คอลัมน์ '1X2':
-   - h1x2_val, d1x2_val, a1x2_val
-
-ตอบกลับ JSON เท่านั้น:
+                            prompt_img = """สกัดข้อมูลตารางราคาฟุตบอลจากภาพ ตอบกลับ JSON เท่านั้น:
+1. match_name: ทีมแถวบน + " VS " + ทีมแถวล่าง
+2. แฮนดิแคป: hdp_line_val (แปลงเป็นทศนิยม เช่น 0.5/1→0.75), hdp_h_w_val, hdp_a_w_val
+3. สูง/ต่ำ: ou_line_val (แปลงเป็นทศนิยม เช่น 3/3.5→3.25), ou_over_w_val, ou_under_w_val
+4. 1X2: h1x2_val, d1x2_val, a1x2_val
 {"match_name":"","h1x2_val":0.0,"d1x2_val":0.0,"a1x2_val":0.0,"hdp_line_val":0.0,"hdp_h_w_val":0.0,"hdp_a_w_val":0.0,"ou_line_val":0.0,"ou_over_w_val":0.0,"ou_under_w_val":0.0}"""
                             d = safe_json_loads(model.generate_content([prompt_img, img]).text)
                             for k, v in d.items():
-                                if k == 'match_name':
-                                    st.session_state[k] = str(v)
+                                if k == 'match_name': st.session_state[k] = str(v)
                                 else:
                                     try: st.session_state[k] = float(v)
                                     except: st.session_state[k] = 0.0
@@ -824,15 +801,15 @@ with tab1:
                 if st.button("⚡ PARSE", use_container_width=True):
                     try:
                         raw = st.session_state.raw_text
-                        mv = re.search(r'(.*VS.*)', raw)
+                        mv  = re.search(r'(.*VS.*)', raw)
                         if mv: st.session_state.match_name = mv.group(1).strip()
                         hm = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
-                        if len(hm) >= 1: st.session_state.h1x2_val = float(hm[0])
+                        if len(hm) >= 1: st.session_state.h1x2_val    = float(hm[0])
                         if len(hm) >= 2: st.session_state.hdp_h_w_val = float(hm[1])
                         dm = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
                         if dm: st.session_state.d1x2_val = float(dm[0])
                         am = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
-                        if len(am) >= 1: st.session_state.a1x2_val = float(am[0])
+                        if len(am) >= 1: st.session_state.a1x2_val    = float(am[0])
                         if len(am) >= 2: st.session_state.hdp_a_w_val = float(am[1])
                         ahm = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
                         if ahm: st.session_state.hdp_line_val = parse_line(ahm.group(1))
@@ -862,15 +839,15 @@ with tab1:
         st.markdown('</div>', unsafe_allow_html=True)
     with mc2:
         st.markdown('<div class="gem-panel"><div class="gem-label">HANDICAP (AH)</div>', unsafe_allow_html=True)
-        hdp_line = st.number_input("LINE",       format="%.2f", step=0.25, key="hdp_line_val")
-        hdp_h_w  = st.number_input("HOME ODDS",  format="%.2f", key="hdp_h_w_val")
-        hdp_a_w  = st.number_input("AWAY ODDS",  format="%.2f", key="hdp_a_w_val")
+        hdp_line = st.number_input("LINE",      format="%.2f", step=0.25, key="hdp_line_val")
+        hdp_h_w  = st.number_input("HOME ODDS", format="%.2f", key="hdp_h_w_val")
+        hdp_a_w  = st.number_input("AWAY ODDS", format="%.2f", key="hdp_a_w_val")
         st.markdown('</div>', unsafe_allow_html=True)
     with mc3:
         st.markdown('<div class="gem-panel"><div class="gem-label">TOTAL GOALS (O/U)</div>', unsafe_allow_html=True)
-        ou_line   = st.number_input("LINE",  format="%.2f", step=0.25, key="ou_line_val")
-        ou_over_w = st.number_input("OVER",  format="%.2f", key="ou_over_w_val")
-        ou_under_w= st.number_input("UNDER", format="%.2f", key="ou_under_w_val")
+        ou_line    = st.number_input("LINE",  format="%.2f", step=0.25, key="ou_line_val")
+        ou_over_w  = st.number_input("OVER",  format="%.2f", key="ou_over_w_val")
+        ou_under_w = st.number_input("UNDER", format="%.2f", key="ou_under_w_val")
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="gem-label">◈ EXPECTED GOALS (xG) INTEGRATION</div>', unsafe_allow_html=True)
@@ -878,31 +855,41 @@ with tab1:
     xg_h      = c_xg1.number_input("xG Home", min_value=0.0, format="%.2f", step=0.1, key="xg_h_val")
     xg_a      = c_xg2.number_input("xG Away", min_value=0.0, format="%.2f", step=0.1, key="xg_a_val")
     xg_weight = c_xg3.slider("xG Weight %", 0.0, 1.0, 0.50, step=0.1,
-                             help="0.5 = ผสมสถิติ xG กับราคาบ่อนคนละครึ่ง")
+                              help="0.5 = ผสม xG กับราคาบ่อนคนละครึ่ง")
 
     st.markdown('<div class="gem-label">◈ CONTEXT & MARKET FLOW</div>', unsafe_allow_html=True)
     col_st1, col_st2 = st.columns([2, 1])
     with col_st1:
-        match_stats = st.text_area("H2H / Stats (Optional)", height=70, label_visibility="collapsed", placeholder="วางสถิติ H2H, ฟอร์มย้อนหลัง...")
+        match_stats = st.text_area("H2H / Stats (Optional)", height=70,
+                                   label_visibility="collapsed",
+                                   placeholder="วางสถิติ H2H, ฟอร์มย้อนหลัง...")
     with col_st2:
-        line_movement = st.selectbox("กระแสราคา (Line Movement)", ["➖ Stable (นิ่ง/ปกติ)", "🔥 Steam (ราคาไหลลง/เงินเข้า)", "❄️ Drift (ราคาไหลขึ้น/เงินออก)"])
+        line_movement = st.selectbox("กระแสราคา (Line Movement)",
+                                     ["➖ Stable (นิ่ง/ปกติ)",
+                                      "🔥 Steam (ราคาไหลลง/เงินเข้า)",
+                                      "❄️ Drift (ราคาไหลขึ้น/เงินออก)"])
 
     st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
 
     if st.button("⚡  RUN ORACLE ANALYSIS", use_container_width=True, type="primary"):
-        ho, do_, ao = fix(h1x2), fix(d1x2), fix(a1x2)
+        ho, do_, ao   = fix(h1x2), fix(d1x2), fix(a1x2)
         hwo, awo, owo, uwo = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
-        ph, pd_, pa = shin_devig(ho, do_, ao)
-        hw2, hw1, dex, aw1, aw2, pt = calc_dixon_coles_matrix(ph, pd_, pa, ou_line, owo, uwo, xg_h=xg_h, xg_a=xg_a, xg_weight=xg_weight)
-        
+        ph, pd_, pa   = shin_devig(ho, do_, ao)
+        hw2, hw1, dex, aw1, aw2, pt = calc_dixon_coles_matrix(
+            ph, pd_, pa, ou_line, owo, uwo,
+            xg_h=xg_h, xg_a=xg_a, xg_weight=xg_weight
+        )
+
         fav_h = ph >= pa
         evh   = ev_ah(hdp_line, hw2, hw1, dex, aw1, aw2, hwo, fav_h)
         eva   = ev_ah(hdp_line, aw2, aw1, dex, hw1, hw2, awo, not fav_h) - (hdba_val / 100)
         evo   = ev_ou(ou_line, pt, owo, True)
         evu   = ev_ou(ou_line, pt, uwo, False)
 
-        bah = max([{"n": "เจ้าบ้าน", "ev": evh, "odds": hwo, "hdp": hdp_line}, {"n": "ทีมเยือน", "ev": eva, "odds": awo, "hdp": hdp_line}], key=lambda x: x['ev'])
-        bou = max([{"n": "สูง",     "ev": evo, "odds": owo, "hdp": ou_line}, {"n": "ต่ำ",     "ev": evu, "odds": uwo, "hdp": ou_line}], key=lambda x: x['ev'])
+        bah = max([{"n": "เจ้าบ้าน", "ev": evh, "odds": hwo, "hdp": hdp_line},
+                   {"n": "ทีมเยือน", "ev": eva, "odds": awo, "hdp": hdp_line}], key=lambda x: x['ev'])
+        bou = max([{"n": "สูง",      "ev": evo, "odds": owo, "hdp": ou_line},
+                   {"n": "ต่ำ",      "ev": evu, "odds": uwo, "hdp": ou_line}], key=lambda x: x['ev'])
 
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
         st.markdown('<div class="gem-label">◈ PROBABILITY ENGINE</div>', unsafe_allow_html=True)
@@ -915,41 +902,61 @@ with tab1:
         with g1: st.plotly_chart(ev_gauge(bah['ev'], f"TARGET: {bah['n']}", pre_ah_thr), use_container_width=True)
         with g2: st.plotly_chart(ev_gauge(bou['ev'], f"TARGET: {bou['n']}", pre_ou_thr), use_container_width=True)
 
+        # Cross-Market Dutching — วิเคราะห์ทุกตลาดที่ผ่าน threshold
         valid_bets = []
         if bah['ev'] >= pre_ah_lim: valid_bets.append(bah)
         if bou['ev'] >= pre_ou_lim: valid_bets.append(bou)
 
         if valid_bets:
-            with st.spinner("◈ THE ORACLE PROCESSING (CROSS-MARKET DUTCHING)..."):
+            with st.spinner("◈ THE ORACLE PROCESSING..."):
                 for tc in valid_bets:
-                    tf = (ph >= pa if tc['n'] == "เจ้าบ้าน" else not fav_h) if tc['n'] in ["เจ้าบ้าน","ทีมเยือน"] else None
-                    v = ai_engine(match_name, tc['n'], tc['ev'], tc['hdp'], tc['odds'], live=False, thr=pre_ah_lim, stats=match_stats, fav=tf, line_movement=line_movement)
+                    tf = None
+                    if tc['n'] == "เจ้าบ้าน": tf = fav_h
+                    elif tc['n'] == "ทีมเยือน": tf = not fav_h
+                    v   = ai_engine(match_name, tc['n'], tc['ev'], tc['hdp'], tc['odds'],
+                                    live=False, thr=pre_ah_lim, stats=match_stats,
+                                    fav=tf, line_movement=line_movement)
                     nev = tc['ev'] + v.get('impact_score', 0)
 
                     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
                     st.markdown(f'<div class="gem-label">◈ ORACLE VERDICT : {tc["n"]}</div>', unsafe_allow_html=True)
                     vc1, vc2, vc3 = st.columns(3)
                     vc1.metric("BASE EV",    f"{tc['ev']*100:.2f}%")
-                    vc2.metric("ORACLE ADJ", f"{v.get('impact_score', 0)*100:.2f}%")
+                    vc2.metric("ORACLE ADJ", f"{v.get('impact_score',0)*100:.2f}%")
                     vc3.metric("NET EV",     f"{nev*100:.2f}%")
 
                     with st.expander(f"◈ FULL ANALYSIS : {tc['n']}", expanded=True):
                         stars = v.get('confidence_level', 3)
                         st.markdown(f'<div class="gem-label">CONFIDENCE: {"★"*stars}{"☆"*(5-stars)} ({stars}/5)</div>', unsafe_allow_html=True)
-                        st.success(f"**PROS:** {v.get('pros_analysis', '—')}")
-                        st.error(f"**RISK:** {v.get('cons_analysis', '—')}")
-                        st.info(f"**RULES:** {v.get('rule_triggered', 'None')}")
+                        st.success(f"**PROS:** {v.get('pros_analysis','—')}")
+                        st.error(f"**RISK:** {v.get('cons_analysis','—')}")
+                        st.info(f"**RULES:** {v.get('rule_triggered','None')}")
 
                     col_v = "#00ff88" if v.get('final_decision', False) and nev > 0 else "#ff3b5c"
                     label = "◈ ORACLE APPROVED — EXECUTE" if v.get('final_decision', False) and nev > 0 else "◈ ORACLE REJECTED — STAND DOWN"
-                    st.markdown(f'<div class="gem-panel" style="border-top:2px solid {col_v};"><div class="gem-label" style="border-color:{col_v};color:{col_v};">{label}</div><p style="color:{col_v};font-family:\'Share Tech Mono\';font-size:0.82rem;">{v.get("final_comment","")}</p></div>', unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div class="gem-panel" style="border-top:2px solid {col_v};">'
+                        f'<div class="gem-label" style="border-color:{col_v};color:{col_v};">{label}</div>'
+                        f'<p style="color:{col_v};font-family:\'Share Tech Mono\';font-size:0.82rem;">'
+                        f'{v.get("final_comment","")}</p></div>',
+                        unsafe_allow_html=True
+                    )
 
                     if v.get('final_decision', False) and nev > 0:
                         st.balloons()
+                        # [แก้ไข #8] dutch_factor พร้อม correlation warning
+                        # AH และ O/U อาจ correlated สูง → ลด exposure เหลือ 60% ต่อตลาด
+                        # แทนที่จะเป็น 50% flat ซึ่งไม่สะท้อน correlation จริง
+                        dutch_factor = 0.60 if len(valid_bets) == 2 else 1.00
                         kelly_opt = nev / (tc['odds'] - 1)
-                        dutch_factor = 0.50 if len(valid_bets) == 2 else 1.00
-                        inv = min(kelly_opt * kelly_fraction * dutch_factor, max_bet_cap / 100.0) * total_bankroll
+                        inv = min(kelly_opt * kelly_fraction * dutch_factor,
+                                  max_bet_cap / 100.0) * total_bankroll
                         inv = max(inv, 0.0)
+                        if len(valid_bets) == 2:
+                            st.warning(
+                                "⚠️ Dutching 2 markets: AH & O/U อาจ positively correlated "
+                                "— ระบบลด exposure เหลือ 60% ต่อตลาด"
+                            )
                         tz_th = timezone(timedelta(hours=7))
                         save_db([{
                             "Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"),
@@ -959,14 +966,19 @@ with tab1:
                         }])
                         st.success(f"บันทึกบิล {tc['n']} สำเร็จ!")
         else:
-            st.markdown(f'<div class="gem-panel" style="border-top:2px solid #ffd600;"><div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ BELOW THRESHOLD — NO SIGNAL</div><p class="gem-warn">AH {bah["ev"]*100:.2f}% (min {pre_ah_thr}%) | O/U {bou["ev"]*100:.2f}% (min {pre_ou_thr}%)</p></div>', unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="gem-panel" style="border-top:2px solid #ffd600;">'
+                f'<div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ BELOW THRESHOLD — NO SIGNAL</div>'
+                f'<p class="gem-warn">AH {bah["ev"]*100:.2f}% (min {pre_ah_thr}%) | O/U {bou["ev"]*100:.2f}% (min {pre_ou_thr}%)</p></div>',
+                unsafe_allow_html=True
+            )
 
 # ╔══════════════╗
 # ║  TAB 2       ║
 # ╚══════════════╝
 with tab2:
     tab2_logs = load_logs()
-    tz_th = timezone(timedelta(hours=7))
+    tz_th     = timezone(timedelta(hours=7))
     today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
 
     if not tab2_logs.empty:
@@ -975,7 +987,7 @@ with tab2:
         with ef1:
             flt = st.selectbox("FILTER", ["Today", "Pending", "All"])
         df2 = tab2_logs.copy()
-        if flt == "Today":   df2 = df2[df2['Time'].astype(str).str.contains(today_str, na=False)]
+        if flt == "Today":    df2 = df2[df2['Time'].astype(str).str.contains(today_str, na=False)]
         elif flt == "Pending": df2 = df2[df2['Result'].astype(str).str.strip() == ""]
         df2 = df2.sort_values('Time', ascending=False).reset_index(drop=True)
 
@@ -992,13 +1004,12 @@ with tab2:
         if sb1.button("💾  SYNC TO CLOUD", use_container_width=True, type="primary"):
             with st.spinner("Syncing..."):
                 for _, row in edf.iterrows():
-                    supabase.table("investment_logs").update(
-                        {"Closing_Odds": float(row['Closing_Odds']), "Result": str(row['Result'])}
-                    ).eq("id", row['id']).execute()
-            st.toast("✓ Synced", icon="💾")
-            time.sleep(1); st.rerun()
-        if sb2.button("↺  REFRESH", use_container_width=True):
-            st.rerun()
+                    supabase.table("investment_logs").update({
+                        "Closing_Odds": float(row['Closing_Odds']),
+                        "Result": str(row['Result'])
+                    }).eq("id", row['id']).execute()
+            st.toast("✓ Synced", icon="💾"); time.sleep(1); st.rerun()
+        if sb2.button("↺  REFRESH", use_container_width=True): st.rerun()
 
         tab2_logs['Net_Profit'] = tab2_logs.apply(calc_pnl, axis=1)
         tab2_logs['CLV_Pct']   = tab2_logs.apply(calc_clv, axis=1)
@@ -1016,7 +1027,6 @@ with tab2:
         else: fl = tfl
         il = fl[fl['Investment'] > 0]
 
-        # Max Drawdown
         max_drawdown = mdd_pct = 0.0
         if not fl.empty:
             dd_df = fl.sort_values('Time').copy()
@@ -1025,9 +1035,11 @@ with tab2:
             max_drawdown = drawdown.min()
             if total_bankroll > 0: mdd_pct = (max_drawdown / total_bankroll) * 100
 
-        # CLV beating rate
         v_clv = il[il['Closing_Odds'] > 1.0]
-        beating_clv_pct = (len(v_clv[v_clv['CLV_Pct'] > 0]) / len(v_clv) * 100) if not v_clv.empty else 0.0
+        beating_clv_pct = (
+            len(v_clv[v_clv['CLV_Pct'] > 0]) / len(v_clv) * 100
+            if not v_clv.empty else 0.0
+        )
 
         st.markdown('<div class="gem-label" style="margin-top:14px;">◈ PORTFOLIO OVERVIEW</div>', unsafe_allow_html=True)
         m1, m2, m3, m4 = st.columns(4)
@@ -1038,46 +1050,40 @@ with tab2:
 
         st.markdown('<div class="gem-label" style="margin-top:14px;">◈ INSTITUTIONAL METRICS</div>', unsafe_allow_html=True)
         n1, n2, n3 = st.columns(3)
-        n1.metric("MAX DRAWDOWN", f"฿{max_drawdown:,.0f}", f"{mdd_pct:.2f}% of Bankroll", delta_color="inverse")
+        n1.metric("MAX DRAWDOWN",  f"฿{max_drawdown:,.0f}", f"{mdd_pct:.2f}% of Bankroll", delta_color="inverse")
         n2.metric("AVG CLV",       f"{v_clv['CLV_Pct'].mean():.2f}%" if not v_clv.empty else "—")
-        n3.metric("% BEATING CLV", f"{beating_clv_pct:.1f}%"        if not v_clv.empty else "—")
+        n3.metric("% BEATING CLV", f"{beating_clv_pct:.1f}%"         if not v_clv.empty else "—")
 
         if not fl.empty:
             ls = fl.sort_values('Time').copy()
             ls['Cum'] = ls['Net_Profit'].cumsum()
             lc = '#ff8c00' if vm == "In-Play" else ('#00b4ff' if vm == "Pre-Match" else '#00ff88')
-            fc = (f"rgba(255,140,0,0.12)" if vm == "In-Play"
+            fc = ("rgba(255,140,0,0.12)" if vm == "In-Play"
                   else ("rgba(0,180,255,0.12)" if vm == "Pre-Match" else "rgba(0,255,136,0.12)"))
-
-            fig_e = go.Figure(go.Scatter(
-                x=ls['Time'], y=ls['Cum'], mode='lines', fill='tozeroy',
-                line=dict(color=lc, width=2), fillcolor=fc
-            ))
+            fig_e = go.Figure(go.Scatter(x=ls['Time'], y=ls['Cum'], mode='lines', fill='tozeroy',
+                                          line=dict(color=lc, width=2), fillcolor=fc))
             neon_layout(fig_e, f"EQUITY CURVE — {vm.upper()}")
             st.plotly_chart(fig_e, use_container_width=True)
 
             bc1, bc2 = st.columns(2)
             with bc1:
                 st.markdown('<div class="gem-dim" style="margin-bottom:4px;">P&L BY TARGET</div>', unsafe_allow_html=True)
-                tgt = ls.groupby('Target')['Net_Profit'].sum()
+                tgt   = ls.groupby('Target')['Net_Profit'].sum()
                 fig_t = go.Figure(go.Bar(x=tgt.index, y=tgt.values,
-                                         marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
-                neon_layout(fig_t)
-                fig_t.update_layout(height=210, margin=dict(l=8, r=8, t=10, b=8))
+                                          marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
+                neon_layout(fig_t); fig_t.update_layout(height=210, margin=dict(l=8,r=8,t=10,b=8))
                 st.plotly_chart(fig_t, use_container_width=True)
             with bc2:
                 st.markdown('<div class="gem-dim" style="margin-bottom:4px;">WIN RATE BY ODDS BRACKET</div>', unsafe_allow_html=True)
                 ls['OB'] = pd.cut(ls['Odds'], bins=[0,1.8,2.0,2.2,5.0],
-                                  labels=['<1.80','1.80-2.00','2.00-2.20','>2.20'])
+                                   labels=['<1.80','1.80-2.00','2.00-2.20','>2.20'])
                 wr = (ls[ls['Net_Profit']>0].groupby('OB', observed=False).size()
                       / ls.groupby('OB', observed=False).size() * 100).fillna(0)
                 fig_w = go.Figure(go.Bar(x=wr.index.astype(str), y=wr.values,
                                           marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
-                neon_layout(fig_w)
-                fig_w.update_layout(height=210, margin=dict(l=8, r=8, t=10, b=8))
+                neon_layout(fig_w); fig_w.update_layout(height=210, margin=dict(l=8,r=8,t=10,b=8))
                 st.plotly_chart(fig_w, use_container_width=True)
 
-        # 🌟 [กู้คืนโมดูลสมองกลสำเร็จ] GEM SYSTEM AI LEARNING ENGINE (Indented correctly under tab2)
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
         st.markdown('<div class="gem-label">◈ ORACLE LEARNING ENGINE</div>', unsafe_allow_html=True)
         comp = (tab2_logs[tab2_logs['Result'].astype(str).str.strip() != ""].copy()
@@ -1117,31 +1123,38 @@ with tab2:
                         with st.spinner("Oracle learning..."):
                             csv_s = picked[['Time','Match','HDP','Target','Odds','Result']].to_csv(index=False)
                             try:
-                                rr = supabase.table("gem_knowledge").select("rule_id,category,rule_text").eq("is_active", True).execute()
-                                rs = "\n".join([f"[{r['rule_id']}] {r['rule_text']}" for r in (rr.data or [])])
+                                rr = supabase.table("gem_knowledge").select(
+                                    "rule_id,category,rule_text").eq("is_active", True).execute()
+                                rs = "\n".join([f"[{r['rule_id']}] {r['rule_text']}"
+                                               for r in (rr.data or [])])
                             except:
                                 rs = ""
-                            pd_ = (f"CRO task: {task}\nCases:\n{csv_s}\nCurrent rules:\n{rs}\n"
-                                   "Label category [AH]/[OU]/[ALL]\n"
-                                   'JSON: {"analysis_summary":"","new_rules_to_add":[{"rule_text":"","category":""}]}')
+                            pd_prompt = (
+                                f"CRO task: {task}\nCases:\n{csv_s}\nCurrent rules:\n{rs}\n"
+                                "Label category [AH]/[OU]/[ALL]\n"
+                                'JSON: {"analysis_summary":"","new_rules_to_add":[{"rule_text":"","category":""}]}'
+                            )
                             try:
                                 if not api_key:
                                     st.error("API Key missing")
                                 else:
-                                    m = genai.GenerativeModel('models/gemini-3.1-flash-lite-preview')
-                                    d = safe_json_loads(m.generate_content(pd_).text)
+                                    m = genai.GenerativeModel('models/gemma-4-31b-it')
+                                    d = safe_json_loads(m.generate_content(pd_prompt).text)
                                     if d:
                                         st.success("✓ Learning complete")
-                                        st.info(f"**Analysis:** {d.get('analysis_summary', '—')}")
+                                        st.info(f"**Analysis:** {d.get('analysis_summary','—')}")
                                         nr = d.get("new_rules_to_add", [])
                                         if nr:
-                                            pl = []
+                                            pl  = []
                                             bid = datetime.now(timezone(timedelta(hours=7))).strftime("%Y%m%d_%H%M")
                                             st.markdown('<div class="gem-label">◈ NEW RULES</div>', unsafe_allow_html=True)
                                             for i, rule in enumerate(nr):
                                                 rid = f"{pfx}{bid}_{i+1}"
-                                                pl.append({"rule_id": rid, "rule_text": rule.get("rule_text",""), "category": rule.get("category","AI")})
-                                                c2 = "#ff3b5c" if "DEF" in pfx else ("#00ff88" if "OFF" in pfx else "#ffd600")
+                                                pl.append({"rule_id": rid,
+                                                           "rule_text": rule.get("rule_text",""),
+                                                           "category": rule.get("category","AI")})
+                                                c2 = ("#ff3b5c" if "DEF" in pfx
+                                                      else ("#00ff88" if "OFF" in pfx else "#ffd600"))
                                                 st.markdown(
                                                     f'<div class="gem-panel" style="border-top:2px solid {c2};">'
                                                     f'<span style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:{c2};">[{rid}]</span><br>'
@@ -1175,37 +1188,34 @@ with tab3:
             if limgs and st.button("⚡ EXTRACT LIVE DATA", use_container_width=True):
                 with st.spinner("Scanning..."):
                     try:
-                        imgs = [Image.open(f) for f in limgs]
+                        imgs  = [Image.open(f) for f in limgs]
                         model = genai.GenerativeModel('models/gemma-4-31b-it')
-                        pl = '''คุณคือ AI Quant Analyst สกัดข้อมูลฟุตบอล LIVE สด จากภาพให้ออกมาเป็น JSON เท่านั้น:
-- match_name, current_min (int), current_score_h (int), current_score_a (int)
-- rc_h (bool), rc_a (bool)
-- live_hdp (float, แปลงเป็นทศนิยม เช่น 0/0.5→0.25), live_hdp_h, live_hdp_a
-- live_ou (float, แปลงเป็นทศนิยม), live_ou_over, live_ou_under
-
-ตอบ JSON เท่านั้น:
-{"match_name":"","current_min":0,"current_score_h":0,"current_score_a":0,"rc_h":false,"rc_a":false,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}'''
+                        pl = ('สกัดข้อมูลฟุตบอล LIVE จากภาพ ตอบ JSON เท่านั้น:\n'
+                              '- match_name, current_min (int), current_score_h (int), current_score_a (int)\n'
+                              '- rc_h (bool), rc_a (bool)\n'
+                              '- live_hdp (float แปลง x/y→ทศนิยม), live_hdp_h, live_hdp_a\n'
+                              '- live_ou (float), live_ou_over, live_ou_under\n'
+                              '{"match_name":"","current_min":0,"current_score_h":0,"current_score_a":0,'
+                              '"rc_h":false,"rc_a":false,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,'
+                              '"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}')
                         d = safe_json_loads(model.generate_content([pl] + imgs).text)
                         for k, v in d.items():
-                            if k == 'match_name':
-                                st.session_state['match_name_live'] = str(v)
+                            if k == 'match_name':       st.session_state['match_name_live'] = str(v)
                             elif k == 'current_score_h':
                                 try: st.session_state['lh_s_input'] = int(v)
                                 except: pass
                             elif k == 'current_score_a':
                                 try: st.session_state['la_s_input'] = int(v)
                                 except: pass
-                            elif k == 'rc_h':
-                                st.session_state['rc_h_chk'] = bool(v)
-                            elif k == 'rc_a':
-                                st.session_state['rc_a_chk'] = bool(v)
+                            elif k == 'rc_h': st.session_state['rc_h_chk'] = bool(v)
+                            elif k == 'rc_a': st.session_state['rc_a_chk'] = bool(v)
                             elif k == 'current_min':
                                 try: st.session_state['current_min'] = int(v)
                                 except: pass
                             else:
                                 try: st.session_state[k] = float(v)
                                 except: st.session_state[k] = 0.0
-                        st.toast("✅ สกัดเป้าหมาย Live ชัดเจน!", icon="🎯")
+                        st.toast("✅ สกัดข้อมูล Live สำเร็จ!", icon="🎯")
                         time.sleep(1); st.rerun()
                     except Exception as e:
                         st.error(f"⚠️ พลาด: {e}")
@@ -1219,18 +1229,20 @@ with tab3:
         st.markdown('<div class="gem-label">◈ LIVE MATCH STATE</div>', unsafe_allow_html=True)
         s1, s2 = st.columns(2)
         csh = s1.number_input("HOME SCORE", min_value=0,
-                              value=st.session_state.get('lh_s_input', 0), key="lh_s_input")
-        rch = s2.checkbox("🟥 HOME RED", value=st.session_state.get('rc_h_chk', False), key="rc_h_chk")
+                               value=st.session_state.get('lh_s_input', 0), key="lh_s_input")
+        rch = s2.checkbox("🟥 HOME RED",
+                           value=st.session_state.get('rc_h_chk', False), key="rc_h_chk")
         s3, s4 = st.columns(2)
         csa = s3.number_input("AWAY SCORE", min_value=0,
-                              value=st.session_state.get('la_s_input', 0), key="la_s_input")
-        rca = s4.checkbox("🟥 AWAY RED", value=st.session_state.get('rc_a_chk', False), key="rc_a_chk")
+                               value=st.session_state.get('la_s_input', 0), key="la_s_input")
+        rca = s4.checkbox("🟥 AWAY RED",
+                           value=st.session_state.get('rc_a_chk', False), key="rc_a_chk")
         cmin = st.slider("MINUTE", 0, 120, st.session_state.get('current_min', 45))
     with gl2:
         st.markdown('<div class="gem-label">◈ PRE-MATCH REFERENCE</div>', unsafe_allow_html=True)
-        preh  = st.number_input("HOME (open)", value=st.session_state.get('pre_h', 2.0), format="%.2f", key="pre_h")
-        pred  = st.number_input("DRAW (open)", value=st.session_state.get('pre_d', 3.0), format="%.2f", key="pre_d")
-        prea  = st.number_input("AWAY (open)", value=st.session_state.get('pre_a', 3.0), format="%.2f", key="pre_a")
+        preh  = st.number_input("HOME (open)", value=st.session_state.get('pre_h', 2.0),  format="%.2f", key="pre_h")
+        pred  = st.number_input("DRAW (open)", value=st.session_state.get('pre_d', 3.0),  format="%.2f", key="pre_d")
+        prea  = st.number_input("AWAY (open)", value=st.session_state.get('pre_a', 3.0),  format="%.2f", key="pre_a")
         preou = st.number_input("O/U (open)",  value=st.session_state.get('pre_ou', 2.5), format="%.2f", step=0.25, key="pre_ou")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
@@ -1241,10 +1253,10 @@ with tab3:
         bh1, bh2, bh3 = st.columns([1, 2, 1])
         bh1.button("◀ -0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
         lhdp = bh2.number_input("HDP", value=st.session_state['live_hdp'], step=0.25,
-                                 key="live_hdp", label_visibility="collapsed", format="%.2f")
+                                  key="live_hdp", label_visibility="collapsed", format="%.2f")
         bh3.button("▶ +0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
         hw1, hw2_ = st.columns(2)
-        lhdph = hw1.number_input("HOME", value=st.session_state.get('live_hdp_h', 0.9), format="%.2f", key="live_hdp_h")
+        lhdph = hw1.number_input("HOME",  value=st.session_state.get('live_hdp_h', 0.9), format="%.2f", key="live_hdp_h")
         lhdpa = hw2_.number_input("AWAY", value=st.session_state.get('live_hdp_a', 0.9), format="%.2f", key="live_hdp_a")
     with lm2:
         st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── TOTAL GOALS ──</div>', unsafe_allow_html=True)
@@ -1254,7 +1266,7 @@ with tab3:
                                 key="live_ou", label_visibility="collapsed", format="%.2f")
         bo3.button("▶ +0.25", key="o_add", on_click=adj_ou, args=(0.25,))
         ow1, ow2 = st.columns(2)
-        louov = ow1.number_input("OVER",  value=st.session_state.get('live_ou_over', 0.9),  format="%.2f", key="live_ou_over")
+        louov = ow1.number_input("OVER",  value=st.session_state.get('live_ou_over',  0.9), format="%.2f", key="live_ou_over")
         louun = ow2.number_input("UNDER", value=st.session_state.get('live_ou_under', 0.9), format="%.2f", key="live_ou_under")
 
     line_movement_live = st.selectbox(
@@ -1271,7 +1283,6 @@ with tab3:
         lph, lpd, lpa = shin_devig(fix(preh), fix(pred), fix(prea))
         ml = max(90 - cmin, 1)
 
-        # xG Integration for Live — ใช้ค่า xG จาก Pre-match session
         hw2l, hw1l, dexl, aw1l, aw2l, ptl = calc_dixon_coles_matrix(
             lph, lpd, lpa, lou, fix(louov), fix(louun),
             ch=csh, ca=csa, ml=ml, rch=rch, rca=rca,
@@ -1280,65 +1291,71 @@ with tab3:
             xg_weight=0.5
         )
 
-        fvl  = lph >= lpa
-        evhl = ev_ah(lhdp, hw2l, hw1l, dexl, aw1l, aw2l, fix(lhdph), fvl)
+        fvl   = lph >= lpa
+        evhl  = ev_ah(lhdp, hw2l, hw1l, dexl, aw1l, aw2l, fix(lhdph), fvl)
         eval_ = ev_ah(lhdp, aw2l, aw1l, dexl, hw1l, hw2l, fix(lhdpa), not fvl) - (hdba_val / 100)
-        evol = ev_ou(lou, ptl, fix(louov), True)
-        evul = ev_ou(lou, ptl, fix(louun), False)
+        evol  = ev_ou(lou, ptl, fix(louov), True)
+        evul  = ev_ou(lou, ptl, fix(louun), False)
 
-        bav = max(evhl, eval_)
-        tah = "เจ้าบ้าน" if evhl > eval_ else "ทีมเยือน"
-        bov = max(evol, evul)
-        tou = "สูง" if evol > evul else "ต่ำ"
+        bav = max(evhl, eval_); tah = "เจ้าบ้าน" if evhl > eval_ else "ทีมเยือน"
+        bov = max(evol, evul);  tou = "สูง" if evol > evul else "ต่ำ"
 
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
         gg1, gg2 = st.columns(2)
         with gg1: st.plotly_chart(ev_gauge(bav, f"AH: {tah}", live_ah_thr), use_container_width=True)
         with gg2: st.plotly_chart(ev_gauge(bov, f"O/U: {tou}", live_ou_thr), use_container_width=True)
 
-        # 🌟 [แก้ไขวิกฤตที่ 3] เปิดสวิตช์ระบบ Live Cross-Market Dutching คัดกรองไม้ลงทุนคู่ขนานแยกกระดานในเวอร์ชันบอลสด
         valid_bets_live = []
-        if bav >= live_ah_lim: valid_bets_live.append({"n": tah, "ev": bav, "hdp": lhdp, "odds": fix(lhdph) if tah == "เจ้าบ้าน" else fix(lhdpa)})
-        if bov >= live_ou_lim: valid_bets_live.append({"n": tou, "ev": bov, "hdp": lou,  "odds": fix(louov) if tou == "สูง" else fix(louun)})
+        if bav >= live_ah_lim:
+            valid_bets_live.append({"n": tah, "ev": bav, "hdp": lhdp,
+                                    "odds": fix(lhdph) if tah == "เจ้าบ้าน" else fix(lhdpa)})
+        if bov >= live_ou_lim:
+            valid_bets_live.append({"n": tou, "ev": bov, "hdp": lou,
+                                    "odds": fix(louov) if tou == "สูง" else fix(louun)})
 
         if valid_bets_live:
             with st.spinner("◈ SNIPER ORACLE PROCESSING..."):
                 for tl2 in valid_bets_live:
-                    tf2 = (lph >= lpa if tl2['n'] == "เจ้าบ้าน" else not fvl) if tl2['n'] in ["เจ้าบ้าน","ทีมเยือน"] else None
+                    tf2 = None
+                    if tl2['n'] == "เจ้าบ้าน":  tf2 = fvl
+                    elif tl2['n'] == "ทีมเยือน": tf2 = not fvl
                     live_mn_val = st.session_state.get('match_name_live_input', live_mn)
-                    al = ai_engine(
+                    al  = ai_engine(
                         live_mn_val, tl2['n'], tl2['ev'], tl2['hdp'], tl2['odds'],
                         live=True, current_min=cmin, score=f"{csh}-{csa}",
                         thr=live_ah_lim, fav=tf2, line_movement=line_movement_live
                     )
                     nlev = tl2['ev'] + al.get('impact_score', 0)
-                    
+
                     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
                     st.markdown(f'<div class="gem-label">◈ ORACLE VERDICT : {tl2["n"]}</div>', unsafe_allow_html=True)
                     lc1, lc2, lc3 = st.columns(3)
                     lc1.metric("LIVE EV",    f"{tl2['ev']*100:.2f}%")
-                    lc2.metric("ORACLE ADJ", f"{al.get('impact_score', 0)*100:.2f}%")
+                    lc2.metric("ORACLE ADJ", f"{al.get('impact_score',0)*100:.2f}%")
                     lc3.metric("NET EV",     f"{nlev*100:.2f}%")
-                    
+
                     with st.expander(f"◈ LIVE ANALYSIS : {tl2['n']}", expanded=True):
-                        st.success(f"**PROS:** {al.get('pros_analysis', '—')}")
-                        st.error(f"**RISK:** {al.get('cons_analysis', '—')}")
-                        st.info(f"**RULES:** {al.get('rule_triggered', 'None')}")
-                        
-                    lim = live_ah_lim if tl2['n'] in ["เจ้าบ้าน", "ทีมเยือน"] else live_ou_lim
+                        st.success(f"**PROS:** {al.get('pros_analysis','—')}")
+                        st.error(f"**RISK:** {al.get('cons_analysis','—')}")
+                        st.info(f"**RULES:** {al.get('rule_triggered','None')}")
+
+                    lim = live_ah_lim if tl2['n'] in ["เจ้าบ้าน","ทีมเยือน"] else live_ou_lim
                     if al.get('final_decision', False) and nlev >= lim:
                         st.balloons()
                         st.markdown(
                             f'<div class="gem-panel" style="border-top:2px solid #ff3b5c;border-left:2px solid #ff3b5c;">'
                             f'<div class="gem-label" style="border-color:#ff3b5c;color:#ff3b5c;">◈ SNIPER APPROVED — TARGET LOCKED</div>'
                             f'<p style="color:#ff3b5c;font-family:\'Share Tech Mono\';">TARGET: {tl2["n"]} | NET EV: {nlev*100:.2f}%</p>'
-                            f'<p style="color:#c8e6d4;">{al.get("final_comment", "")}</p></div>',
+                            f'<p style="color:#c8e6d4;">{al.get("final_comment","")}</p></div>',
                             unsafe_allow_html=True
                         )
+                        dutch_factor = 0.60 if len(valid_bets_live) == 2 else 1.00
                         kelly_opt_live = nlev / (tl2['odds'] - 1)
-                        dutch_factor = 0.50 if len(valid_bets_live) == 2 else 1.00
-                        inv = min(kelly_opt_live * kelly_fraction * dutch_factor, max_bet_cap / 100.0) * total_bankroll
+                        inv = min(kelly_opt_live * kelly_fraction * dutch_factor,
+                                  max_bet_cap / 100.0) * total_bankroll
                         inv = max(inv, 0.0)
+                        if len(valid_bets_live) == 2:
+                            st.warning("⚠️ Dutching 2 markets: exposure ลดเหลือ 60% ต่อตลาด")
                         tz2 = timezone(timedelta(hours=7))
                         save_db([{
                             "Time": datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"),
@@ -1352,7 +1369,7 @@ with tab3:
                         st.markdown(
                             f'<div class="gem-panel" style="border-top:2px solid #ffd600;">'
                             f'<div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ ORACLE STAND DOWN</div>'
-                            f'<p class="gem-warn">{al.get("final_comment", "")}</p></div>',
+                            f'<p class="gem-warn">{al.get("final_comment","")}</p></div>',
                             unsafe_allow_html=True
                         )
         else:
@@ -1370,7 +1387,7 @@ with tab4:
     st.markdown('<div class="gem-label">◈ BRIER SCORE ACCURACY ENGINE</div>', unsafe_allow_html=True)
     st.markdown(
         '<p style="font-family:\'Rajdhani\';font-size:0.85rem;color:#4a7a60;">'
-        'Compares GEM estimates vs bookmaker implied probabilities. Lower Brier Score = More Accurate.</p>',
+        'Compares GEM estimates vs bookmaker implied probabilities. Lower = More Accurate.</p>',
         unsafe_allow_html=True
     )
 
@@ -1385,11 +1402,11 @@ with tab4:
                     inv, net, odds = float(row['Investment']), float(row['Net_Profit']), float(row['Odds'])
                     if inv <= 0: return np.nan
                     mw = inv * (odds - 1)
-                    if net >= mw * 0.95:  return 1.0
-                    elif net > 0:          return 0.75
-                    elif net == 0:         return 0.50
-                    elif net <= -inv*0.95: return 0.0
-                    elif net < 0:          return 0.25
+                    if net >= mw * 0.95:   return 1.0
+                    elif net > 0:           return 0.75
+                    elif net == 0:          return 0.50
+                    elif net <= -inv * 0.95: return 0.0
+                    elif net < 0:           return 0.25
                     return np.nan
                 except:
                     return np.nan
@@ -1399,20 +1416,19 @@ with tab4:
 
             if not fin.empty:
                 fin['BP'] = (1 / fin['Odds']).clip(0, 1)
-                rp = (((fin['EV_Pct'] / 100) + 1) / fin['Odds']).clip(0, 1)
+                rp        = (((fin['EV_Pct'] / 100) + 1) / fin['Odds']).clip(0, 1)
                 fin['OP'] = ((rp * 0.85) + (fin['BP'] * 0.15)).clip(0, 1)
                 fin['OE'] = (fin['OP'] - fin['Actual']) ** 2
                 fin['BE'] = (fin['BP'] - fin['Actual']) ** 2
 
-                ao = fin['OE'].mean()
-                ab = fin['BE'].mean()
+                ao   = fin['OE'].mean()
+                ab   = fin['BE'].mean()
                 diff = ab - ao
 
-                st.markdown(f'<div class="gem-label">◈ ACCURACY — {len(fin)} SETTLED BETS</div>',
-                            unsafe_allow_html=True)
+                st.markdown(f'<div class="gem-label">◈ ACCURACY — {len(fin)} SETTLED BETS</div>', unsafe_allow_html=True)
                 rc1, rc2, rc3 = st.columns(3)
-                rc1.metric("GEM SCORE",   f"{ao:.4f}", f"{-diff:.4f} vs bookie", delta_color="inverse")
-                rc2.metric("BOOKIE SCORE", f"{ab:.4f}")
+                rc1.metric("GEM SCORE",    f"{ao:.4f}", f"{-diff:.4f} vs bookie", delta_color="inverse")
+                rc2.metric("BOOKIE SCORE",  f"{ab:.4f}")
                 col3 = "#00ff88" if ao < ab else "#ff3b5c"
                 lab3 = "▲ GEM BEATS MARKET" if ao < ab else "▼ CALIBRATION NEEDED"
                 rc3.markdown(
@@ -1421,8 +1437,7 @@ with tab4:
                     unsafe_allow_html=True
                 )
 
-                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE ERROR</div>',
-                            unsafe_allow_html=True)
+                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE ERROR</div>', unsafe_allow_html=True)
                 fin = fin.sort_values('Time').reset_index(drop=True)
                 fin['CumO'] = fin['OE'].cumsum()
                 fin['CumB'] = fin['BE'].cumsum()
@@ -1442,10 +1457,9 @@ with tab4:
                     )
 
                 st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>',
-                            unsafe_allow_html=True)
+                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>', unsafe_allow_html=True)
                 if st.button("🧪 RUN BACKTEST OPTIMIZATION", type="primary", use_container_width=True):
-                    with st.spinner("AI กำลังวนลูปย้อนหลังเพื่อหาจุดทำกำไรสูงสุด..."):
+                    with st.spinner("วนลูปย้อนหลังเพื่อหา Threshold ที่ดีที่สุด..."):
                         best_ah_thr_opt, best_ah_pnl = 0.0, -99999.0
                         best_ou_thr_opt, best_ou_pnl = 0.0, -99999.0
                         ah_logs = fin[fin['Target'].isin(['เจ้าบ้าน', 'ทีมเยือน'])]
