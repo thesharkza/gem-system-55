@@ -17,8 +17,8 @@ jobs:
       - name: Install dependencies
         run: pip install requests supabase
       - name: Execute ETL Pipeline
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          API_SPORTS_KEY: ${{ secrets.API_SPORTS_KEY }}
-        run: python etl_pipeline.py
+          env:
+            SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+            SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+            FOOTBALL_DATA_API_KEY: ${{ secrets.FOOTBALL_DATA_API_KEY }} 
+          run: python etl_pipeline.py
