@@ -826,52 +826,7 @@ with tab1:
             with tp2:
                 st.button("🗑 CLEAR", use_container_width=True, on_click=clear_form_data)
 
-# ==========================================
-# 📡 RADAR DETECTOR: ดึงสถิติ xG รายวันจากตาราง daily_matches
-# ==========================================
-st.markdown('<div class="gem-label">◈ ORACLE LIVE STATS DETECTOR (SUPABASE)</div>', unsafe_allow_html=True)
-col_db1, col_db2 = st.columns([1, 1])
-
-with col_db1:
-    # ดึงข้อมูลคู่แข่งที่มีสถิติอัปเดตของวันนี้ขึ้นมาจากตาราง daily_matches
-    @st.cache_data(ttl=30) # รีเฟรชข้อมูลทุกๆ 30 วินาทีแบบ Real-time
-    def load_daily_cached_stats():
-        if not supabase: return {}
-        try:
-            # ดึงเฉพาะคู่วันปัจจุบัน
-            tz_th = timezone(timedelta(hours=7))
-            today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
-            
-            r = supabase.table("daily_matches").select("match_name, xg_home, xg_away").eq("match_date", today_str).execute()
-            if r.data:
-                return {row['match_name']: {"xg_h": row['xg_home'], "xg_a": row['xg_away']} for row in r.data}
-            return {}
-        except:
-            return {}
-
-    cached_matches = load_daily_cached_stats()
     
-    if cached_matches:
-        options = ["-- เลือกล็อคเป้าหมายเพื่อดึงสถิติ xG อัตโนมัติ --"] + list(cached_matches.keys())
-        selected_match = st.selectbox("🎯 TARGET ACQUISITION (LIVE STATS)", options, key="supabase_stats_dropdown")
-        
-        if selected_match != "-- เลือกล็อคเป้าหมายเพื่อดึงสถิติ xG อัตโนมัติ --":
-            target_data = cached_matches[selected_match]
-            # เติมค่า xG ล่าสุดลงใน Session State ตัวกรองหลักของแอปอัตโนมัติ!
-            st.session_state.match_name = selected_match
-            st.session_state.xg_h_val = target_data['xg_h']
-            st.session_state.xg_a_val = target_data['xg_a']
-            st.toast(f"🎯 ดึงค่าสถิติ xG ของ {selected_match} เข้าสู่ Math Engine สำเร็จ!", icon="✅")
-    else:
-        st.markdown('<p class="gem-dim">▸ คลังข้อมูลสถิติมหาภาควันนี้ยังว่างเปล่า (รอระบบ ETL รันช่วงบอลเตะสด)</p>', unsafe_allow_html=True)
-
-with col_db2:
-    # ปุ่มสำหรับสั่งให้ผู้ใช้กด Refresh ดึงข้อมูลจากคลาวด์ด้วยตัวเองแบบแมนนวล
-    if st.button("🔄 REFRESH CLOUD STATS", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
-st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     match_name = st.text_input("MATCH", key="match_name", placeholder="Home Team VS Away Team")
 
