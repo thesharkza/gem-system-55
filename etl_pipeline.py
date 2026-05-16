@@ -9,8 +9,6 @@ from supabase import create_client, Client
 # ==========================================
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://xbzhxrbmvzfsgzyjfgfx.supabase.co")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_i8bVKar9GNf0qZ4ebqYMNg_RWgqKjq2")
-
-# 🚨 ใส่ API KEY ของ www.api-football.com (API-SPORTS)
 API_SPORTS_KEY = os.environ.get("API_SPORTS_KEY", "bebb0ec6f1decaa007954e2b5c67fb5c")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -21,121 +19,107 @@ headers = {
 }
 
 # ==========================================
-# 2. 📡 สเต็ป 1: ดึงโปรแกรมเตะของวันนี้
+# 🛠️ HELPER: เจาะลึกสถิติ xG รายทีมจาก API
 # ==========================================
-def get_today_fixtures():
+def get_team_xg_average(league_id, season, team_id):
+    url = "https://v3.football.api-sports.io/teams/statistics"
+    querystring = {"league": str(league_id), "season": str(season), "team": str(team_id)}
+    try:
+        response = requests.get(url, headers=headers, params=querystring, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            res_data = data.get('response', {})
+            # ขุดดึงค่า xG เฉลี่ยต่อนัดจาก JSON โครงสร้างหลัก
+            xg_for_avg = res_data.get('goals', {}).get('for', {}).get('expected', {}).get('average', 0.0)
+            return float(xg_for_avg) if xg_for_avg else 0.0
+    except Exception as e:
+        print(f"⚠️ ดึง xG ทีม {team_id} พลาด: {e}")
+    return 0.0
+
+# ==========================================
+# 2. 📡 EXTRACT & TRANSFORM (ดึงโปรแกรม + ค้นสถิติทัพทีม)
+# ==========================================
+def fetch_daily_fixtures_and_team_stats():
     tz_th = timezone(timedelta(hours=7))
-    # today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
-    today_str = "2026-05-10"
+    today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
     
-    print(f"📅 กำลังเช็คตารางแข่งขันของวันที่ {today_str}...")
+    print(f"📅 กำลังสแกนตารางแข่งขันประจำวันที่ {today_str}...")
     url = "https://v3.football.api-sports.io/fixtures"
     querystring = {"date": today_str, "timezone": "Asia/Bangkok"}
     
     try:
         response = requests.get(url, headers=headers, params=querystring, timeout=15)
         if response.status_code != 200:
-            print(f"❌ โดนบล็อกหรือคีย์ผิด (Status {response.status_code})")
+            print("❌ ไม่สามารถเชื่อมต่อ API ได้")
             return [], today_str
             
         data = response.json()
-        matches = data.get('response', [])
-        print(f"✅ พบโปรแกรมเตะวันนี้ทั้งหมด {len(matches)} คู่")
-        return matches, today_str
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        return [], today_str
-
-# ==========================================
-# 3. 🎯 สเต็ป 2: เจาะลึกสถิติเฉพาะคู่ที่กำลังเตะ/เตะจบแล้ว
-# ==========================================
-def fetch_statistics_for_active_matches(matches, today_str):
-    matches_to_update = []
-    
-    # สถานะที่บอลเริ่มเตะไปแล้ว (1H, 2H, HT, FT, AET, PEN ฯลฯ)
-    active_statuses = ['1H', '2H', 'HT', 'FT', 'AET', 'PEN']
-    
-    # คัดกรองคู่ที่กำลังเตะหรือจบแล้ว เพื่อประหยัด API Quota
-    target_matches = [m for m in matches if m['fixture']['status']['short'] in active_statuses]
-    
-    print(f"🎯 คัดกรองพบแมตช์ที่กำลังเตะหรือจบแล้ว {len(target_matches)} คู่ (เพื่อดึงสถิติ)")
-    
-    for match in target_matches:
-        fixture_id = match['fixture']['id']
-        home_team = match['teams']['home']['name']
-        away_team = match['teams']['away']['name']
+        fixtures = data.get('response', [])
+        print(f"✅ พบโปรแกรมแข่งขันวันนี้ทั้งหมด {len(fixtures)} คู่")
         
-        print(f"📡 ดึงสถิติ: {home_team} VS {away_team} (ID: {fixture_id})")
+        matches_to_load = []
         
-        # ยิง API ขอสถิติของคู่นี้
-        stats_url = "https://v3.football.api-sports.io/fixtures/statistics"
-        stats_query = {"fixture": str(fixture_id)}
-        
-        try:
-            res = requests.get(stats_url, headers=headers, params=stats_query, timeout=10)
-            stats_data = res.json()
+        # ล็อคเป้าเจาะสถิติรายคู่ (ดึงล่วงหน้าได้เลย ไม่ต้องรอให้บอลเตะสด!)
+        for match in fixtures:
+            fixture_id = match['fixture']['id']
+            league_id = match['league']['id']
+            season = match['league']['season']
             
-            # โครงสร้างเตรียมบันทึกลง Supabase
+            home_id = match['teams']['home']['id']
+            home_name = match['teams']['home']['name']
+            
+            away_id = match['teams']['away']['id']
+            away_name = match['teams']['away']['name']
+            
+            print(f"📡 กำลังวิเคราะห์พลังรุกขุมกำลัง: {home_name} VS {away_name}")
+            
+            # ยิงเจาะ Endpoint สถิติระดับสโมสร
+            xg_home_season = get_team_xg_average(league_id, season, home_id)
+            xg_away_season = get_team_xg_average(league_id, season, away_id)
+            
             record = {
                 "fixture_id": fixture_id,
                 "match_date": today_str,
-                "match_name": f"{home_team} VS {away_team}",
-                "xg_home": 0.0,
-                "xg_away": 0.0
+                "match_name": f"{home_name} VS {away_name}",
+                "xg_home": xg_home_season, # ใส่ xG เฉลี่ยเกมรุกทีมเหย้า
+                "xg_away": xg_away_season, # ใส่ xG เฉลี่ยเกมรุกทีมเยือน
+                "h1x2": 1.0, "d1x2": 1.0, "a1x2": 1.0,
+                "hdp_line": 0.0, "hdp_h": 0.0, "hdp_a": 0.0,
+                "ou_line": 2.5, "ou_over": 0.0, "ou_under": 0.0
             }
+            matches_to_load.append(record)
             
-            # ถ้ามีข้อมูลสถิติส่งกลับมา
-            if stats_data.get('response') and len(stats_data['response']) >= 2:
-                # สถิติทีมเหย้า
-                for stat in stats_data['response'][0]['statistics']:
-                    if stat['type'] == 'Expected Goals' and stat['value'] is not None:
-                        record['xg_home'] = float(stat['value'])
-                # สถิติทีมเยือน
-                for stat in stats_data['response'][1]['statistics']:
-                    if stat['type'] == 'Expected Goals' and stat['value'] is not None:
-                        record['xg_away'] = float(stat['value'])
+            # หน่วงเวลา 0.5 วินาทีเพื่อป้องกันโดนเซิร์ฟเวอร์ปฏิเสธการรัวคำสั่ง
+            time.sleep(0.5)
             
-            matches_to_update.append(record)
-            
-            # ⚠️ สำคัญ: หน่วงเวลา 1 วินาที เพื่อไม่ให้เซิร์ฟเวอร์แบนเราจากการยิง API รัวเกินไป
-            time.sleep(1)
-            
-        except Exception as e:
-            print(f"⚠️ ดึงสถิติ ID {fixture_id} พลาด: {e}")
-            continue
-            
-    return matches_to_update
+        return matches_to_load, today_str
+    except Exception as e:
+        print(f"❌ ระบบประมวลผลล้มเหลว: {e}")
+        return [], today_str
 
 # ==========================================
-# 4. 💾 LOAD (อัปเดตลง Supabase)
+# 3. 💾 LOAD (โหลดเข้า Supabase)
 # ==========================================
-def load_stats_to_supabase(matches):
+def load_to_supabase(matches, today_str):
     if not matches:
-        print("⚠️ ไม่มีสถิติให้บันทึก (บอลอาจจะยังไม่เริ่มเตะเลยสักคู่)")
+        print("⚠️ ไม่มีข้อมูลสถิติมหาภาคให้จัดเก็บ")
         return
         
-    print(f"💾 กำลังบันทึกสถิติ {len(matches)} คู่ ลงฐานข้อมูล Supabase...")
+    print(f"🧹 ล้างข้อมูลเก่าของตารางออก...")
     try:
-        # ใช้ upsert เพื่ออัปเดตทับข้อมูลเดิม ถ้า fixture_id ตรงกัน
-        supabase.table("daily_matches").upsert(matches).execute()
-        print("✅ [SUCCESS] อัปเดตข้อมูลสถิติ (xG) เสร็จสมบูรณ์!")
-    except Exception as e:
-        print(f"❌ [ERROR] บันทึกลง Supabase ล้มเหลว: {e}")
+        supabase.table("daily_matches").delete().neq("match_date", "1970-01-01").execute()
+    except: pass
 
-# ==========================================
-# 🚀 จุดสั่งรันสคริปต์
-# ==========================================
+    print(f"💾 กำลังอัดฉีดข้อมูลสถิติมหาภาค {len(matches)} คู่ ลงคลาวด์ Supabase...")
+    try:
+        supabase.table("daily_matches").insert(matches).execute()
+        print("✅ [SUCCESS] อัปเดตโครงข่ายข้อมูลสถิติรายทีมเสร็จสมบูรณ์!")
+    except Exception as e:
+        print(f"❌ โหลดข้อมูลลง Supabase พลาด: {e}")
+
 if __name__ == "__main__":
     print("=========================================")
-    print("  🚀 STARTING STATS ONLY - ETL PIPELINE")
+    print(" 🚀 TEAM STATISTICS DATA PIPELINE RUNNING")
     print("=========================================")
-    
-    # 1. ดึงโปรแกรมเตะวันนี้ทั้งหมด
-    all_fixtures, current_date = get_today_fixtures()
-    
-    if all_fixtures:
-        # 2. คัดเฉพาะคู่ที่เตะแล้วไปดึงสถิติ
-        stats_records = fetch_statistics_for_active_matches(all_fixtures, current_date)
-        
-        # 3. บันทึกลงฐานข้อมูล
-        load_stats_to_supabase(stats_records)
+    data_records, current_date = fetch_daily_fixtures_and_team_stats()
+    load_to_supabase(data_records, current_date)
