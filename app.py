@@ -838,8 +838,8 @@ with tab1:
             if not supabase: return {}
             try:
                 tz_th = timezone(timedelta(hours=7))
-                # today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
-                today_str = "2026-05-10"
+                # ✅ ใช้คำสั่งตรวจสอบวันปัจจุบัน ห้ามฟิกซ์วันที่เป็นอดีต เพื่อให้แมตช์เข้าคู่กับบอท
+                today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
                 
                 r = supabase.table("daily_matches").select("match_name, xg_home, xg_away").eq("match_date", today_str).execute()
                 if r.data:
