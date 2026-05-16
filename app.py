@@ -825,7 +825,7 @@ with tab1:
                         st.error(str(e))
             with tp2:
                 st.button("🗑 CLEAR", use_container_width=True, on_click=clear_form_data)
-# 🛰️ =======================================================================
+    # 🛰️ =======================================================================
     # 📡 [START] COUPLING PIPELINE: ORACLE LIVE STATS DETECTOR (SUPABASE)
     # =======================================================================
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
@@ -833,16 +833,14 @@ with tab1:
     col_db1, col_db2 = st.columns([2, 1])
 
     with col_db1:
-        # ดึงข้อมูลรายชื่อทีมและสถิติ xG ที่พึ่งกวาดมาจากคลาวด์วันต่อวัน
-        @st.cache_data(ttl=30)  # ป้องกันแอปหน่วงโดยการดึง Cache และจะ Auto-refresh ทุกๆ 30 วินาที
+        @st.cache_data(ttl=30)
         def load_daily_cached_stats():
             if not supabase: return {}
             try:
                 tz_th = timezone(timedelta(hours=7))
                 # today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
-                today_str = "2026-05-10"  
+                today_str = "2026-05-10"
                 
-                # ทำการ Query ดึงเฉพาะคู่ในวันปัจจุบันขึ้นมาแมปปิ้ง
                 r = supabase.table("daily_matches").select("match_name, xg_home, xg_away").eq("match_date", today_str).execute()
                 if r.data:
                     return {row['match_name']: {"xg_h": row['xg_home'], "xg_a": row['xg_away']} for row in r.data}
@@ -852,22 +850,26 @@ with tab1:
 
         cached_matches = load_daily_cached_stats()
         
+        # ปรับการแสดงผล: สร้างกล่อง Dropdown มารอไว้เลยไม่ว่าฐานข้อมูลจะมีของหรือไม่
+        options = ["-- เลือกล็อคเป้าหมายเพื่อดึงสถิติ xG อัตโนมัติ --"]
         if cached_matches:
-            options = ["-- เลือกล็อคเป้าหมายเพื่อดึงสถิติ xG อัตโนมัติ --"] + list(cached_matches.keys())
-            selected_match = st.selectbox("🎯 TARGET ACQUISITION (LIVE STATS)", options, key="supabase_stats_dropdown")
+            options += list(cached_matches.keys())
             
-            # บังคับอัดฉีดข้อมูลเข้า Session State หลัก เพื่อเชื่อมโยงเข้ากลไกวิเคราะห์คณิตศาสตร์ทันที
-            if selected_match != "-- เลือกล็อคเป้าหมายเพื่อดึงสถิติ xG อัตโนมัติ --":
-                target_data = cached_matches[selected_match]
-                st.session_state.match_name = selected_match
-                st.session_state.xg_h_val = target_data['xg_h']
-                st.session_state.xg_a_val = target_data['xg_a']
-                st.toast(f"🎯 ล็อคเป้าข้อมูลสถิติ xG ของ {selected_match} สำเร็จ!", icon="✅")
-        else:
-            st.markdown('<p class="gem-dim">▸ คลังข้อมูลสถิติมหาภาควันนี้ยังว่างเปล่า (รอรอบการทำงานของระบบบอทหลังบ้าน)</p>', unsafe_allow_html=True)
+        selected_match = st.selectbox("🎯 TARGET ACQUISITION (LIVE STATS)", options, key="supabase_stats_dropdown")
+        
+        # เมื่อผู้ใช้คลิกเลือกคู่แข่งขันจากรายการ
+        if selected_match != "-- เลือกล็อคเป้าหมายเพื่อดึงสถิติ xG อัตโนมัติ --" and cached_matches:
+            target_data = cached_matches[selected_match]
+            # อัดฉีดตัวแปรตรงเข้าสู่ระบบฟอร์มหลัก เพื่อให้ส่งต่อไปคำนวณใน Dixon-Coles ได้ทันที
+            st.session_state.match_name = selected_match
+            st.session_state.xg_h_val = float(target_data['xg_h'])
+            st.session_state.xg_a_val = float(target_data['xg_a'])
+            st.toast(f"🎯 ล็อคเป้าสถิติ xG ของคู่ {selected_match} เรียบร้อย!", icon="✅")
+            
+        if not cached_matches:
+            st.markdown('<p class="gem-dim" style="margin-top:5px;">▸ คลังข้อมูลวันนี้ยังว่างเปล่า (รอรอบการทำงานของระบบบอทหลังบ้าน)</p>', unsafe_allow_html=True)
 
     with col_db2:
-        # ปุ่มเคลียร์แคชข้อมูลบน UI เพื่อดึงค่าสดใหม่จากฐานข้อมูลแบบเรียลไทม์
         if st.button("🔄 REFRESH CLOUD STATS", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
