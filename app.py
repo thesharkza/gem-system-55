@@ -386,7 +386,8 @@ def get_dynamic_rules(target, is_live, raw_rules):
         if not rule.strip(): continue
         rl = rule.lower()
         if is_ou and any(w in rl for w in ['เจ้าบ้าน','ทีมเยือน','ต่อ','รอง','ah']) and not any(w in rl for w in ['สูง','ต่ำ','สกอร์','o/u']): continue
-        if is_ah barter and any(w in rl for w in ['สูง','ต่ำ','สกอร์รวม','o/u']) and not any(w in rl for w in ['เจ้าบ้าน','ทีมเยือน','ต่อ','รอง','ah']): continue
+        # 🌟 [แก้ไขวิกฤตความปลอดภัยหลัก] ลบคำว่า barter ที่หลุดติดอยู่ออกอย่างถาวร ป้องกันปัญหาโครงสร้างไวยากรณ์ผิดพลาด
+        if is_ah and any(w in rl for w in ['สูง','ต่ำ','สกอร์รวม','o/u']) and not any(w in rl for w in ['เจ้าบ้าน','ทีมเยือน','ต่อ','รอง','ah']): continue
         if not is_live and any(w in rl for w in ['live','สด','นาที','ใบแดง','สกอร์ปัจจุบัน']): continue
         if is_live and any(w in rl for w in ['ก่อนเตะ','pre-match','ราคาเปิด']) and not any(w in rl for w in ['live','สด','ไหล']): continue
         out.append(rule)
@@ -631,7 +632,6 @@ def neon_layout(fig, title=""):
     )
     return fig
 
-# 🌟 [แก้ไขวิกฤตที่ 1] เคลียร์ SyntaxError และบล็อกตรวจสอบผลลัพธ์ของ O/U Line ควบคู่เอเชียแมตช์ให้สอดรับฐานข้อมูล
 def calc_pnl(row):
     try:
         if pd.isna(row['Result']) or str(row['Result']).strip() == "" or float(row['Investment']) <= 0:
@@ -766,7 +766,7 @@ with tab1:
                             st.error(str(e))
 
     with qi2:
-        with st.expander("⌨️ TEXT PARSER ── Paste raw text"):
+        with st.expander("⌨️ TEXT PARSER — Paste raw text"):
             st.text_area("Paste odds...", height=75, key="raw_text")
             tp1, tp2 = st.columns(2)
             with tp1:
@@ -779,7 +779,7 @@ with tab1:
                         if len(hm) >= 1: st.session_state.h1x2_val = float(hm[0])
                         if len(hm) >= 2: st.session_state.hdp_h_w_val = float(hm[1])
                         
-                        # 🌟 [แก้ไขวิกฤตความปลอดภัยหลัก] แยกชุดการเขียนเงื่อนไข if ล้างบรรทัดเบียดเสียดอันเป็นต้นเหตุ SyntaxError
+                        # 🌟 [แก้ไขสำเร็จ] ล้างบรรดากลุ่มเครื่องหมายเซมิโคลอนควบเงื่อนไขที่เป็นชนวนไวยากรณ์ผิดพลาด เรียบร้อย 100%
                         dm = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
                         if dm: 
                             st.session_state.d1x2_val = float(dm[0])
@@ -1136,9 +1136,11 @@ with tab2:
         else:
             st.info("◈ No settled results to analyse")
 
+# ==========================================
 # ╔══════════════╗
 # ║  TAB 3       ║
 # ╚══════════════╝
+# ==========================================
 with tab3:
     st.markdown('<div class="gem-label">◈ LIVE SNIPER COMMAND CENTER</div>', unsafe_allow_html=True)
 
@@ -1281,6 +1283,7 @@ with tab3:
                         tz2 = timezone(timedelta(hours=7))
                         save_db([{"Time": datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"), "Match": f"[LIVE {cmin}'] {live_mn_val}", "HDP": tl2['hdp'], "Target": tl2['n'], "EV_Pct": round(nlev * 100, 2), "Investment": round(inv, 2), "Odds": tl2['odds'], "Closing_Odds": 0.0, "Result": ""}])
                         st.toast("🎯 SNIPER DEPLOYED!", icon="🚀")
+
 
 # ╔══════════════╗
 # ║  TAB 4       ║
