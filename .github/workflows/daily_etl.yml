@@ -1,0 +1,24 @@
+name: GEM System Stats Sniper
+
+on:
+  schedule:
+    - cron: '0 0 * * *' # ตั้งเวลาทำงานทุกเช้า
+  workflow_dispatch: # สร้างปุ่มให้เรากดรันมือได้ตลอดเวลา
+
+jobs:
+  run-sniper:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install dependencies
+        run: pip install requests supabase
+      - name: Execute ETL Pipeline
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          API_SPORTS_KEY: ${{ secrets.API_SPORTS_KEY }}
+        run: python etl_pipeline.py
