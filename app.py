@@ -1286,7 +1286,107 @@ with tab3:
 # ║  TAB 4       ║
 # ╚══════════════╝
 with tab4:
-    st.markdown('<div class="gem-label">◈ ML BACKTEST OPTIMIZER</div>', unsafe_allow_html=True)
-    if st.button("🧪 RUN BACKTEST OPTIMIZATION", type="primary", use_container_width=True, key="opt_btn"):
-        with st.spinner("AI กำลังวิเคราะห์จุดตัดกำไรสูงสุด..."):
-            st.success("优化完成 : AH Optimized 24.5% | O/U Optimized 23.5%")
+    st.markdown('<div class="gem-label">◈ BRIER SCORE ACCURACY ENGINE</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<p style="font-family:\'Rajdhani\';font-size:0.85rem;color:#4a7a60;">'
+        'Compares GEM estimates vs bookmaker implied probabilities. Lower Brier Score = More Accurate.</p>',
+        unsafe_allow_html=True
+    )
+
+    t4l = load_logs()
+    if t4l is not None and not t4l.empty:
+        t4l['Net_Profit'] = t4l.apply(calc_pnl, axis=1)
+        fin = t4l[t4l['Result'].astype(str).str.strip() != ""].copy()
+
+        if not fin.empty:
+            def score_row(row):
+                try:
+                    inv, net, odds = float(row['Investment']), float(row['Net_Profit']), float(row['Odds'])
+                    if inv <= 0: return np.nan
+                    mw = inv * (odds - 1)
+                    if net >= mw * 0.95:  return 1.0
+                    elif net > 0:          return 0.75
+                    elif net == 0:         return 0.50
+                    elif net <= -inv*0.95: return 0.0
+                    elif net < 0:          return 0.25
+                    return np.nan
+                except:
+                    return np.nan
+
+            fin['Actual'] = fin.apply(score_row, axis=1)
+            fin = fin.dropna(subset=['Actual'])
+
+            if not fin.empty:
+                fin['BP'] = (1 / fin['Odds']).clip(0, 1)
+                rp = (((fin['EV_Pct'] / 100) + 1) / fin['Odds']).clip(0, 1)
+                fin['OP'] = ((rp * 0.85) + (fin['BP'] * 0.15)).clip(0, 1)
+                fin['OE'] = (fin['OP'] - fin['Actual']) ** 2
+                fin['BE'] = (fin['BP'] - fin['Actual']) ** 2
+
+                ao = fin['OE'].mean()
+                ab = fin['BE'].mean()
+                diff = ab - ao
+
+                st.markdown(f'<div class="gem-label">◈ ACCURACY — {len(fin)} SETTLED BETS</div>',
+                            unsafe_allow_html=True)
+                rc1, rc2, rc3 = st.columns(3)
+                rc1.metric("GEM SCORE",   f"{ao:.4f}", f"{-diff:.4f} vs bookie", delta_color="inverse")
+                rc2.metric("BOOKIE SCORE", f"{ab:.4f}")
+                col3 = "#00ff88" if ao < ab else "#ff3b5c"
+                lab3 = "▲ GEM BEATS MARKET" if ao < ab else "▼ CALIBRATION NEEDED"
+                rc3.markdown(
+                    f'<div class="gem-panel" style="border-top:2px solid {col3};text-align:center;padding:10px;">'
+                    f'<span style="font-family:\'Share Tech Mono\';color:{col3};font-size:0.78rem;">{lab3}</span></div>',
+                    unsafe_allow_html=True
+                )
+
+                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE ERROR</div>',
+                            unsafe_allow_html=True)
+                fin = fin.sort_values('Time').reset_index(drop=True)
+                fin['CumO'] = fin['OE'].cumsum()
+                fin['CumB'] = fin['BE'].cumsum()
+                fig_bt = go.Figure()
+                fig_bt.add_trace(go.Scatter(x=fin.index, y=fin['CumO'], mode='lines',
+                                             name='GEM', line=dict(color='#00ff88', width=2)))
+                fig_bt.add_trace(go.Scatter(x=fin.index, y=fin['CumB'], mode='lines',
+                                             name='Bookmaker', line=dict(color='#ff3b5c', width=2, dash='dot')))
+                neon_layout(fig_bt, "CUMULATIVE BRIER ERROR")
+                fig_bt.update_layout(xaxis_title="Settled Bets", yaxis_title="Cumulative Error")
+                st.plotly_chart(fig_bt, use_container_width=True)
+
+                with st.expander("◈ RAW DATA"):
+                    st.dataframe(
+                        fin[['Time','Match','Target','Odds','Result','Net_Profit','Actual','BP','OP']],
+                        use_container_width=True
+                    )
+
+                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>',
+                            unsafe_allow_html=True)
+                if st.button("🧪 RUN BACKTEST OPTIMIZATION", type="primary", use_container_width=True):
+                    with st.spinner("AI กำลังวนลูปย้อนหลังเพื่อหาจุดทำกำไรสูงสุด..."):
+                        best_ah_thr_opt, best_ah_pnl = 0.0, -99999.0
+                        best_ou_thr_opt, best_ou_pnl = 0.0, -99999.0
+                        ah_logs = fin[fin['Target'].isin(['เจ้าบ้าน', 'ทีมเยือน'])]
+                        ou_logs = fin[fin['Target'].isin(['สูง', 'ต่ำ'])]
+
+                        for t in np.arange(1.0, 30.0, 0.5):
+                            pnl_ah = ah_logs[ah_logs['EV_Pct'] >= t]['Net_Profit'].sum()
+                            if pnl_ah > best_ah_pnl:
+                                best_ah_pnl, best_ah_thr_opt = pnl_ah, t
+                            pnl_ou = ou_logs[ou_logs['EV_Pct'] >= t]['Net_Profit'].sum()
+                            if pnl_ou > best_ou_pnl:
+                                best_ou_pnl, best_ou_thr_opt = pnl_ou, t
+
+                        st.success(
+                            f"**🎯 Optimized Thresholds:**\n\n"
+                            f"👉 **AH:** ตั้ง EV ขั้นต่ำที่ **{best_ah_thr_opt}%** "
+                            f"(กำไรสูงสุด: ฿{best_ah_pnl:,.0f})\n\n"
+                            f"👉 **O/U:** ตั้ง EV ขั้นต่ำที่ **{best_ou_thr_opt}%** "
+                            f"(กำไรสูงสุด: ฿{best_ou_pnl:,.0f})"
+                        )
+                        st.info("นำตัวเลขนี้ไปปรับที่ Sidebar → EV THRESHOLDS ได้เลยครับ!")
+
+            else: st.info("◈ No records with calculable outcomes")
+        else: st.info("◈ No settled results — update Result column in Dashboard first")
+    else: st.warning("◈ No investment log found")
