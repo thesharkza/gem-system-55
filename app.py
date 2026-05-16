@@ -709,13 +709,13 @@ st.markdown("""
 <div class="gem-divider"></div>
 """, unsafe_allow_html=True)
 
-    # ==========================================
-    # 📑 TABS STRUCTURE
-    # ==========================================
-    # ╔══════════════╗
-    # ║  TAB 1       ║
-    # ╚══════════════╝
-    with tab1:
+# ==========================================
+# 📑 TABS STRUCTURE
+# ==========================================
+# ╔══════════════╗
+# ║  TAB 1       ║
+# ╚══════════════╝
+with tab1:
     st.markdown('<div class="gem-label">◈ QUICK IMPORT</div>', unsafe_allow_html=True)
     qi1, qi2 = st.columns(2)
 
