@@ -7,11 +7,11 @@ from supabase import create_client, Client
 # ==========================================
 # 1. 🔑 ตั้งค่ากุญแจเชื่อมต่อ (CONFIGURATION)
 # ==========================================
-# แนะนำ: ถ้าเทสในคอมตัวเอง ให้เอาคีย์มาวางทับในเครื่องหมายคำพูดได้เลย 
-# แต่ถ้ารันบน GitHub Actions ให้ใช้ os.environ.get() ดึงค่าจาก Secrets ครับ
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "ใส่_URL_SUPABASE_ของคุณที่นี่")
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "ใส่_KEY_SUPABASE_ของคุณที่นี่")
-RAPID_API_KEY = os.environ.get("RAPID_API_KEY", "ใส่_API_KEY_ของ_RAPIDAPI_ที่นี่")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://xbzhxrbmvzfsgzyjfgfx.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "sb_publishable_i8bVKar9GNf0qZ4ebqYMNg_RWgqKjq2")
+
+# 🚨 กรุณานำ API KEY ที่ได้จากเว็บ www.api-football.com มาวางแทนข้อความภาษาไทยด้านล่างนี้ครับ
+API_SPORTS_KEY = os.environ.get("API_SPORTS_KEY", "bebb0ec6f1decaa007954e2b5c67fb5c")
 
 # สร้างการเชื่อมต่อกับฐานข้อมูล
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -40,11 +40,14 @@ def fetch_today_odds():
     
     print(f"📡 [EXTRACT] กำลังสแกนราคาฟุตบอลของวันที่ {today_str} จาก API-Football...")
     
-    url = "https://api-football-v1.p.rapidapi.com/v3/odds"
+    url = "https://v3.football.api-sports.io/odds"
+    
+    # ✅ แก้ไขการย่อหน้า (Indentation) ให้ถูกต้อง และดึงตัวแปรคีย์มาใช้
     headers = {
-        "X-RapidAPI-Key": RAPID_API_KEY,
-        "X-RapidAPI-Host": "api-football-v1.p.rapidapi.com"
+        "x-apisports-key": API_SPORTS_KEY,
+        "x-apisports-host": "v3.football.api-sports.io"
     }
+    
     # ดึงเฉพาะราคาจากบ่อน Bet365 (bookmaker=8)
     querystring = {"date": today_str, "bookmaker": "8", "timezone": "Asia/Bangkok"}
     
@@ -72,7 +75,7 @@ def fetch_today_odds():
                 "h1x2": 1.0, "d1x2": 1.0, "a1x2": 1.0,
                 "hdp_line": 0.0, "hdp_h": 0.0, "hdp_a": 0.0,
                 "ou_line": 2.5, "ou_over": 0.0, "ou_under": 0.0,
-                "xg_home": 0.0, "xg_away": 0.0 # xG เซ็ตเป็น 0 ไว้ก่อน ค่อยอัปเดตตอน Live
+                "xg_home": 0.0, "xg_away": 0.0
             }
             
             # คุ้ยหาราคาใน JSON
@@ -95,7 +98,7 @@ def fetch_today_odds():
                         match_record['ou_over'] = float(bet['values'][0]['odd'])
                         match_record['ou_under'] = float(bet['values'][1]['odd'])
                 except (IndexError, KeyError, ValueError):
-                    continue # ข้ามราคาที่พังหรือดึงไม่ได้
+                    continue
                     
             matches_to_load.append(match_record)
             
@@ -113,11 +116,9 @@ def load_to_database(matches, today_str):
         print("⚠️ ยกเลิกการบันทึก: ไม่มีข้อมูลค่าน้ำ")
         return
         
-    # ล้างข้อมูลของวันนี้ที่อาจเคยดึงไปแล้ว (เพื่อไม่ให้เบิ้ล) หรือล้างข้อมูลเก่า
     print("🧹 [CLEANUP] กำลังล้างข้อมูลเก่าออกจากคลังแสง...")
     try:
         supabase.table("daily_matches").delete().neq("match_date", today_str).execute()
-        # ถ้าต้องการให้ดึงทับคู่เดิมของวันนี้ด้วยเวลาเซ็ตราคาใหม่ ให้ใช้ upsert ในคำสั่งถัดไป
     except Exception as e:
         print(f"⚠️ Warning: ล้างข้อมูลเก่าไม่สำเร็จ ({e})")
 
