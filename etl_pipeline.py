@@ -24,11 +24,8 @@ headers = {
 # 2. 📡 สเต็ป 1: ดึงโปรแกรมเตะของวันนี้
 # ==========================================
 def get_today_fixtures():
-     tz_th = timezone(timedelta(hours=7))
-     # today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
-     today_str = "2026-05-10"  # 👈 บังคับดึงข้อมูลของวันที่ 10 พฤษภาคม
-#    tz_th = timezone(timedelta(hours=7))
-#    today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
+    tz_th = timezone(timedelta(hours=7))
+    today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
     
     print(f"📅 กำลังเช็คตารางแข่งขันของวันที่ {today_str}...")
     url = "https://v3.football.api-sports.io/fixtures"
@@ -54,7 +51,7 @@ def get_today_fixtures():
 def fetch_statistics_for_active_matches(matches, today_str):
     matches_to_update = []
     
-    # สถานะที่บอลเริ่มเตะไปแล้ว (1H, 2H, HT, FT, PEN ฯลฯ)
+    # สถานะที่บอลเริ่มเตะไปแล้ว (1H, 2H, HT, FT, AET, PEN ฯลฯ)
     active_statuses = ['1H', '2H', 'HT', 'FT', 'AET', 'PEN']
     
     # คัดกรองคู่ที่กำลังเตะหรือจบแล้ว เพื่อประหยัด API Quota
@@ -84,7 +81,6 @@ def fetch_statistics_for_active_matches(matches, today_str):
                 "match_name": f"{home_team} VS {away_team}",
                 "xg_home": 0.0,
                 "xg_away": 0.0
-                # สามารถเพิ่ม possession, shots_on_target ได้ที่นี่ในอนาคต
             }
             
             # ถ้ามีข้อมูลสถิติส่งกลับมา
