@@ -1263,7 +1263,7 @@ with tab2:
                                 if not api_key:
                                     st.error("API Key missing")
                                 else:
-                                    m = genai.GenerativeModel('models/gemini-3.1-flash-lite-preview')
+                                    m = genai.GenerativeModel('models/gemma-4-31b-it')
                                     d = safe_json_loads(m.generate_content(pd_prompt).text)
                                     if d:
                                         st.success("✓ Learning complete")
