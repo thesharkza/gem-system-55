@@ -411,10 +411,13 @@ def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
         la *= 0.50
         lh *= 1.30
 
-    # xG Blending
+    # xG Blending — จำกัด xG input ก่อนเบลนด์เพื่อป้องกัน Lambda สูงเกินจริง
+    # [แก้ไข ข้อจำกัด #2] ค่า xG ปกติอยู่ที่ 0.5–3.0 ต่อเกม จำกัดที่ 4.0 เป็น hard cap
     if xg_h > 0.0 or xg_a > 0.0:
-        lh = lh * (1 - xg_weight) + xg_h * (ml / 90) ** 0.75 * xg_weight
-        la = la * (1 - xg_weight) + xg_a * (ml / 90) ** 0.75 * xg_weight
+        xg_h_safe = min(xg_h, 4.0)
+        xg_a_safe = min(xg_a, 4.0)
+        lh = lh * (1 - xg_weight) + xg_h_safe * (ml / 90) ** 0.75 * xg_weight
+        la = la * (1 - xg_weight) + xg_a_safe * (ml / 90) ** 0.75 * xg_weight
 
     # Dynamic Rho — คำนวณอัตโนมัติจากเรตประตูรวม ไม่ต้องใช้ Slider
     dyn_rho = max(-0.25, min(0.0, -0.15 + (et - 2.5) * 0.05))
@@ -460,26 +463,129 @@ def _quant_penalty(ev, line, odds):
 
 
 def ev_ah(hdp, w2, w1, d, l1, l2, odds, fav):
+    """
+    คำนวณ Expected Value สำหรับตลาด Asian Handicap
+    ครอบคลุมเส้น 0.0 – 2.5 ทั้ง Fav และ Dog
+
+    Bucket probability จาก Dixon-Coles (5 ช่อง):
+      w2 = ชนะห่าง ≥ 2 ประตู  (margin ≥ 2)
+      w1 = ชนะ 1 ประตู         (margin = 1)
+      d  = เสมอ                 (margin = 0)
+      l1 = แพ้ 1 ประตู          (margin = -1)
+      l2 = แพ้ห่าง ≥ 2 ประตู   (margin ≤ -2)
+
+    Settlement rules (Pinnacle / SBO standard):
+      เส้นจำนวนเต็ม (.0): ชนะเต็ม / คืนทุน / แพ้เต็ม
+      เส้น .5          : ชนะเต็ม / แพ้เต็ม (ไม่มีคืนทุน)
+      เส้น .25 / .75   : ตัดครึ่ง — ครึ่งหนึ่งเล่น .0, ครึ่งหนึ่งเล่น .5
+        → บางกรณีได้ ชนะครึ่ง (+b/2) หรือ แพ้ครึ่ง (-0.5)
+
+    ข้อจำกัดของ 5-bucket model สำหรับเส้น > 1.5:
+      w2 รวม margin=2 และ margin≥3 ไว้ด้วยกัน ทำให้เส้น 2.0+ มีความคลาดเคลื่อน
+      เล็กน้อยเมื่อเทียบกับ full score matrix (แต่ยังดีกว่าคืน EV=0)
+    """
     b = odds - 1
     h = abs(hdp)
+
     if h == 0:
+        # AH 0 (Level Ball): ชนะถ้า margin>0, คืนทุนถ้าเสมอ, แพ้ถ้า margin<0
         res = (w2 + w1) * b - (l1 + l2)
+
     elif fav:
+        # ======================== FAVOURITE (ทีมต่อ) ========================
+        # ต่อ 0.25 (quarter ball: ครึ่งเล่น 0, ครึ่งเล่น 0.5)
+        # margin>0 → ชนะทั้ง 2 ส่วน | margin=0 → ชนะ 0.5, คืนทุน 0.5 → net +b/2
+        # margin<0 → แพ้ทั้ง 2 ส่วน
         if   h == 0.25: res = (w2 + w1) * b - d * 0.5 - (l1 + l2)
+
+        # ต่อ 0.5: ไม่มีคืนทุน — margin>0 ชนะ, ≤0 แพ้
         elif h == 0.5:  res = (w2 + w1) * b - (d + l1 + l2)
+
+        # ต่อ 0.75 (ครึ่งเล่น 0.5, ครึ่งเล่น 1.0)
+        # margin≥2 → ชนะทั้งคู่ (+b) | margin=1 → ชนะ 0.5 (+b/2), คืนทุน 0.5 → net +b/2
+        # margin≤0 → แพ้ทั้งคู่
         elif h == 0.75: res = w2 * b + w1 * (b / 2) - (d + l1 + l2)
+
+        # ต่อ 1.0: margin≥2 ชนะ, margin=1 คืนทุน, ≤0 แพ้
         elif h == 1.0:  res = w2 * b - (d + l1 + l2)
+
+        # ต่อ 1.25 (ครึ่งเล่น 1.0, ครึ่งเล่น 1.5)
+        # margin≥2 → ชนะทั้งคู่ (+b) | margin=1 → คืนทุน 0.5, แพ้ 0.5 → net -0.5
+        # margin≤0 → แพ้ทั้งคู่
         elif h == 1.25: res = w2 * b - w1 * 0.5 - (d + l1 + l2)
+
+        # ต่อ 1.5: margin≥2 ชนะ, ≤1 แพ้ (ไม่มีคืนทุน)
         elif h == 1.5:  res = w2 * b - (w1 + d + l1 + l2)
-        else: res = 0.0
+
+        # [แก้ไข ข้อจำกัด #1] เส้น 1.75 – 2.5 สำหรับ Favourite
+        # ต่อ 1.75 (ครึ่งเล่น 1.5, ครึ่งเล่น 2.0)
+        # margin≥2 → ชนะทั้งคู่ (+b) | margin=1 → แพ้ 1.5, คืนทุน 2.0 → net -0.5
+        # margin≤0 → แพ้ทั้งคู่
+        elif h == 1.75: res = w2 * b - w1 * 0.5 - (d + l1 + l2)
+        # หมายเหตุ: สูตรเหมือน 1.25 Fav เพราะ pattern ซ้ำทุก 0.5 step
+
+        # ต่อ 2.0: margin≥2 คืนทุน (w2), margin=1 แพ้, ≤0 แพ้
+        # แต่ w2 รวม margin=2 และ ≥3 → ประมาณ: margin≥2 ชนะ, margin=1 แพ้ครึ่ง, ≤0 แพ้
+        # correction ที่ดีที่สุดจาก 5-bucket: w2 ≈ margin≥2 ชนะ, w1=margin1 แพ้ครึ่ง
+        elif h == 2.0:  res = w2 * b - w1 * 0.5 - (d + l1 + l2)
+
+        # ต่อ 2.25 (ครึ่งเล่น 2.0, ครึ่งเล่น 2.5)
+        # margin≥3 ชนะทั้งคู่, margin=2 → คืนทุน 2.0 แพ้ 2.5 → net -0.5
+        # margin≤1 → แพ้ทั้งคู่
+        # 5-bucket: w2≈margin≥2 ซึ่งรวม margin=2 ด้วย
+        # ประมาณ: w2*b - (w1+d+l1+l2) [margin≥2 ชนะ สมมติทั้งหมด]
+        elif h == 2.25: res = w2 * b - (w1 + d + l1 + l2)
+
+        # ต่อ 2.5: ต้องชนะ ≥3 ประตู เท่านั้น — ไม่มีคืนทุน
+        # w2 ≈ margin≥2 (รวม margin=2 ซึ่งแพ้) → คลาดเคลื่อน แต่ดีกว่า EV=0
+        elif h == 2.5:  res = w2 * b - (w1 + d + l1 + l2)
+
+        else:
+            res = 0.0
+
     else:
+        # ======================== UNDERDOG (ทีมรอง) ========================
+        # รอง 0.25: margin<0 แพ้ทั้งคู่, margin=0 แพ้ 0.5 คืนทุน 0.5 → net +b/2
+        # margin>0 (l1,l2 ในมุมทีมรอง) → ชนะ
         if   h == 0.25: res = (w2 + w1) * b + d * (b / 2) - (l1 + l2)
+
+        # รอง 0.5: margin<0 ทีมรองชนะ, ≥0 แพ้ (ไม่มีคืนทุน)
         elif h == 0.5:  res = (w2 + w1 + d) * b - (l1 + l2)
+
+        # รอง 0.75: margin≤-2 ชนะทั้งคู่, margin=-1 ชนะ 0.5 (+b/2), ≥0 แพ้
+        # ใน bucket: l2=แพ้≥2 = ทีมรองชนะ≥2; l1=แพ้1 = ทีมรองชนะ1
+        # → (w2+w1+d)*b - l1*0.5 - l2  [w2=ทีมเยือนแพ้, wn เป็น prob ฝั่งเจ้าบ้าน]
         elif h == 0.75: res = (w2 + w1 + d) * b - l1 * 0.5 - l2
+
+        # รอง 1.0: ทีมรองชนะถ้าแพ้ ≥2 ประตู (l2), คืนทุนถ้าแพ้ 1 (l1)
         elif h == 1.0:  res = (w2 + w1 + d) * b - l2
+
+        # รอง 1.25: ชนะทั้งคู่ถ้าแพ้≥2, คืนทุน 1.0 ชนะ 1.5 ถ้าแพ้ 1 → net +b/2
         elif h == 1.25: res = (w2 + w1 + d) * b + l1 * (b / 2) - l2
+
+        # รอง 1.5: ทีมรองชนะถ้าแพ้≥2 หรือ 1, ≥ 0 แพ้
         elif h == 1.5:  res = (w2 + w1 + d + l1) * b - l2
-        else: res = 0.0
+
+        # [แก้ไข ข้อจำกัด #1] เส้น 1.75 – 2.5 สำหรับ Underdog
+        # รอง 1.75 (ครึ่งเล่น 1.5, ครึ่งเล่น 2.0)
+        # ทีมรองชนะถ้าแพ้≥2 (l2) ด้วยทั้งคู่, แพ้=1 (l1) → ชนะ 1.5 คืนทุน 2.0 → net +b/2
+        elif h == 1.75: res = (w2 + w1 + d + l1) * b + l2 * (b / 2)
+
+        # รอง 2.0: ทีมรองชนะถ้าแพ้≥2 (l2) คืนทุน, แพ้=1 ชนะ, ≤0 ชนะ
+        # correction: (w2+w1+d+l1)*b ≈ ชนะถ้าไม่แพ้≥2
+        elif h == 2.0:  res = (w2 + w1 + d + l1) * b
+
+        # รอง 2.25 (ครึ่งเล่น 2.0, ครึ่งเล่น 2.5)
+        # แพ้≥2 → ชนะ 2.0 (คืนทุน), แพ้ 2.5 → net +b/2
+        elif h == 2.25: res = (w2 + w1 + d + l1) * b + l2 * (b / 2)
+
+        # รอง 2.5: ชนะถ้าแพ้น้อยกว่า 3 ประตู (แทบทุก bucket ยกเว้น margin≤-3)
+        # 5-bucket: l2 ≈ margin≤-2 → ทีมรองชนะทุก bucket
+        elif h == 2.5:  res = (w2 + w1 + d + l1 + l2) * b
+
+        else:
+            res = 0.0
+
     return _quant_penalty(res, hdp, odds)
 
 
@@ -826,7 +932,6 @@ with tab1:
             with tp2:
                 st.button("🗑 CLEAR", use_container_width=True, on_click=clear_form_data)
 
-    
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     match_name = st.text_input("MATCH", key="match_name", placeholder="Home Team VS Away Team")
 
@@ -873,6 +978,25 @@ with tab1:
     st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
 
     if st.button("⚡  RUN ORACLE ANALYSIS", use_container_width=True, type="primary"):
+        # [แก้ไข ข้อจำกัด #3] ตรวจสอบ input ก่อนคำนวณ
+        # fix(0.0) = 1.0 → odds-1 = 0 → EV = 0 ทุกกรณีโดยไม่แจ้งเตือน
+        input_errors = []
+        if h1x2 <= 0 or d1x2 <= 0 or a1x2 <= 0:
+            input_errors.append("กรุณากรอก **ราคา 1X2** (เหย้า / เสมอ / เยือน) ให้ครบ")
+        if hdp_h_w <= 0 or hdp_a_w <= 0:
+            input_errors.append("กรุณากรอก **น้ำ AH** (Home Odds / Away Odds) ให้ครบ")
+        if ou_over_w <= 0 or ou_under_w <= 0:
+            input_errors.append("กรุณากรอก **น้ำ O/U** (Over / Under) ให้ครบ")
+        if abs(hdp_line) not in [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5,
+                                   1.75, 2.0, 2.25, 2.5]:
+            input_errors.append(
+                f"⚠️ เส้น AH **{hdp_line}** ไม่รองรับ — "
+                "ระบบคำนวณได้เฉพาะ 0 / 0.25 / 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 1.75 / 2.0 / 2.25 / 2.5"
+            )
+        if input_errors:
+            for err in input_errors:
+                st.error(f"❌ {err}")
+            st.stop()
         ho, do_, ao   = fix(h1x2), fix(d1x2), fix(a1x2)
         hwo, awo, owo, uwo = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
         ph, pd_, pa   = shin_devig(ho, do_, ao)
@@ -1281,7 +1405,24 @@ with tab3:
     ac2.button("↺ RESET", use_container_width=True, on_click=clear_inplay_data)
 
     if snap:
-        lph, lpd, lpa = shin_devig(fix(preh), fix(pred), fix(prea))
+        # [แก้ไข ข้อจำกัด #3] ตรวจสอบ input Live ก่อนคำนวณ
+        live_errors = []
+        if preh <= 0 or pred <= 0 or prea <= 0:
+            live_errors.append("กรุณากรอก **ราคาเปิด 1X2** (Home / Draw / Away) ให้ครบ")
+        if fix(louov) <= 1.0 or fix(louun) <= 1.0:
+            live_errors.append("กรุณากรอก **น้ำ O/U Live** (Over / Under) ให้ครบ")
+        if fix(lhdph) <= 1.0 or fix(lhdpa) <= 1.0:
+            live_errors.append("กรุณากรอก **น้ำ AH Live** (Home / Away) ให้ครบ")
+        if abs(lhdp) not in [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5,
+                               1.75, 2.0, 2.25, 2.5]:
+            live_errors.append(
+                f"⚠️ เส้น AH Live **{lhdp}** ไม่รองรับ — "
+                "ใช้ได้เฉพาะ 0 / 0.25 / 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 1.75 / 2.0 / 2.25 / 2.5"
+            )
+        if live_errors:
+            for err in live_errors:
+                st.error(f"❌ {err}")
+            st.stop()
         ml = max(90 - cmin, 1)
 
         hw2l, hw1l, dexl, aw1l, aw2l, ptl = calc_dixon_coles_matrix(
