@@ -395,8 +395,12 @@ def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
     op  = 1/ow; up = 1/uw
     top = op / (op + up)
 
-    bet = ou + 0.20 + ((top - 0.5) * 2.5)
-    et  = max(0.5, bet + (0.25 - pd) * 8.0)
+    # [Calibration v2] ลด baseline bias และ draw multiplier เพื่อให้ et
+    # ใกล้เคียง implied goal ที่ตลาดสะท้อน มากกว่าเดิม
+    # baseline: 0.20 → 0.05  (ลด Under bias จากการดัน et สูงเกิน)
+    # draw_mult: 8.0 → 4.0   (ลดการขยายเกินจริงในเกมที่เต็งชัด)
+    bet = ou + 0.05 + ((top - 0.5) * 2.5)
+    et  = max(0.5, bet + (0.25 - pd) * 4.0)
     sup = (ph - pa) * (et ** 0.60)
 
     lh = max(0.15, (et + sup) / 2) * (ml / 90) ** 0.75
@@ -835,7 +839,13 @@ with st.sidebar:
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ PORTFOLIO</div>', unsafe_allow_html=True)
     total_bankroll = st.number_input("Bankroll (THB)", min_value=0.0, value=10000.0)
-    hdba_val       = st.slider("HDBA Penalty %", 0.0, 10.0, 1.5, step=0.5)
+    # HDBA slider ยังคงไว้เพื่อใช้ใน future หรือ manual override
+    # แต่ระบบใช้ Dynamic HDBA = pd × dog_odds × 0.25 เป็นค่าหลัก
+    hdba_val = st.slider(
+        "HDBA Adj Factor",
+        0.10, 0.50, 0.25, step=0.05,
+        help="Dynamic Dog Penalty = pd × odds × factor (0.25 = หัก 25% ของ draw advantage)"
+    )
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ KELLY CRITERION (MONEY MGT)</div>', unsafe_allow_html=True)
@@ -1007,7 +1017,11 @@ with tab1:
 
         fav_h = ph >= pa
         evh   = ev_ah(hdp_line, hw2, hw1, dex, aw1, aw2, hwo, fav_h)
-        eva   = ev_ah(hdp_line, aw2, aw1, dex, hw1, hw2, awo, not fav_h) - (hdba_val / 100)
+        # [Calibration v2] Dynamic HDBA = pd_ × dog_odds × hdba_val
+        # hdba_val (slider 0.10–0.50) คือสัดส่วน draw advantage ที่หักออก
+        # ค่า default 0.25 = หัก 25% ของ draw advantage ที่ Dog ได้ฟรี
+        hdba_dynamic = pd_ * awo * hdba_val
+        eva   = ev_ah(hdp_line, aw2, aw1, dex, hw1, hw2, awo, not fav_h) - hdba_dynamic
         evo   = ev_ou(ou_line, pt, owo, True)
         evu   = ev_ou(ou_line, pt, uwo, False)
 
@@ -1435,7 +1449,9 @@ with tab3:
 
         fvl   = lph >= lpa
         evhl  = ev_ah(lhdp, hw2l, hw1l, dexl, aw1l, aw2l, fix(lhdph), fvl)
-        eval_ = ev_ah(lhdp, aw2l, aw1l, dexl, hw1l, hw2l, fix(lhdpa), not fvl) - (hdba_val / 100)
+        # [Calibration v2] Dynamic HDBA สำหรับ Live ใช้ hdba_val เดียวกัน
+        hdba_dynamic_live = lpd * fix(lhdpa) * hdba_val
+        eval_ = ev_ah(lhdp, aw2l, aw1l, dexl, hw1l, hw2l, fix(lhdpa), not fvl) - hdba_dynamic_live
         evol  = ev_ou(lou, ptl, fix(louov), True)
         evul  = ev_ou(lou, ptl, fix(louun), False)
 
