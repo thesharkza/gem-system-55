@@ -1352,98 +1352,157 @@ with tab2:
             for idx, row in df2.iterrows():
                 match_raw  = str(row.get('Match', ''))
                 is_live    = '[LIVE' in match_raw.upper()
-                match_name = match_raw.replace('[LIVE]','').replace('[LIVE','').strip()
-                if match_name.endswith("]"): match_name = match_name[:-1].strip()
-                match_name = match_name.strip("'").strip()
+                match_name = (match_raw
+                              .replace('[LIVE]', '').replace('[LIVE', '')
+                              .strip().strip("'").rstrip("]").strip())
 
-                target     = str(row.get('Target', '—'))
-                hdp        = row.get('HDP', 0)
-                odds       = row.get('Odds', 0)
-                ev_pct     = row.get('EV_Pct', 0)
-                invest     = row.get('Investment', 0)
-                result     = str(row.get('Result', '')).strip()
-                closing    = row.get('Closing_Odds', 0.0)
-                net_pnl    = row.get('Net_Profit', 0.0)
-                clv        = row.get('CLV_Pct', 0.0)
-                row_id     = row.get('id', idx)
-                time_str   = str(row.get('Time', ''))[:16]
+                target   = str(row.get('Target', '—'))
+                hdp      = row.get('HDP', 0)
+                odds     = float(row.get('Odds', 0))
+                ev_pct   = float(row.get('EV_Pct', 0))
+                invest   = float(row.get('Investment', 0))
+                result   = str(row.get('Result', '')).strip()
+                closing  = row.get('Closing_Odds', 0.0)
+                net_pnl  = float(row.get('Net_Profit', 0.0))
+                row_id   = row.get('id', idx)
+                time_str = str(row.get('Time', ''))[:16]
 
-                # ── status ────────────────────────────────────────────────
-                if not result:
-                    card_cls = "open"; badge_txt = "⏳ PENDING"; badge_cls = "open"
-                    pnl_cls  = "zero"
+                # ── status colour + label ─────────────────────────────────
+                if is_live:
+                    border_col = "#ff8c00"; status_label = "🟠 LIVE"
+                elif not result:
+                    border_col = "#ffd600"; status_label = "⏳ PENDING"
                 elif net_pnl > 0:
-                    card_cls = "win";  badge_txt = "✓ WIN";  badge_cls = "win"
-                    pnl_cls  = "pos"
+                    border_col = "#00ff88"; status_label = "✅ WIN"
                 elif net_pnl < 0:
-                    card_cls = "loss"; badge_txt = "✗ LOSS"; badge_cls = "loss"
-                    pnl_cls  = "neg"
+                    border_col = "#ff3b5c"; status_label = "❌ LOSS"
                 else:
-                    card_cls = "push"; badge_txt = "= PUSH"; badge_cls = "push"
-                    pnl_cls  = "zero"
-                if is_live: card_cls = "live"
+                    border_col = "#4a7a60"; status_label = "➖ PUSH"
 
-                # ── card header HTML ──────────────────────────────────────
-                live_tag = '<span class="mc-live-tag">● LIVE</span>' if is_live else ''
                 pnl_display = f"฿{net_pnl:+,.0f}" if result else "—"
+                pnl_color   = ("#00ff88" if net_pnl > 0
+                               else ("#ff3b5c" if net_pnl < 0 else "#4a7a60"))
 
-                st.markdown(f"""
-<div class="match-card {card_cls}">
-  <div class="mc-header">
-    {live_tag}
-    <span class="mc-match">{match_name}</span>
-    <span class="mc-badge {badge_cls}">{badge_txt}</span>
-    <span class="mc-time">{time_str}</span>
-  </div>
-  <div class="mc-meta">
-    <div class="mc-kv"><span class="mc-kv-label">Target</span><span class="mc-kv-value">{target}</span></div>
-    <div class="mc-kv"><span class="mc-kv-label">Line</span><span class="mc-kv-value">{hdp}</span></div>
-    <div class="mc-kv"><span class="mc-kv-label">Odds</span><span class="mc-kv-value">{odds:.2f}</span></div>
-    <div class="mc-kv"><span class="mc-kv-label">EV</span><span class="mc-kv-value">{ev_pct:.1f}%</span></div>
-    <div class="mc-kv"><span class="mc-kv-label">Invest</span><span class="mc-kv-value">฿{invest:,.0f}</span></div>
-    <div class="mc-kv"><span class="mc-kv-label">Result</span><span class="mc-kv-value">{result if result else '—'}</span></div>
-    <div class="mc-kv"><span class="mc-kv-label">P&L</span><span class="mc-kv-value mc-pnl {pnl_cls}">{pnl_display}</span></div>
-  </div>
-</div>""", unsafe_allow_html=True)
+                # ── card container ────────────────────────────────────────
+                st.markdown(
+                    f'<div style="border-left:3px solid {border_col};'
+                    f'background:#0d1e2e;border-radius:0 6px 6px 0;'
+                    f'padding:14px 18px;margin-bottom:4px;">'
+                    f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+                    f'<span style="font-family:\'Exo 2\',sans-serif;font-weight:600;'
+                    f'font-size:0.95rem;color:#c8e6d4;flex:1;">'
+                    f'{"🔴 " if is_live else ""}{match_name}</span>'
+                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.7rem;'
+                    f'color:{border_col};">{status_label}</span>'
+                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.65rem;'
+                    f'color:#2a5040;">{time_str}</span>'
+                    f'</div>'
+                    f'<div style="display:flex;gap:20px;margin-top:8px;flex-wrap:wrap;">'
+                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
+                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">TARGET</span><br>'
+                    f'<span style="color:#c8e6d4;">{target}</span></span>'
+                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
+                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">LINE</span><br>'
+                    f'<span style="color:#c8e6d4;">{hdp}</span></span>'
+                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
+                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">ODDS</span><br>'
+                    f'<span style="color:#c8e6d4;">{odds:.2f}</span></span>'
+                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
+                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">EV</span><br>'
+                    f'<span style="color:#c8e6d4;">{ev_pct:.1f}%</span></span>'
+                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
+                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">INVEST</span><br>'
+                    f'<span style="color:#c8e6d4;">฿{invest:,.0f}</span></span>'
+                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
+                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">RESULT</span><br>'
+                    f'<span style="color:#c8e6d4;">{result if result else "—"}</span></span>'
+                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
+                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">P&amp;L</span><br>'
+                    f'<span style="color:{pnl_color};font-weight:600;">{pnl_display}</span></span>'
+                    f'</div></div>',
+                    unsafe_allow_html=True
+                )
 
-                # ── expandable detail panel ───────────────────────────────
-                with st.expander(f"📋 รายละเอียด — {match_name}", expanded=False):
+                # ── expandable detail ─────────────────────────────────────
+                with st.expander(f"📋  {match_name}  —  รายละเอียด & กรอกผล"):
                     det1, det2 = st.columns(2)
 
+                    # left: oracle metrics
                     with det1:
-                        st.markdown('<div class="gem-label">◈ ORACLE METRICS</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="gem-label">◈ ORACLE METRICS</div>',
+                                    unsafe_allow_html=True)
                         d1, d2, d3 = st.columns(3)
-                        d1.metric("EV ตอนลง",   f"{ev_pct:.2f}%")
-                        d2.metric("Odds",        f"{odds:.2f}")
-                        d3.metric("เงินลงทุน",  f"฿{invest:,.0f}")
+                        d1.metric("EV ตอนลง",  f"{ev_pct:.2f}%")
+                        d2.metric("Odds",       f"{odds:.2f}")
+                        d3.metric("เงินลงทุน", f"฿{invest:,.0f}")
 
-                        clv_val = float(closing) if closing and float(closing) > 1.0 else None
+                        try:
+                            clv_val = float(closing) if closing and float(closing) > 1.0 else None
+                        except:
+                            clv_val = None
                         if clv_val:
                             clv_pct = ((odds / clv_val) - 1.0) * 100
                             d4, d5 = st.columns(2)
                             d4.metric("Closing Odds", f"{clv_val:.2f}")
-                            d5.metric("CLV",          f"{clv_pct:+.2f}%",
+                            d5.metric("CLV", f"{clv_pct:+.2f}%",
                                       delta_color="normal" if clv_pct >= 0 else "inverse")
 
                         if result:
                             st.markdown('<div class="gem-label" style="margin-top:12px;">◈ FINAL RESULT</div>',
                                         unsafe_allow_html=True)
-                            r1, r2 = st.columns(2)
-                            r1.metric("สกอร์จริง", result)
-                            pnl_color = "#00ff88" if net_pnl > 0 else ("#ff3b5c" if net_pnl < 0 else "#4a7a60")
+                            st.metric("สกอร์จริง", result)
                             st.markdown(
-                                f'<div style="font-family:\'Share Tech Mono\';font-size:1.1rem;'
-                                f'color:{pnl_color};margin-top:6px;">P&L: ฿{net_pnl:+,.2f}</div>',
+                                f'<div style="font-family:\'Share Tech Mono\';font-size:1.05rem;'
+                                f'color:{pnl_color};margin-top:4px;">P&L: ฿{net_pnl:+,.2f}</div>',
                                 unsafe_allow_html=True
                             )
 
+                        # oracle context
+                        st.markdown('<div class="gem-label" style="margin-top:12px;">◈ ORACLE CONTEXT</div>',
+                                    unsafe_allow_html=True)
+                        mkt = "Asian Handicap (AH)" if target in ["เจ้าบ้าน","ทีมเยือน"] else "Total Goals (O/U)"
+                        role = ("[ทีมต่อ / Fav]" if target == "เจ้าบ้าน"
+                                else "[ทีมรอง / Dog]" if target == "ทีมเยือน"
+                                else target)
+                        ev_flag = ("🟢 EV ดีมาก" if ev_pct >= 25
+                                   else "🟡 EV ปานกลาง" if ev_pct >= 10
+                                   else "🔴 EV ต่ำ")
+                        st.markdown(
+                            f'<div style="font-family:\'Share Tech Mono\';font-size:0.75rem;'
+                            f'color:#4a7a60;line-height:1.8;">'
+                            f'ตลาด: <span style="color:#c8e6d4;">{mkt}</span><br>'
+                            f'บทบาท: <span style="color:#c8e6d4;">{role}</span><br>'
+                            f'EV: <span style="color:#c8e6d4;">{ev_flag} ({ev_pct:.1f}%)</span>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+                        if result and net_pnl != 0:
+                            outcome_bg  = "rgba(0,255,136,0.07)"  if net_pnl > 0 else "rgba(255,59,92,0.07)"
+                            outcome_col = "#00ff88" if net_pnl > 0 else "#ff3b5c"
+                            outcome_txt = (f"✓ ระบบคาดถูก — EV {ev_pct:.1f}% → กำไร ฿{net_pnl:,.0f}"
+                                           if net_pnl > 0
+                                           else f"✗ Variance — EV {ev_pct:.1f}% แต่ขาดทุน ฿{abs(net_pnl):,.0f}")
+                            st.markdown(
+                                f'<div style="margin-top:10px;padding:10px 14px;'
+                                f'background:{outcome_bg};border-left:3px solid {outcome_col};'
+                                f'border-radius:3px;font-family:\'Share Tech Mono\';'
+                                f'font-size:0.75rem;color:{outcome_col};">{outcome_txt}</div>',
+                                unsafe_allow_html=True
+                            )
+
+                    # right: update form
                     with det2:
-                        st.markdown('<div class="gem-label">◈ UPDATE RESULT</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="gem-label">◈ UPDATE RESULT</div>',
+                                    unsafe_allow_html=True)
+                        try:
+                            closing_default = float(closing) if closing and float(closing) > 0 else 0.0
+                        except:
+                            closing_default = 0.0
 
                         new_closing = st.number_input(
                             "Closing Odds",
                             min_value=0.0,
-                            value=float(closing) if closing and float(closing) > 0 else 0.0,
+                            value=closing_default,
                             format="%.2f",
                             key=f"closing_{row_id}"
                         )
@@ -1453,60 +1512,22 @@ with tab2:
                             placeholder="H-A เช่น 2-1",
                             key=f"result_{row_id}"
                         )
+                        st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
 
-                        if st.button("💾 บันทึก", key=f"save_{row_id}",
+                        if st.button("💾  บันทึก", key=f"save_{row_id}",
                                      use_container_width=True, type="primary"):
                             try:
                                 supabase.table("investment_logs").update({
                                     "Closing_Odds": float(new_closing),
                                     "Result":       str(new_result).strip()
                                 }).eq("id", row_id).execute()
-                                st.toast("✓ บันทึกเรียบร้อย", icon="💾")
-                                time.sleep(0.5)
+                                st.toast("✓ บันทึกเรียบร้อยแล้ว", icon="💾")
+                                time.sleep(0.6)
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"Error: {e}")
 
-                    # ── Oracle analysis summary (ถ้ามี EV สูงแสดง context) ──
-                    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-                    st.markdown('<div class="gem-label">◈ ORACLE CONTEXT</div>', unsafe_allow_html=True)
-
-                    ctx_cols = st.columns(3)
-                    ctx_cols[0].markdown(
-                        f'<div class="gem-dim">ตลาด</div>'
-                        f'<div class="mc-kv-value">{"Asian Handicap" if target in ["เจ้าบ้าน","ทีมเยือน"] else "Total Goals (O/U)"}</div>',
-                        unsafe_allow_html=True
-                    )
-                    ctx_cols[1].markdown(
-                        f'<div class="gem-dim">บทบาท</div>'
-                        f'<div class="mc-kv-value">{"[ทีมต่อ/Fav]" if target == "เจ้าบ้าน" else "[ทีมรอง/Dog]" if target == "ทีมเยือน" else target}</div>',
-                        unsafe_allow_html=True
-                    )
-                    ev_flag = ("🟢 EV ดีมาก" if ev_pct >= 25 else
-                               "🟡 EV ปานกลาง" if ev_pct >= 10 else
-                               "🔴 EV ต่ำ")
-                    ctx_cols[2].markdown(
-                        f'<div class="gem-dim">สถานะ EV</div>'
-                        f'<div class="mc-kv-value">{ev_flag} ({ev_pct:.1f}%)</div>',
-                        unsafe_allow_html=True
-                    )
-
-                    # outcome note
-                    if result and net_pnl != 0:
-                        if net_pnl > 0:
-                            st.markdown(
-                                f'<div style="margin-top:10px;padding:10px 14px;background:rgba(0,255,136,0.06);'
-                                f'border-left:3px solid #00ff88;border-radius:3px;font-family:\'Share Tech Mono\';'
-                                f'font-size:0.78rem;color:#00ff88;">✓ ระบบคาดถูก — EV {ev_pct:.1f}% → กำไร ฿{net_pnl:,.0f}</div>',
-                                unsafe_allow_html=True
-                            )
-                        else:
-                            st.markdown(
-                                f'<div style="margin-top:10px;padding:10px 14px;background:rgba(255,59,92,0.06);'
-                                f'border-left:3px solid #ff3b5c;border-radius:3px;font-family:\'Share Tech Mono\';'
-                                f'font-size:0.78rem;color:#ff3b5c;">✗ Variance — EV {ev_pct:.1f}% แต่ผลออกมาขาดทุน ฿{abs(net_pnl):,.0f}</div>',
-                                unsafe_allow_html=True
-                            )
+                st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
 
         # ── Quick refresh ─────────────────────────────────────────────────
         if st.button("↺  REFRESH ALL", use_container_width=True):
