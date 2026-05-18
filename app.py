@@ -1348,7 +1348,141 @@ with tab2:
             st.markdown(f'<div class="gem-dim" style="margin-bottom:10px;">แสดง {len(df2)} รายการ</div>',
                         unsafe_allow_html=True)
 
-            # ── Match Cards ───────────────────────────────────────────────
+            # ── Dialog function (popup modal) ─────────────────────────────
+            # st.dialog ต้องนิยามนอก loop และรับ row data เข้าไป
+            @st.dialog("◈ MATCH DETAIL", width="large")
+            def show_match_dialog(row_data):
+                mn        = row_data['match_name']
+                target_d  = row_data['target']
+                hdp_d     = row_data['hdp']
+                odds_d    = row_data['odds']
+                ev_d      = row_data['ev_pct']
+                invest_d  = row_data['invest']
+                result_d  = row_data['result']
+                closing_d = row_data['closing']
+                pnl_d     = row_data['net_pnl']
+                rid       = row_data['row_id']
+                time_d    = row_data['time_str']
+                border_d  = row_data['border_col']
+                status_d  = row_data['status_label']
+
+                pnl_col = ("#00ff88" if pnl_d > 0
+                           else ("#ff3b5c" if pnl_d < 0 else "#4a7a60"))
+
+                # header inside dialog
+                st.markdown(
+                    f'<div style="border-left:3px solid {border_d};padding:10px 14px;'
+                    f'background:#091520;border-radius:0 4px 4px 0;margin-bottom:14px;">'
+                    f'<div style="font-family:\'Exo 2\',sans-serif;font-weight:700;'
+                    f'font-size:1rem;color:#c8e6d4;">{mn}</div>'
+                    f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.68rem;'
+                    f'color:{border_d};margin-top:3px;">{status_d} &nbsp;·&nbsp; {time_d}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
+                det1, det2 = st.columns(2)
+
+                # ── left: oracle metrics ──────────────────────────────────
+                with det1:
+                    st.markdown('<div class="gem-label">◈ ORACLE METRICS</div>',
+                                unsafe_allow_html=True)
+                    d1, d2, d3 = st.columns(3)
+                    d1.metric("EV ตอนลง",  f"{ev_d:.2f}%")
+                    d2.metric("Odds",       f"{odds_d:.2f}")
+                    d3.metric("เงินลงทุน", f"฿{invest_d:,.0f}")
+
+                    try:
+                        clv_val = float(closing_d) if closing_d and float(closing_d) > 1.0 else None
+                    except:
+                        clv_val = None
+                    if clv_val:
+                        clv_pct = ((odds_d / clv_val) - 1.0) * 100
+                        d4, d5 = st.columns(2)
+                        d4.metric("Closing Odds", f"{clv_val:.2f}")
+                        d5.metric("CLV", f"{clv_pct:+.2f}%",
+                                  delta_color="normal" if clv_pct >= 0 else "inverse")
+
+                    if result_d:
+                        st.markdown('<div class="gem-label" style="margin-top:12px;">◈ FINAL RESULT</div>',
+                                    unsafe_allow_html=True)
+                        st.metric("สกอร์จริง", result_d)
+                        st.markdown(
+                            f'<div style="font-family:\'Share Tech Mono\';font-size:1.05rem;'
+                            f'color:{pnl_col};margin-top:4px;">P&L: ฿{pnl_d:+,.2f}</div>',
+                            unsafe_allow_html=True
+                        )
+
+                    st.markdown('<div class="gem-label" style="margin-top:12px;">◈ ORACLE CONTEXT</div>',
+                                unsafe_allow_html=True)
+                    mkt  = ("Asian Handicap (AH)"
+                            if target_d in ["เจ้าบ้าน","ทีมเยือน"] else "Total Goals (O/U)")
+                    role = ("[ทีมต่อ / Fav]" if target_d == "เจ้าบ้าน"
+                            else "[ทีมรอง / Dog]" if target_d == "ทีมเยือน"
+                            else target_d)
+                    ev_flag = ("🟢 EV ดีมาก" if ev_d >= 25
+                               else "🟡 EV ปานกลาง" if ev_d >= 10
+                               else "🔴 EV ต่ำ")
+                    st.markdown(
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.75rem;'
+                        f'color:#4a7a60;line-height:2.0;">'
+                        f'ตลาด: <span style="color:#c8e6d4;">{mkt}</span><br>'
+                        f'บทบาท: <span style="color:#c8e6d4;">{role}</span><br>'
+                        f'EV: <span style="color:#c8e6d4;">{ev_flag} ({ev_d:.1f}%)</span>'
+                        f'</div>',
+                        unsafe_allow_html=True
+                    )
+                    if result_d and pnl_d != 0:
+                        ob  = "rgba(0,255,136,0.07)" if pnl_d > 0 else "rgba(255,59,92,0.07)"
+                        oc  = "#00ff88" if pnl_d > 0 else "#ff3b5c"
+                        otx = (f"✓ ระบบคาดถูก — EV {ev_d:.1f}% → กำไร ฿{pnl_d:,.0f}"
+                               if pnl_d > 0
+                               else f"✗ Variance — EV {ev_d:.1f}% แต่ขาดทุน ฿{abs(pnl_d):,.0f}")
+                        st.markdown(
+                            f'<div style="margin-top:10px;padding:10px 14px;background:{ob};'
+                            f'border-left:3px solid {oc};border-radius:3px;'
+                            f'font-family:\'Share Tech Mono\';font-size:0.75rem;color:{oc};">{otx}</div>',
+                            unsafe_allow_html=True
+                        )
+
+                # ── right: update form ────────────────────────────────────
+                with det2:
+                    st.markdown('<div class="gem-label">◈ UPDATE RESULT</div>',
+                                unsafe_allow_html=True)
+                    try:
+                        closing_default = float(closing_d) if closing_d and float(closing_d) > 0 else 0.0
+                    except:
+                        closing_default = 0.0
+
+                    new_closing = st.number_input(
+                        "Closing Odds",
+                        min_value=0.0,
+                        value=closing_default,
+                        format="%.2f",
+                        key=f"dlg_closing_{rid}"
+                    )
+                    new_result = st.text_input(
+                        "Result (สกอร์ เช่น 2-1)",
+                        value=result_d,
+                        placeholder="H-A เช่น 2-1",
+                        key=f"dlg_result_{rid}"
+                    )
+                    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
+
+                    if st.button("💾  บันทึก", key=f"dlg_save_{rid}",
+                                 use_container_width=True, type="primary"):
+                        try:
+                            supabase.table("investment_logs").update({
+                                "Closing_Odds": float(new_closing),
+                                "Result":       str(new_result).strip()
+                            }).eq("id", rid).execute()
+                            st.toast("✓ บันทึกเรียบร้อยแล้ว", icon="💾")
+                            time.sleep(0.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+            # ── Match Cards loop ──────────────────────────────────────────
             for idx, row in df2.iterrows():
                 match_raw  = str(row.get('Match', ''))
                 is_live    = '[LIVE' in match_raw.upper()
@@ -1367,7 +1501,6 @@ with tab2:
                 row_id   = row.get('id', idx)
                 time_str = str(row.get('Time', ''))[:16]
 
-                # ── status colour + label ─────────────────────────────────
                 if is_live:
                     border_col = "#ff8c00"; status_label = "🟠 LIVE"
                 elif not result:
@@ -1383,7 +1516,7 @@ with tab2:
                 pnl_color   = ("#00ff88" if net_pnl > 0
                                else ("#ff3b5c" if net_pnl < 0 else "#4a7a60"))
 
-                # ── card container ────────────────────────────────────────
+                # ── card HTML ─────────────────────────────────────────────
                 st.markdown(
                     f'<div style="border-left:3px solid {border_col};'
                     f'background:#0d1e2e;border-radius:0 6px 6px 0;'
@@ -1423,111 +1556,29 @@ with tab2:
                     unsafe_allow_html=True
                 )
 
-                # ── expandable detail ─────────────────────────────────────
-                with st.expander(f"📋  {match_name}  —  รายละเอียด & กรอกผล"):
-                    det1, det2 = st.columns(2)
+                # ── popup trigger button (flush ใต้การ์ด) ────────────────
+                if st.button(
+                    "📋  ดูรายละเอียด & กรอกผล",
+                    key=f"open_dlg_{row_id}",
+                    use_container_width=True
+                ):
+                    show_match_dialog({
+                        'match_name':  match_name,
+                        'target':      target,
+                        'hdp':         hdp,
+                        'odds':        odds,
+                        'ev_pct':      ev_pct,
+                        'invest':      invest,
+                        'result':      result,
+                        'closing':     closing,
+                        'net_pnl':     net_pnl,
+                        'row_id':      row_id,
+                        'time_str':    time_str,
+                        'border_col':  border_col,
+                        'status_label':status_label,
+                    })
 
-                    # left: oracle metrics
-                    with det1:
-                        st.markdown('<div class="gem-label">◈ ORACLE METRICS</div>',
-                                    unsafe_allow_html=True)
-                        d1, d2, d3 = st.columns(3)
-                        d1.metric("EV ตอนลง",  f"{ev_pct:.2f}%")
-                        d2.metric("Odds",       f"{odds:.2f}")
-                        d3.metric("เงินลงทุน", f"฿{invest:,.0f}")
-
-                        try:
-                            clv_val = float(closing) if closing and float(closing) > 1.0 else None
-                        except:
-                            clv_val = None
-                        if clv_val:
-                            clv_pct = ((odds / clv_val) - 1.0) * 100
-                            d4, d5 = st.columns(2)
-                            d4.metric("Closing Odds", f"{clv_val:.2f}")
-                            d5.metric("CLV", f"{clv_pct:+.2f}%",
-                                      delta_color="normal" if clv_pct >= 0 else "inverse")
-
-                        if result:
-                            st.markdown('<div class="gem-label" style="margin-top:12px;">◈ FINAL RESULT</div>',
-                                        unsafe_allow_html=True)
-                            st.metric("สกอร์จริง", result)
-                            st.markdown(
-                                f'<div style="font-family:\'Share Tech Mono\';font-size:1.05rem;'
-                                f'color:{pnl_color};margin-top:4px;">P&L: ฿{net_pnl:+,.2f}</div>',
-                                unsafe_allow_html=True
-                            )
-
-                        # oracle context
-                        st.markdown('<div class="gem-label" style="margin-top:12px;">◈ ORACLE CONTEXT</div>',
-                                    unsafe_allow_html=True)
-                        mkt = "Asian Handicap (AH)" if target in ["เจ้าบ้าน","ทีมเยือน"] else "Total Goals (O/U)"
-                        role = ("[ทีมต่อ / Fav]" if target == "เจ้าบ้าน"
-                                else "[ทีมรอง / Dog]" if target == "ทีมเยือน"
-                                else target)
-                        ev_flag = ("🟢 EV ดีมาก" if ev_pct >= 25
-                                   else "🟡 EV ปานกลาง" if ev_pct >= 10
-                                   else "🔴 EV ต่ำ")
-                        st.markdown(
-                            f'<div style="font-family:\'Share Tech Mono\';font-size:0.75rem;'
-                            f'color:#4a7a60;line-height:1.8;">'
-                            f'ตลาด: <span style="color:#c8e6d4;">{mkt}</span><br>'
-                            f'บทบาท: <span style="color:#c8e6d4;">{role}</span><br>'
-                            f'EV: <span style="color:#c8e6d4;">{ev_flag} ({ev_pct:.1f}%)</span>'
-                            f'</div>',
-                            unsafe_allow_html=True
-                        )
-                        if result and net_pnl != 0:
-                            outcome_bg  = "rgba(0,255,136,0.07)"  if net_pnl > 0 else "rgba(255,59,92,0.07)"
-                            outcome_col = "#00ff88" if net_pnl > 0 else "#ff3b5c"
-                            outcome_txt = (f"✓ ระบบคาดถูก — EV {ev_pct:.1f}% → กำไร ฿{net_pnl:,.0f}"
-                                           if net_pnl > 0
-                                           else f"✗ Variance — EV {ev_pct:.1f}% แต่ขาดทุน ฿{abs(net_pnl):,.0f}")
-                            st.markdown(
-                                f'<div style="margin-top:10px;padding:10px 14px;'
-                                f'background:{outcome_bg};border-left:3px solid {outcome_col};'
-                                f'border-radius:3px;font-family:\'Share Tech Mono\';'
-                                f'font-size:0.75rem;color:{outcome_col};">{outcome_txt}</div>',
-                                unsafe_allow_html=True
-                            )
-
-                    # right: update form
-                    with det2:
-                        st.markdown('<div class="gem-label">◈ UPDATE RESULT</div>',
-                                    unsafe_allow_html=True)
-                        try:
-                            closing_default = float(closing) if closing and float(closing) > 0 else 0.0
-                        except:
-                            closing_default = 0.0
-
-                        new_closing = st.number_input(
-                            "Closing Odds",
-                            min_value=0.0,
-                            value=closing_default,
-                            format="%.2f",
-                            key=f"closing_{row_id}"
-                        )
-                        new_result = st.text_input(
-                            "Result (สกอร์ เช่น 2-1)",
-                            value=result,
-                            placeholder="H-A เช่น 2-1",
-                            key=f"result_{row_id}"
-                        )
-                        st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
-
-                        if st.button("💾  บันทึก", key=f"save_{row_id}",
-                                     use_container_width=True, type="primary"):
-                            try:
-                                supabase.table("investment_logs").update({
-                                    "Closing_Odds": float(new_closing),
-                                    "Result":       str(new_result).strip()
-                                }).eq("id", row_id).execute()
-                                st.toast("✓ บันทึกเรียบร้อยแล้ว", icon="💾")
-                                time.sleep(0.6)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-
-                st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
+                st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
 
         # ── Quick refresh ─────────────────────────────────────────────────
         if st.button("↺  REFRESH ALL", use_container_width=True):
