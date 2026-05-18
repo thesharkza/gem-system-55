@@ -618,42 +618,129 @@ def ev_ou(line, pt, odds, over):
 
 
 # ==========================================
-# 🧠 AI ENGINE
+# 🧠 AI ORACLE ENGINE  — v2 (Full Coverage Prompt)
 # ==========================================
-# [แก้ไข #7] เปลี่ยนชื่อ parameter จาก `min` → `current_min`
-# เพื่อไม่ให้ shadow built-in min()
 def ai_engine(match_name, target, base_ev, hdp, odds,
               live=False, current_min=0, score="0-0",
               thr=0.08, stats="", fav=None,
-              line_movement="➖ Stable (นิ่ง)"):
+              line_movement="➖ Stable (นิ่ง/ปกติ)"):
+    """
+    Oracle Decision Engine — ทำหน้าที่เป็น Chief Risk Officer (CRO)
+    รับ Base EV จาก Quant Engine แล้วกรองด้วย GEM RULES + บริบทตลาด
+    คืนค่า impact_score เพื่อปรับ Net EV และ final_decision สำหรับ approval
+    """
     raw = load_gem_rules()
     try:
         db = get_dynamic_rules(target, live, raw)
     except:
         db = raw
 
-    mode = ("[PRE-MATCH] เน้น Math-First 70% + GEM Rules 30%"
-            if not live else
-            "[IN-PLAY] Real-time + Full GEM RULES")
-    ri = ("" if fav is None else (" [ทีมต่อ]" if fav else " [ทีมรอง]"))
+    # ── context blocks ──────────────────────────────────────────
+    is_ah   = target in ["เจ้าบ้าน", "ทีมเยือน"]
+    is_ou   = target in ["สูง", "ต่ำ"]
+    market  = "Asian Handicap (AH)" if is_ah else "Total Goals (O/U)"
+    fav_str = ("" if fav is None
+               else (" [ทีมต่อ / Favourite]" if fav else " [ทีมรอง / Underdog]"))
+    sit_str = (f"IN-PLAY — นาทีที่ {current_min} สกอร์ปัจจุบัน {score}"
+               if live else "PRE-MATCH")
+    mode_weight = ("Math 50% + GEM Rules 50%" if live
+                   else "Math 70% + GEM Rules 30%")
 
-    prompt = (
-        f"CRO — Quant Sports Betting Fund\n"
-        f"[Match] {match_name}\n"
-        f"[Situation] {'Live ' + str(current_min) + 'min (' + score + ')' if live else 'Pre-Match'}\n"
-        f"[Target] {target}{ri} line={abs(hdp)} odds={odds} BaseEV={base_ev*100:.2f}%\n"
-        f"[Line Movement] {line_movement}\n"
-        f"[Stats] {stats}\n"
-        f"[Mode] {mode}\n"
-        f"[GEM RULES]\n{db}\n\n"
-        "Rules:\n"
-        "1. ห้ามสับสนทีมต่อ/รอง\n"
-        "2. Market Isolation: แยกพิจารณา AH กับ OU ห้ามปนกัน\n"
-        "3. ระบุ RuleID ให้ชัดเจนหากมีการใช้กฎ\n"
-        "4. impact_score ต้องเป็นทศนิยม -1.0 ถึง 1.0\n"
-        "5. Steam = สัญญาณบวก Smart Money, Drift = ระวังกับดักบ่อน\n\n"
-        'JSON Thai: {"pros_analysis":"","cons_analysis":"","rule_triggered":"","impact_score":0.0,"final_decision":true,"final_comment":"","confidence_level":3}'
-    )
+    # ── line movement interpretation ────────────────────────────
+    lm_lower = line_movement.lower()
+    if "steam" in lm_lower or "ไหลลง" in lm_lower:
+        lm_note = "🔥 STEAM — เงิน Smart Money ไหลเข้าฝั่งนี้ → สัญญาณบวกเพิ่มความมั่นใจ"
+    elif "drift" in lm_lower or "ไหลขึ้น" in lm_lower:
+        lm_note = "❄️ DRIFT — ราคาไหลออกจากฝั่งนี้ → ระวัง Trap ของบ่อน พิจารณาลด impact_score"
+    else:
+        lm_note = "➖ STABLE — ราคานิ่ง ไม่มีสัญญาณผิดปกติจาก Smart Money"
+
+    prompt = f"""คุณคือ Chief Risk Officer (CRO) ของกองทุน Quant Sports Betting
+ภารกิจ: ตรวจสอบ Base EV ที่ได้จาก Dixon-Coles + Shin Devigging แล้วปรับด้วย GEM RULES และบริบทตลาด
+เพื่อคืนค่า Net EV ที่แม่นยำและ final_decision สำหรับการลงทุน
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 ข้อมูลการลงทุน
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• แมตช์     : {match_name}
+• สถานการณ์ : {sit_str}
+• ตลาด      : {market}
+• เป้าหมาย  : {target}{fav_str}
+• เรต (line): {abs(hdp)}
+• Odds      : {odds}
+• Base EV   : {base_ev*100:.2f}%
+• EV threshold: {thr*100:.1f}% (ขั้นต่ำที่ระบบยอมรับ)
+
+📈 กระแสราคา (Line Movement)
+• {line_movement}
+• {lm_note}
+
+📊 ข้อมูลสถิติ / บริบทเพิ่มเติม
+{stats if stats.strip() else "ไม่มีข้อมูลสถิติเพิ่มเติม"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚙️ โหมดการวิเคราะห์: {mode_weight}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{"🔴 IN-PLAY MODE: ตรวจสถานการณ์สนาม Red Card / Score / Momentum แบบ Real-time ร่วมกับ GEM RULES เต็มรูปแบบ หาก Fatal Rule ถูก trigger ให้ Reject ทันที" if live else "🟡 PRE-MATCH MODE: ใช้ Math เป็นหลัก GEM RULES เป็น Risk Filter อย่างเดียว ถ้า Base EV แข็งแกร่ง Warning Rule ไม่ควรทำให้ Reject"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📖 GEM RULES (จาก Cloud Database)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{db}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📌 คำสั่งบังคับ (ต้องปฏิบัติตามทุกข้อ)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. ROLE INTEGRITY
+   • ตรวจ {fav_str if fav_str else "[ทีมต่อ/ทีมรอง]"} ให้แม่นยำก่อนวิเคราะห์ ห้ามสับสนเด็ดขาด
+   • ทีมต่อ (Favourite) = ทีมที่มี true probability สูงกว่า = ต้องชนะด้วย margin
+   • ทีมรอง (Underdog) = ทีมที่ได้ handicap เพิ่ม = ได้เปรียบจากเสมอและแพ้น้อย
+
+2. MARKET ISOLATION
+   • หากตลาดคือ AH → ห้ามนำกฎ O/U หรือสกอร์รวมมาพิจารณาการ approve/reject เด็ดขาด
+   • หากตลาดคือ O/U → ห้ามนำกฎ AH หรือ supremacy มาพิจารณา เด็ดขาด
+   • กฎที่ label [ALL] ใช้ได้ทั้งสองตลาด
+
+3. RULE CITATION
+   • ทุกครั้งที่อ้างกฎ ต้องระบุ [Rule ID] และ [หมวด] ให้ชัดเจน
+   • ถ้าไม่มีกฎที่ตรง → ระบุ "ไม่มีกฎที่เกี่ยวข้อง" แทนการแต่งกฎขึ้นเอง
+
+4. IMPACT SCORE RULES
+   • ค่าต้องเป็น float อยู่ในช่วง -1.0 ถึง +1.0 เท่านั้น
+   • +0.05 = เพิ่ม EV 5% (สัญญาณบวกชัดเจน เช่น Steam + กฎสนับสนุน)
+   • -0.10 = ลด EV 10% (Risk factor จากกฎหรือ Drift)
+   • 0.00  = ข้อมูลไม่เพียงพอหรือสัญญาณหักล้างกัน
+   • ห้ามส่งค่าเป็น percentage (เช่น 5.0 หรือ -10.0) → ต้องเป็น 0.05 หรือ -0.10
+
+5. DECISION LOGIC
+   PRE-MATCH:
+   • Base EV ≥ threshold + ไม่มี Fatal Rule → final_decision: true
+   • มี Warning Rule → ลด impact_score แต่ยัง approve ถ้า Net EV ≥ threshold
+   • มี Fatal Rule (ระบุชัดใน rule_triggered) → final_decision: false เสมอ
+   IN-PLAY:
+   • Base EV สูงมาก (≥ threshold × 1.5) + Warning Rule → อาจ approve พร้อม impact ลบ
+   • Fatal Rule → Reject ทันทีโดยไม่คำนึง EV
+   • Red card / Score ผิดปกติ → ตรวจสอบ momentum ก่อน approve
+
+6. CONFIDENCE LEVEL
+   • 5 = ข้อมูลครบ, EV สูง, กฎสนับสนุน, Steam
+   • 4 = EV ดี, ไม่มีกฎขัดแย้ง
+   • 3 = กลางๆ มีความไม่แน่นอนบ้าง
+   • 2 = มี Risk factors หลายตัว
+   • 1 = Fallback หรือข้อมูลน้อยมาก
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📤 ตอบกลับเป็น JSON (ภาษาไทย) เท่านั้น ห้ามมีข้อความนอก JSON:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{{
+  "pros_analysis": "วิเคราะห์ข้อดีทางคณิตศาสตร์ + กฎที่สนับสนุน + สัญญาณตลาด",
+  "cons_analysis": "ความเสี่ยงและกฎที่ขัดแย้ง พร้อมระบุ [Rule ID]",
+  "rule_triggered": "เช่น [GEM_DEF_001 - Risk Management] หรือ ไม่มีกฎที่เกี่ยวข้อง",
+  "impact_score": 0.0,
+  "final_decision": true,
+  "final_comment": "บทสรุปฟันธงจาก CRO ในภาษาที่กระชับและตรงประเด็น",
+  "confidence_level": 3
+}}"""
 
     for attempt in range(3):
         try:
@@ -662,16 +749,29 @@ def ai_engine(match_name, target, base_ev, hdp, odds,
             data  = safe_json_loads(res.text)
             if data:
                 imp = float(data.get('impact_score', 0.0))
-                if abs(imp) >= 1.0: imp /= 100.0
+                # guard: ถ้า AI ส่งมาเป็น percentage เช่น 5.0 แทน 0.05
+                if abs(imp) >= 1.0:
+                    imp /= 100.0
+                # clamp ไม่ให้เกิน ±0.50 ในทางปฏิบัติ
+                imp = max(-0.50, min(0.50, imp))
                 data['impact_score'] = imp
+                # guard: confidence_level ต้องอยู่ใน 1-5
+                cl = int(data.get('confidence_level', 3))
+                data['confidence_level'] = max(1, min(5, cl))
                 return data
         except Exception as e:
             if attempt == 2:
                 return {
-                    "pros_analysis": "AI ขัดข้อง", "cons_analysis": str(e),
-                    "rule_triggered": "Fallback", "impact_score": 0.0,
+                    "pros_analysis": "ระบบ AI ขัดข้องชั่วคราว ใช้ Base EV แทน",
+                    "cons_analysis": f"Error: {str(e)}",
+                    "rule_triggered": "System Fallback — ไม่สามารถโหลด GEM RULES ได้",
+                    "impact_score": 0.0,
                     "final_decision": base_ev >= thr,
-                    "final_comment": "⚠ ยืนยันด้วย Base EV", "confidence_level": 1
+                    "final_comment": (
+                        "⚠️ Oracle ไม่ตอบสนอง — ยืนยันด้วย Base EV เท่านั้น "
+                        "ควรตรวจสอบ API Key และ connection ก่อนใช้งาน"
+                    ),
+                    "confidence_level": 1
                 }
             time.sleep(2)
 
