@@ -1,0 +1,26 @@
+[theme]
+base = "dark"
+primaryColor = "#00ff88"
+backgroundColor = "#050a0e"
+secondaryBackgroundColor = "#0a1520"
+textColor = "#c8e6d4"
+font = "sans serif"
+
+[server]
+headless = true
+enableCORS = false
+enableXsrfProtection = true
+
+[client]
+# ซ่อน toolbar ด้านบนของ Streamlit ให้ดูเหมือนแอปมากขึ้น
+toolbarMode = "minimal"
+showSidebarNavigation = false
+showErrorDetails = false
+
+[browser]
+gatherUsageStats = false
+
+[runner]
+# ลด overhead ในการ rerun
+fastReruns = true
+magicEnabled = false
