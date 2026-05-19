@@ -15,9 +15,70 @@ from supabase import create_client, Client
 st.set_page_config(
     page_title="GEM System 10.0 · The Oracle",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",   # มือถือเริ่มต้นด้วย sidebar ปิด ดูสะอาดกว่า
     page_icon="🎯"
 )
+
+# ==========================================
+# 📱 PWA META TAGS — ทำให้ Add to Home Screen สวยขึ้น
+# ==========================================
+st.markdown("""
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="GEM Oracle">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#050a0e">
+  <meta name="application-name" content="GEM Oracle">
+  <meta name="format-detection" content="telephone=no">
+</head>
+<style>
+/* ── Mobile-friendly tweaks ───────────────────────────────── */
+@media (max-width: 768px) {
+  /* ลด padding ของ main container บนมือถือ */
+  .main .block-container {
+    padding-top: 1rem !important;
+    padding-bottom: 4rem !important;
+    padding-left: 0.6rem !important;
+    padding-right: 0.6rem !important;
+  }
+  /* ปุ่มแตะง่ายขึ้น */
+  .stButton > button {
+    min-height: 42px !important;
+    font-size: 0.78rem !important;
+  }
+  /* ปรับ tab ให้แตะง่ายขึ้น */
+  [data-testid="stTabs"] button[role="tab"] {
+    padding: 10px 12px !important;
+    font-size: 0.72rem !important;
+  }
+  /* ปรับ metric ให้พอดีจอเล็ก */
+  [data-testid="stMetricValue"] {
+    font-size: 1.15rem !important;
+  }
+  /* ปุ่ม number input ขยายขึ้น */
+  [data-testid="stNumberInput"] button {
+    min-width: 32px !important;
+    min-height: 32px !important;
+  }
+}
+/* ป้องกัน iOS zoom-in อัตโนมัติเวลาแตะ input */
+input[type="text"], input[type="number"], textarea, select {
+  font-size: 16px !important;
+}
+@media (max-width: 768px) {
+  input[type="text"], input[type="number"], textarea {
+    font-size: 16px !important;
+  }
+}
+/* ป้องกัน pull-to-refresh accidentally ในมือถือ */
+html, body {
+  overscroll-behavior-y: contain;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 # ==========================================
 # 🛡️ HELPER FUNCTIONS
@@ -826,10 +887,15 @@ def save_db(rows):
     if not rows or not supabase: return
     try:
         supabase.table("investment_logs").insert(rows).execute()
+        # ล้าง cache ทันทีหลัง insert เพื่อให้ load_logs ดึงข้อมูลใหม่
+        load_logs.clear()
     except Exception as e:
         st.error(f"DB Error: {e}")
 
 
+# Cache 15 วินาที — สมดุลระหว่างความสดของข้อมูลกับ performance บนมือถือ
+# เนื่องจาก save_db() จะ trigger st.rerun() อยู่แล้วทำให้ cache invalidate ทันทีหลัง insert
+@st.cache_data(ttl=15)
 def load_logs():
     if not supabase: return pd.DataFrame()
     try:
@@ -1476,6 +1542,7 @@ with tab2:
                                 "Closing_Odds": float(new_closing),
                                 "Result":       str(new_result).strip()
                             }).eq("id", rid).execute()
+                            load_logs.clear()   # invalidate cache เพื่อโชว์ผลใหม่ทันที
                             st.toast("✓ บันทึกเรียบร้อยแล้ว", icon="💾")
                             time.sleep(0.5)
                             st.rerun()
