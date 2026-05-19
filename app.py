@@ -968,10 +968,10 @@ live_ah_lim = live_ah_thr / 100
 live_ou_lim = live_ou_thr / 100
 
 # ==========================================
-# 📑 TABS
+# 📑 TABS  — เรียงตามขั้นตอนการใช้งาน: วิเคราะห์ → ลงไม้ → ติดตามผล → ปรับจูน
 # ==========================================
-tab1, tab2, tab3, tab4 = st.tabs([
-    "  PRE-MATCH  ", "  DASHBOARD  ", "  IN-PLAY SNIPER  ", "  BACKTEST  "
+tab1, tab3, tab2, tab4 = st.tabs([
+    "  PRE-MATCH  ", "  IN-PLAY SNIPER  ", "  DASHBOARD  ", "  BACKTEST  "
 ])
 
 # ╔══════════════╗
@@ -1697,19 +1697,145 @@ with tab2:
                 ms3.metric("AH / O/U", f"{ah_count} / {ou_count}")
                 ms4.metric("Avg EV", f"{avg_ev:.1f}%")
 
-                st.info(f"◈ {len(tl)} records — ติ๊กเลือกแมตช์ที่ต้องการให้ Oracle เรียนรู้")
-                tl_display = tl.copy()
-                tl_display.insert(0, "Analyze", False)
-                sel = st.data_editor(
-                    tl_display[['Analyze','Time','Match','HDP','Target','Odds','Result','Net_Profit','EV_Pct']],
-                    column_config={
-                        "Analyze":    st.column_config.CheckboxColumn("✓", default=False),
-                        "Net_Profit": st.column_config.NumberColumn("P&L", format="%.2f"),
-                        "EV_Pct":     st.column_config.NumberColumn("EV%", format="%.1f"),
-                    },
-                    hide_index=True, use_container_width=True, key="debrief_editor"
-                )
-                picked = sel[sel['Analyze'] == True]
+                # ── Date Filter ─────────────────────────────────────────
+                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+                st.markdown('<div class="gem-label">◈ FILTER & SELECT</div>', unsafe_allow_html=True)
+
+                today_dt     = datetime.now(tz_th).date()
+                yesterday_dt = today_dt - timedelta(days=1)
+
+                df_filter1, df_filter2 = st.columns([2, 1])
+                with df_filter1:
+                    date_filter = st.radio(
+                        "ช่วงเวลา",
+                        ["📅 ทั้งหมด", "🌟 วันนี้", "📆 เมื่อวาน", "⚙️ กำหนดเอง"],
+                        horizontal=True,
+                        key="learn_date_filter"
+                    )
+                with df_filter2:
+                    select_mode = st.radio(
+                        "การเลือก",
+                        ["☑️ เลือกเอง", "✅ เลือกทั้งหมด"],
+                        horizontal=True,
+                        key="learn_select_mode"
+                    )
+
+                # apply date filter
+                tl_dt = pd.to_datetime(tl['Time'], errors='coerce')
+                if date_filter == "🌟 วันนี้":
+                    tl = tl[tl_dt.dt.date == today_dt].copy()
+                elif date_filter == "📆 เมื่อวาน":
+                    tl = tl[tl_dt.dt.date == yesterday_dt].copy()
+                elif date_filter == "⚙️ กำหนดเอง":
+                    drange = st.date_input(
+                        "เลือกช่วงวันที่",
+                        value=(yesterday_dt, today_dt),
+                        key="learn_custom_range"
+                    )
+                    if isinstance(drange, tuple) and len(drange) == 2:
+                        d_start, d_end = drange
+                        tl = tl[(tl_dt.dt.date >= d_start) & (tl_dt.dt.date <= d_end)].copy()
+
+                if tl.empty:
+                    st.info(f"◈ ไม่พบรายการในช่วง {date_filter}")
+                else:
+                    tl = tl.sort_values('Time', ascending=False).reset_index(drop=True)
+                    st.markdown(
+                        f'<div class="gem-dim" style="margin-top:8px;">'
+                        f'พบ {len(tl)} รายการ — กดที่การ์ดเพื่อเลือก/ยกเลิก</div>',
+                        unsafe_allow_html=True
+                    )
+
+                    # init session state for selected ids
+                    sel_key = f"learn_selected_{pfx}_{date_filter}"
+                    if sel_key not in st.session_state:
+                        st.session_state[sel_key] = set()
+
+                    # auto-select all when mode is "all"
+                    if select_mode == "✅ เลือกทั้งหมด":
+                        st.session_state[sel_key] = set(tl['id'].astype(str).tolist()) if 'id' in tl.columns else set(tl.index.astype(str).tolist())
+
+                    # ── render cards ────────────────────────────────────
+                    for idx_l, row_l in tl.iterrows():
+                        rid_l    = str(row_l.get('id', idx_l))
+                        match_l  = str(row_l.get('Match',''))
+                        is_live_l= '[LIVE' in match_l.upper()
+                        mn_l     = (match_l.replace('[LIVE]','').replace('[LIVE','')
+                                    .strip().strip("'").rstrip("]").strip())
+                        tgt_l    = str(row_l.get('Target','—'))
+                        hdp_l    = row_l.get('HDP',0)
+                        odds_l   = float(row_l.get('Odds',0))
+                        ev_l     = float(row_l.get('EV_Pct',0))
+                        result_l = str(row_l.get('Result','')).strip()
+                        pnl_l    = float(row_l.get('Net_Profit',0))
+                        time_l   = str(row_l.get('Time',''))[:16]
+
+                        is_selected = rid_l in st.session_state[sel_key]
+                        is_win      = pnl_l > 0
+
+                        # card style
+                        if is_selected:
+                            bg_l     = "rgba(0,255,136,0.08)"
+                            border_l = "#00ff88"
+                            check    = "✓"
+                        else:
+                            bg_l     = "#0d1e2e"
+                            border_l = "#00ff88" if is_win else "#ff3b5c"
+                            check    = "○"
+
+                        pnl_col_l = "#00ff88" if is_win else "#ff3b5c"
+                        result_emoji = "✅" if is_win else "❌"
+
+                        st.markdown(
+                            f'<div style="border-left:3px solid {border_l};'
+                            f'background:{bg_l};border-radius:0 6px 6px 0;'
+                            f'padding:10px 14px;margin-bottom:2px;">'
+                            f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
+                            f'<span style="font-family:\'Share Tech Mono\';font-size:1.1rem;'
+                            f'color:{border_l};width:18px;">{check}</span>'
+                            f'<span style="font-family:\'Exo 2\';font-weight:600;'
+                            f'font-size:0.88rem;color:#c8e6d4;flex:1;min-width:160px;">'
+                            f'{"🔴 " if is_live_l else ""}{mn_l}</span>'
+                            f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
+                            f'color:#4a7a60;">{tgt_l} {hdp_l} @ {odds_l:.2f}</span>'
+                            f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
+                            f'color:#4a7a60;">EV {ev_l:.1f}%</span>'
+                            f'<span style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
+                            f'color:{pnl_col_l};font-weight:600;">{result_emoji} ฿{pnl_l:+,.0f}</span>'
+                            f'<span style="font-family:\'Share Tech Mono\';font-size:0.62rem;'
+                            f'color:#2a5040;">{time_l}</span>'
+                            f'</div></div>',
+                            unsafe_allow_html=True
+                        )
+                        if select_mode == "☑️ เลือกเอง":
+                            btn_label = "✓ ยกเลิก" if is_selected else "○ เลือก"
+                            if st.button(btn_label, key=f"learn_toggle_{rid_l}",
+                                         use_container_width=True):
+                                if is_selected:
+                                    st.session_state[sel_key].discard(rid_l)
+                                else:
+                                    st.session_state[sel_key].add(rid_l)
+                                st.rerun()
+                        st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
+
+                    # selected count
+                    sel_count = len(st.session_state[sel_key])
+                    if sel_count > 0:
+                        st.markdown(
+                            f'<div style="margin-top:8px;padding:8px 12px;background:rgba(0,255,136,0.08);'
+                            f'border:1px solid rgba(0,255,136,0.3);border-radius:4px;'
+                            f'font-family:\'Share Tech Mono\';font-size:0.78rem;color:#00ff88;text-align:center;">'
+                            f'◈ เลือกแล้ว {sel_count} รายการ</div>',
+                            unsafe_allow_html=True
+                        )
+
+                    # build picked dataframe from selected ids
+                    if 'id' in tl.columns:
+                        picked = tl[tl['id'].astype(str).isin(st.session_state[sel_key])]
+                    else:
+                        picked = tl[tl.index.astype(str).isin(st.session_state[sel_key])]
+
+                    st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
 
                 if st.button("⚡  EXECUTE ORACLE LEARNING", use_container_width=True, type="primary"):
                     if picked.empty:
@@ -2130,104 +2256,245 @@ with tab4:
     st.markdown('<div class="gem-label">◈ BRIER SCORE ACCURACY ENGINE</div>', unsafe_allow_html=True)
     st.markdown(
         '<p style="font-family:\'Rajdhani\';font-size:0.85rem;color:#4a7a60;">'
-        'Compares GEM estimates vs bookmaker implied probabilities. Lower = More Accurate.</p>',
+        'เปรียบเทียบความแม่นยำของ GEM Model กับ Bookmaker — Brier Score ต่ำ = แม่นกว่า</p>',
         unsafe_allow_html=True
     )
 
     t4l = load_logs()
-    if t4l is not None and not t4l.empty:
+    if t4l is None or t4l.empty:
+        st.warning("◈ ยังไม่มีข้อมูลในระบบ")
+    else:
         t4l['Net_Profit'] = t4l.apply(calc_pnl, axis=1)
         fin = t4l[t4l['Result'].astype(str).str.strip() != ""].copy()
 
-        if not fin.empty:
+        if fin.empty:
+            st.info("◈ ยังไม่มีผลลัพธ์ที่ทราบแล้ว — กรอก Result ใน Dashboard ก่อนครับ")
+        else:
+            # ── [Fix 1] score_row แบบ exact match กับ AH outcome ──────
+            # แทนที่ใช้ * 0.95 threshold ที่อาจคลาดเคลื่อน
+            # ใช้ pnl / inv ratio เทียบกับ payout structure จริง
             def score_row(row):
                 try:
-                    inv, net, odds = float(row['Investment']), float(row['Net_Profit']), float(row['Odds'])
-                    if inv <= 0: return np.nan
-                    mw = inv * (odds - 1)
-                    if net >= mw * 0.95:   return 1.0
-                    elif net > 0:           return 0.75
-                    elif net == 0:          return 0.50
-                    elif net <= -inv * 0.95: return 0.0
-                    elif net < 0:           return 0.25
-                    return np.nan
+                    inv  = float(row['Investment'])
+                    net  = float(row['Net_Profit'])
+                    odds = float(row['Odds'])
+                    if inv <= 0:
+                        return np.nan
+                    full_win  = inv * (odds - 1)
+                    half_win  = full_win / 2
+                    half_loss = -inv / 2
+                    full_loss = -inv
+
+                    # ใช้ tolerance ±5% สำหรับ floating point safety
+                    tol = max(abs(full_win) * 0.05, 1.0)
+                    if   abs(net - full_win)  < tol: return 1.0
+                    elif abs(net - half_win)  < tol: return 0.75
+                    elif abs(net)              < tol: return 0.50   # push
+                    elif abs(net - half_loss) < tol: return 0.25
+                    elif abs(net - full_loss) < tol: return 0.0
+                    # fallback สำหรับ partial outcomes
+                    elif net >  0: return 0.75
+                    elif net == 0: return 0.50
+                    else:          return 0.25
                 except:
                     return np.nan
 
             fin['Actual'] = fin.apply(score_row, axis=1)
             fin = fin.dropna(subset=['Actual'])
 
-            if not fin.empty:
-                fin['BP'] = (1 / fin['Odds']).clip(0, 1)
-                rp        = (((fin['EV_Pct'] / 100) + 1) / fin['Odds']).clip(0, 1)
-                fin['OP'] = ((rp * 0.85) + (fin['BP'] * 0.15)).clip(0, 1)
-                fin['OE'] = (fin['OP'] - fin['Actual']) ** 2
+            if fin.empty:
+                st.info("◈ ไม่สามารถคำนวณผลลัพธ์ได้")
+            else:
+                # ── [Fix 2] ใช้ pure GEM prob แทน blended ──────────────
+                # Bookmaker probability (baseline)
+                fin['BP'] = (1 / fin['Odds']).clip(0.01, 0.99)
+                # GEM's pure predicted prob: (EV%/100 + 1) / Odds
+                # ที่มา: EV = prob × (odds-1) - (1-prob) → prob = (EV+1)/odds
+                fin['GP'] = (((fin['EV_Pct'] / 100.0) + 1.0) / fin['Odds']).clip(0.01, 0.99)
+                # Brier errors
+                fin['GE'] = (fin['GP'] - fin['Actual']) ** 2
                 fin['BE'] = (fin['BP'] - fin['Actual']) ** 2
 
-                ao   = fin['OE'].mean()
-                ab   = fin['BE'].mean()
-                diff = ab - ao
+                gem_brier  = fin['GE'].mean()
+                book_brier = fin['BE'].mean()
+                diff = book_brier - gem_brier
 
-                st.markdown(f'<div class="gem-label">◈ ACCURACY — {len(fin)} SETTLED BETS</div>', unsafe_allow_html=True)
+                # ── Header metrics ─────────────────────────────────────
+                total_bets   = len(fin)
+                wins         = int((fin['Net_Profit'] > 0).sum())
+                losses       = int((fin['Net_Profit'] < 0).sum())
+                pushes       = int((fin['Net_Profit'] == 0).sum())
+                win_rate     = (wins / total_bets * 100) if total_bets > 0 else 0
+                total_pnl    = fin['Net_Profit'].sum()
+                total_inv    = fin[fin['Investment'] > 0]['Investment'].sum()
+                overall_roi  = (total_pnl / total_inv * 100) if total_inv > 0 else 0
+
+                st.markdown(f'<div class="gem-label">◈ DATASET — {total_bets} SETTLED BETS</div>',
+                            unsafe_allow_html=True)
+                hm1, hm2, hm3, hm4 = st.columns(4)
+                hm1.metric("Bets",      f"{total_bets}", f"W{wins} L{losses} P{pushes}")
+                hm2.metric("Win Rate",  f"{win_rate:.1f}%")
+                hm3.metric("Total P&L", f"฿{total_pnl:+,.0f}")
+                hm4.metric("ROI",       f"{overall_roi:+.2f}%")
+
+                # ── Brier Score Comparison ─────────────────────────────
+                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ BRIER SCORE — GEM vs BOOKMAKER</div>',
+                            unsafe_allow_html=True)
                 rc1, rc2, rc3 = st.columns(3)
-                rc1.metric("GEM SCORE",    f"{ao:.4f}", f"{-diff:.4f} vs bookie", delta_color="inverse")
-                rc2.metric("BOOKIE SCORE",  f"{ab:.4f}")
-                col3 = "#00ff88" if ao < ab else "#ff3b5c"
-                lab3 = "▲ GEM BEATS MARKET" if ao < ab else "▼ CALIBRATION NEEDED"
+                rc1.metric("GEM SCORE",     f"{gem_brier:.4f}",
+                           f"{-diff:+.4f} vs bookie", delta_color="inverse")
+                rc2.metric("BOOKIE SCORE",  f"{book_brier:.4f}")
+                col3 = "#00ff88" if gem_brier < book_brier else "#ff3b5c"
+                lab3 = "▲ GEM ชนะตลาด" if gem_brier < book_brier else "▼ ต้อง CALIBRATE"
                 rc3.markdown(
                     f'<div class="gem-panel" style="border-top:2px solid {col3};text-align:center;padding:10px;">'
-                    f'<span style="font-family:\'Share Tech Mono\';color:{col3};font-size:0.78rem;">{lab3}</span></div>',
+                    f'<span style="font-family:\'Share Tech Mono\';color:{col3};font-size:0.82rem;">{lab3}</span></div>',
                     unsafe_allow_html=True
                 )
 
-                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE ERROR</div>', unsafe_allow_html=True)
+                # ── [Fix 4] Cumulative chart ใช้ Time แทน index ─────────
+                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE BRIER ERROR — TIMELINE</div>',
+                            unsafe_allow_html=True)
                 fin = fin.sort_values('Time').reset_index(drop=True)
-                fin['CumO'] = fin['OE'].cumsum()
+                fin['CumG'] = fin['GE'].cumsum()
                 fin['CumB'] = fin['BE'].cumsum()
                 fig_bt = go.Figure()
-                fig_bt.add_trace(go.Scatter(x=fin.index, y=fin['CumO'], mode='lines',
-                                             name='GEM', line=dict(color='#00ff88', width=2)))
-                fig_bt.add_trace(go.Scatter(x=fin.index, y=fin['CumB'], mode='lines',
-                                             name='Bookmaker', line=dict(color='#ff3b5c', width=2, dash='dot')))
-                neon_layout(fig_bt, "CUMULATIVE BRIER ERROR")
-                fig_bt.update_layout(xaxis_title="Settled Bets", yaxis_title="Cumulative Error")
+                fig_bt.add_trace(go.Scatter(
+                    x=fin['Time'], y=fin['CumG'], mode='lines',
+                    name='GEM', line=dict(color='#00ff88', width=2)
+                ))
+                fig_bt.add_trace(go.Scatter(
+                    x=fin['Time'], y=fin['CumB'], mode='lines',
+                    name='Bookmaker', line=dict(color='#ff3b5c', width=2, dash='dot')
+                ))
+                neon_layout(fig_bt, "CUMULATIVE BRIER ERROR — เส้น GEM ต่ำกว่าคือดี")
+                fig_bt.update_layout(xaxis_title="วันที่", yaxis_title="Cumulative Error")
                 st.plotly_chart(fig_bt, use_container_width=True)
 
-                with st.expander("◈ RAW DATA"):
+                with st.expander("◈ RAW DATA TABLE"):
                     st.dataframe(
-                        fin[['Time','Match','Target','Odds','Result','Net_Profit','Actual','BP','OP']],
-                        use_container_width=True
+                        fin[['Time','Match','Target','Odds','EV_Pct','Result',
+                             'Net_Profit','Actual','BP','GP','GE','BE']],
+                        use_container_width=True,
+                        column_config={
+                            "BP": st.column_config.NumberColumn("Bookie Prob", format="%.3f"),
+                            "GP": st.column_config.NumberColumn("GEM Prob",    format="%.3f"),
+                            "GE": st.column_config.NumberColumn("GEM Error",   format="%.4f"),
+                            "BE": st.column_config.NumberColumn("Bookie Error",format="%.4f"),
+                            "Actual": st.column_config.NumberColumn("Outcome",  format="%.2f"),
+                        }
                     )
 
+                # ════════════════════════════════════════════════════════
+                # [Fix 3] ML AUTO-TUNING แบบใหม่ — ครบเครื่อง
+                # ════════════════════════════════════════════════════════
                 st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>', unsafe_allow_html=True)
-                if st.button("🧪 RUN BACKTEST OPTIMIZATION", type="primary", use_container_width=True):
+                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>',
+                            unsafe_allow_html=True)
+                st.markdown(
+                    '<p style="font-family:\'Rajdhani\';font-size:0.82rem;color:#4a7a60;">'
+                    'หา EV threshold ที่ให้ผลตอบแทนดีที่สุด พิจารณาทั้ง ROI และจำนวนไม้ที่เพียงพอ</p>',
+                    unsafe_allow_html=True
+                )
+
+                opt_c1, opt_c2 = st.columns(2)
+                with opt_c1:
+                    min_samples = st.number_input(
+                        "Minimum Sample Size",
+                        min_value=3, max_value=100, value=5, step=1,
+                        help="จำนวนไม้ขั้นต่ำที่ต้องผ่าน threshold เพื่อพิจารณา (ป้องกัน overfit)"
+                    )
+                with opt_c2:
+                    opt_metric = st.selectbox(
+                        "Optimize For",
+                        ["ROI per Bet (recommended)", "Total P&L (raw profit)", "Win Rate"],
+                        help="ROI per bet สมดุลที่สุด — Total P&L เน้นปริมาณ — Win Rate เน้นความแม่น"
+                    )
+
+                if st.button("🧪  RUN BACKTEST OPTIMIZATION",
+                             type="primary", use_container_width=True):
                     with st.spinner("วนลูปย้อนหลังเพื่อหา Threshold ที่ดีที่สุด..."):
-                        best_ah_thr_opt, best_ah_pnl = 0.0, -99999.0
-                        best_ou_thr_opt, best_ou_pnl = 0.0, -99999.0
-                        ah_logs = fin[fin['Target'].isin(['เจ้าบ้าน', 'ทีมเยือน'])]
-                        ou_logs = fin[fin['Target'].isin(['สูง', 'ต่ำ'])]
+                        ah_logs = fin[fin['Target'].isin(['เจ้าบ้าน', 'ทีมเยือน'])].copy()
+                        ou_logs = fin[fin['Target'].isin(['สูง', 'ต่ำ'])].copy()
 
-                        for t in np.arange(1.0, 30.0, 0.5):
-                            pnl_ah = ah_logs[ah_logs['EV_Pct'] >= t]['Net_Profit'].sum()
-                            if pnl_ah > best_ah_pnl:
-                                best_ah_pnl, best_ah_thr_opt = pnl_ah, t
-                            pnl_ou = ou_logs[ou_logs['EV_Pct'] >= t]['Net_Profit'].sum()
-                            if pnl_ou > best_ou_pnl:
-                                best_ou_pnl, best_ou_thr_opt = pnl_ou, t
+                        def find_best(logs, label):
+                            """หา threshold ที่ดีที่สุดสำหรับตลาดนี้"""
+                            results = []
+                            for t in np.arange(1.0, 35.0, 0.5):
+                                f = logs[logs['EV_Pct'] >= t]
+                                n = len(f)
+                                if n < min_samples:
+                                    continue
+                                pnl_sum = f['Net_Profit'].sum()
+                                inv_sum = f[f['Investment'] > 0]['Investment'].sum()
+                                wins_n  = int((f['Net_Profit'] > 0).sum())
+                                wr      = (wins_n / n * 100) if n > 0 else 0
+                                roi     = (pnl_sum / inv_sum * 100) if inv_sum > 0 else 0
+                                roi_per_bet = pnl_sum / n
+                                results.append({
+                                    'threshold': t,
+                                    'count':     n,
+                                    'pnl':       pnl_sum,
+                                    'roi':       roi,
+                                    'roi_per_bet': roi_per_bet,
+                                    'win_rate':  wr,
+                                })
+                            if not results:
+                                return None, []
+                            res_df = pd.DataFrame(results)
+                            if "ROI per Bet" in opt_metric:
+                                best = res_df.loc[res_df['roi_per_bet'].idxmax()]
+                            elif "Total P&L" in opt_metric:
+                                best = res_df.loc[res_df['pnl'].idxmax()]
+                            else:
+                                best = res_df.loc[res_df['win_rate'].idxmax()]
+                            return best, res_df
 
-                        st.success(
-                            f"**🎯 Optimized Thresholds:**\n\n"
-                            f"👉 **AH:** ตั้ง EV ขั้นต่ำที่ **{best_ah_thr_opt}%** "
-                            f"(กำไรสูงสุด: ฿{best_ah_pnl:,.0f})\n\n"
-                            f"👉 **O/U:** ตั้ง EV ขั้นต่ำที่ **{best_ou_thr_opt}%** "
-                            f"(กำไรสูงสุด: ฿{best_ou_pnl:,.0f})"
+                        best_ah, ah_df = find_best(ah_logs, "AH")
+                        best_ou, ou_df = find_best(ou_logs, "O/U")
+
+                        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+
+                        # AH section
+                        st.markdown('<div class="gem-label">◈ ASIAN HANDICAP — OPTIMAL THRESHOLD</div>',
+                                    unsafe_allow_html=True)
+                        if best_ah is not None:
+                            ac1, ac2, ac3, ac4 = st.columns(4)
+                            ac1.metric("AH Threshold", f"{best_ah['threshold']:.1f}%")
+                            ac2.metric("Bets",         f"{int(best_ah['count'])}")
+                            ac3.metric("P&L",          f"฿{best_ah['pnl']:+,.0f}")
+                            ac4.metric("ROI",          f"{best_ah['roi']:+.2f}%",
+                                       f"WR {best_ah['win_rate']:.1f}%")
+                            with st.expander("◈ AH — ทุก threshold ที่ทดสอบ"):
+                                st.dataframe(ah_df.style.highlight_max(
+                                    subset=['roi_per_bet','pnl','win_rate'], color='#003322'),
+                                    use_container_width=True)
+                        else:
+                            st.warning(f"⚠️ AH: ไม่พบ threshold ที่มี records ≥ {min_samples} ไม้")
+
+                        # O/U section
+                        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ OVER/UNDER — OPTIMAL THRESHOLD</div>',
+                                    unsafe_allow_html=True)
+                        if best_ou is not None:
+                            oc1, oc2, oc3, oc4 = st.columns(4)
+                            oc1.metric("O/U Threshold", f"{best_ou['threshold']:.1f}%")
+                            oc2.metric("Bets",          f"{int(best_ou['count'])}")
+                            oc3.metric("P&L",           f"฿{best_ou['pnl']:+,.0f}")
+                            oc4.metric("ROI",           f"{best_ou['roi']:+.2f}%",
+                                       f"WR {best_ou['win_rate']:.1f}%")
+                            with st.expander("◈ O/U — ทุก threshold ที่ทดสอบ"):
+                                st.dataframe(ou_df.style.highlight_max(
+                                    subset=['roi_per_bet','pnl','win_rate'], color='#003322'),
+                                    use_container_width=True)
+                        else:
+                            st.warning(f"⚠️ O/U: ไม่พบ threshold ที่มี records ≥ {min_samples} ไม้")
+
+                        # Conclusion
+                        ah_thr_txt = f"{best_ah['threshold']:.1f}%" if best_ah is not None else "—"
+                        ou_thr_txt = f"{best_ou['threshold']:.1f}%" if best_ou is not None else "—"
+                        st.info(
+                            f"**🎯 แนะนำ:** นำตัวเลขนี้ไปปรับที่ Sidebar → EV THRESHOLDS\n\n"
+                            f"• AH:  **{ah_thr_txt}**\n"
+                            f"• O/U: **{ou_thr_txt}**\n\n"
+                            f"_optimize ตาม: {opt_metric}, min sample = {min_samples} ไม้_"
                         )
-                        st.info("นำตัวเลขนี้ไปปรับที่ Sidebar → EV THRESHOLDS ได้เลยครับ!")
-
-            else:
-                st.info("◈ No records with calculable outcomes")
-        else:
-            st.info("◈ No settled results — update Result column in Dashboard first")
-    else:
-        st.warning("◈ No investment log found")
