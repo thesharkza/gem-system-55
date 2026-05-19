@@ -1949,188 +1949,188 @@ with tab2:
 
                     st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
 
-                if st.button("⚡  EXECUTE ORACLE LEARNING", use_container_width=True, type="primary"):
-                    if picked.empty:
-                        st.warning("⚠️ ติ๊กเลือกอย่างน้อย 1 รายการก่อนครับ")
-                    elif not api_key:
-                        st.error("⚠️ API Key missing")
-                    else:
-                        with st.spinner(f"Oracle กำลังเรียนรู้จาก {len(picked)} แมตช์..."):
+                    if st.button("⚡  EXECUTE ORACLE LEARNING", use_container_width=True, type="primary"):
+                        if picked.empty:
+                            st.warning("⚠️ ติ๊กเลือกอย่างน้อย 1 รายการก่อนครับ")
+                        elif not api_key:
+                            st.error("⚠️ API Key missing")
+                        else:
+                            with st.spinner(f"Oracle กำลังเรียนรู้จาก {len(picked)} แมตช์..."):
 
-                            # ── เตรียมข้อมูล ──────────────────────────────────────
-                            csv_s = picked[[
-                                'Time','Match','HDP','Target','Odds',
-                                'Result','Net_Profit','EV_Pct'
-                            ]].to_csv(index=False)
+                                # ── เตรียมข้อมูล ──────────────────────────────────────
+                                csv_s = picked[[
+                                    'Time','Match','HDP','Target','Odds',
+                                    'Result','Net_Profit','EV_Pct'
+                                ]].to_csv(index=False)
 
-                            # ── สถิติเพิ่มเติม ────────────────────────────────────
-                            p_pnl     = picked['Net_Profit'].sum()
-                            p_wr      = len(picked[picked['Net_Profit'] > 0]) / len(picked) * 100
-                            p_ah      = picked[picked['Target'].isin(['เจ้าบ้าน','ทีมเยือน'])]
-                            p_ou      = picked[picked['Target'].isin(['สูง','ต่ำ'])]
-                            p_fav     = picked[picked['Target'] == 'เจ้าบ้าน']
-                            p_dog     = picked[picked['Target'] == 'ทีมเยือน']
-                            p_over    = picked[picked['Target'] == 'สูง']
-                            p_under   = picked[picked['Target'] == 'ต่ำ']
-                            stats_ctx = (
-                                f"สรุปชุดข้อมูล: {len(picked)} บิล | "
-                                f"P&L รวม ฿{p_pnl:,.0f} | "
-                                f"Win Rate {p_wr:.0f}% | "
-                                f"AH {len(p_ah)} บิล (Fav={len(p_fav)} Dog={len(p_dog)}) | "
-                                f"O/U {len(p_ou)} บิล (Over={len(p_over)} Under={len(p_under)})"
-                            )
+                                # ── สถิติเพิ่มเติม ────────────────────────────────────
+                                p_pnl     = picked['Net_Profit'].sum()
+                                p_wr      = len(picked[picked['Net_Profit'] > 0]) / len(picked) * 100
+                                p_ah      = picked[picked['Target'].isin(['เจ้าบ้าน','ทีมเยือน'])]
+                                p_ou      = picked[picked['Target'].isin(['สูง','ต่ำ'])]
+                                p_fav     = picked[picked['Target'] == 'เจ้าบ้าน']
+                                p_dog     = picked[picked['Target'] == 'ทีมเยือน']
+                                p_over    = picked[picked['Target'] == 'สูง']
+                                p_under   = picked[picked['Target'] == 'ต่ำ']
+                                stats_ctx = (
+                                    f"สรุปชุดข้อมูล: {len(picked)} บิล | "
+                                    f"P&L รวม ฿{p_pnl:,.0f} | "
+                                    f"Win Rate {p_wr:.0f}% | "
+                                    f"AH {len(p_ah)} บิล (Fav={len(p_fav)} Dog={len(p_dog)}) | "
+                                    f"O/U {len(p_ou)} บิล (Over={len(p_over)} Under={len(p_under)})"
+                                )
 
-                            # ── โหลด GEM RULES ปัจจุบัน ──────────────────────────
-                            try:
-                                rr = supabase.table("gem_knowledge").select(
-                                    "rule_id,category,rule_text"
-                                ).eq("is_active", True).execute()
-                                rs = "\n".join([
-                                    f"[{item['rule_id']} - {item['category']}] {item['rule_text']}"
-                                    for item in (rr.data or [])
-                                ])
-                            except:
-                                rs = "ไม่สามารถโหลด GEM RULES ได้"
+                                # ── โหลด GEM RULES ปัจจุบัน ──────────────────────────
+                                try:
+                                    rr = supabase.table("gem_knowledge").select(
+                                        "rule_id,category,rule_text"
+                                    ).eq("is_active", True).execute()
+                                    rs = "\n".join([
+                                        f"[{item['rule_id']} - {item['category']}] {item['rule_text']}"
+                                        for item in (rr.data or [])
+                                    ])
+                                except:
+                                    rs = "ไม่สามารถโหลด GEM RULES ได้"
 
-                            # ── task instruction ตาม mode ─────────────────────────
-                            if task_mode == "Defensive":
-                                task_detail = """ภารกิจ: POST-MORTEM ANALYSIS
-1. วิเคราะห์สาเหตุที่แท้จริงของการขาดทุน — โครงสร้างราคา, เส้น, ประเภทเป้าหมาย, EV range
-2. ค้นหา pattern ที่ซ้ำกัน (เช่น ขาดทุนบ่อยในเส้นเดิม หรือเป้าหมายเดิม)
-3. เปรียบเทียบกับ GEM RULES ปัจจุบัน — กฎใดควรมีอยู่แล้วแต่ไม่ได้ป้องกัน?
-4. สร้างกฎป้องกัน (Defensive Rules) เชิงเทคนิค ห้ามระบุชื่อทีมหรือลีก
-5. ถ้า case น้อยกว่า 3 ไม้ → อาจเป็น variance ปกติ แนะนำเฝ้าดูต่อ
-6. ระบุ [FATAL] ถ้าควรห้ามเด็ดขาด หรือ [WARNING] ถ้าแค่ให้ระวัง"""
-                                severity = "FATAL หรือ WARNING"
-                                rule_type = "Defensive 🔴"
+                                # ── task instruction ตาม mode ─────────────────────────
+                                if task_mode == "Defensive":
+                                    task_detail = """ภารกิจ: POST-MORTEM ANALYSIS
+    1. วิเคราะห์สาเหตุที่แท้จริงของการขาดทุน — โครงสร้างราคา, เส้น, ประเภทเป้าหมาย, EV range
+    2. ค้นหา pattern ที่ซ้ำกัน (เช่น ขาดทุนบ่อยในเส้นเดิม หรือเป้าหมายเดิม)
+    3. เปรียบเทียบกับ GEM RULES ปัจจุบัน — กฎใดควรมีอยู่แล้วแต่ไม่ได้ป้องกัน?
+    4. สร้างกฎป้องกัน (Defensive Rules) เชิงเทคนิค ห้ามระบุชื่อทีมหรือลีก
+    5. ถ้า case น้อยกว่า 3 ไม้ → อาจเป็น variance ปกติ แนะนำเฝ้าดูต่อ
+    6. ระบุ [FATAL] ถ้าควรห้ามเด็ดขาด หรือ [WARNING] ถ้าแค่ให้ระวัง"""
+                                    severity = "FATAL หรือ WARNING"
+                                    rule_type = "Defensive 🔴"
 
-                            elif task_mode == "Offensive":
-                                task_detail = """ภารกิจ: SUCCESS PATTERN ANALYSIS
-1. หา pattern ที่ทำให้ชนะตลาด — EV range ที่ดีที่สุด, เส้น, ประเภทเป้าหมาย
-2. ระบุ EV threshold ที่ให้ผลดีที่สุดจากข้อมูลจริง
-3. สร้างกฎเชิงบวก (Offensive Rules) ที่บอกว่า "เพิ่มความมั่นใจเมื่อ..."
-4. อาจสร้างกฎที่ผ่อนปรนกฎ Defensive เดิมได้ถ้ามีหลักฐานชัดเจน
-5. หา Fav/Dog และ Over/Under pattern ว่าฝั่งไหนชนะสม่ำเสมอกว่า
-6. ระบุ [BOOST] สำหรับกฎที่เพิ่ม confidence หรือ [EXCEPTION] ที่ยกเว้นกฎเดิม"""
-                                severity = "BOOST หรือ EXCEPTION"
-                                rule_type = "Offensive 🟢"
+                                elif task_mode == "Offensive":
+                                    task_detail = """ภารกิจ: SUCCESS PATTERN ANALYSIS
+    1. หา pattern ที่ทำให้ชนะตลาด — EV range ที่ดีที่สุด, เส้น, ประเภทเป้าหมาย
+    2. ระบุ EV threshold ที่ให้ผลดีที่สุดจากข้อมูลจริง
+    3. สร้างกฎเชิงบวก (Offensive Rules) ที่บอกว่า "เพิ่มความมั่นใจเมื่อ..."
+    4. อาจสร้างกฎที่ผ่อนปรนกฎ Defensive เดิมได้ถ้ามีหลักฐานชัดเจน
+    5. หา Fav/Dog และ Over/Under pattern ว่าฝั่งไหนชนะสม่ำเสมอกว่า
+    6. ระบุ [BOOST] สำหรับกฎที่เพิ่ม confidence หรือ [EXCEPTION] ที่ยกเว้นกฎเดิม"""
+                                    severity = "BOOST หรือ EXCEPTION"
+                                    rule_type = "Offensive 🟢"
 
-                            else:
-                                task_detail = """ภารกิจ: MIXED ANALYSIS (เปรียบเทียบชนะ vs แพ้)
-1. แยกบิลชนะ vs บิลแพ้ แล้วหาความแตกต่างของ pattern อย่างละเอียด
-2. ตรวจ AH vs O/U แยกกัน — ตลาดไหนทำผลดีกว่า?
-3. ตรวจ Fav vs Dog — ฝั่งไหนให้ผลที่ดีกว่าในข้อมูลชุดนี้?
-4. ตรวจ EV range — บิล EV สูง vs ต่ำ ให้ผลต่างกันแค่ไหน?
-5. สร้างทั้งกฎป้องกัน (Defensive) สำหรับรูปแบบที่แพ้
-   และกฎเสริมพลัง (Offensive) สำหรับรูปแบบที่ชนะ
-6. ประเมินว่ากฎเดิมใดในระบบควรปรับ, เพิ่ม, หรือลบ"""
-                                severity = "FATAL / WARNING / BOOST / EXCEPTION"
-                                rule_type = "Mixed ⚪"
-
-                            # ── build learning prompt ─────────────────────────────
-                            pd_prompt = f"""คุณคือ Chief Risk Officer (CRO) และ Quant Analyst ของกองทุน Sports Betting
-ภารกิจ: วิเคราะห์ประวัติการลงทุนและพัฒนา GEM RULES ให้แม่นยำขึ้น
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 CASE STUDY DATA
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{csv_s}
-
-📊 สถิติชุดข้อมูล: {stats_ctx}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{task_detail}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📖 GEM RULES ปัจจุบัน (ห้ามซ้ำกฎเดิม)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{rs if rs else "ยังไม่มีกฎในระบบ — สร้างได้เลย"}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📌 คำสั่งบังคับสำหรับการสร้างกฎ
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. MARKET LABEL (บังคับ)
-   ทุกกฎต้องระบุตลาดใน category:
-   [AH]  = Asian Handicap เท่านั้น
-   [OU]  = Over/Under เท่านั้น
-   [ALL] = ทุกตลาด
-   ตัวอย่าง: "Risk Management [AH]", "Momentum [ALL]"
-
-2. RULE FORMAT (บังคับ)
-   เริ่มด้วย [{severity}] แล้วตามด้วยเงื่อนไข IF...THEN ที่ชัดเจน
-   ตัวอย่าง:
-   "[WARNING] ถ้า EV < 15% และเส้น > 1.0 ใน Pre-Match → ลด confidence"
-   "[FATAL] ถ้า odds < 1.50 และ Dog → ห้ามลงเด็ดขาด"
-   "[BOOST] ถ้า Steam + EV > 20% → เพิ่ม confidence level 1 ขั้น"
-
-3. MARKET ISOLATION (บังคับ)
-   กฎ AH ห้ามพาด O/U logic และในทางกลับกัน
-
-4. QUALITY CONTROL
-   ห้ามระบุชื่อทีม ลีก นักเตะ
-   กฎต้องใช้ได้กว้างในหลายแมตช์
-   ห้ามซ้ำกฎที่มีอยู่แล้ว
-   สร้างได้สูงสุด 3 กฎต่อ session
-
-5. SEVERITY DEFINITIONS
-   FATAL   = ห้ามลงเด็ดขาด ไม่ว่า EV จะสูงแค่ไหน
-   WARNING = ระวัง ลด impact_score แต่ยังลงได้ถ้า EV แข็งแกร่ง
-   BOOST   = เพิ่มความมั่นใจ เพิ่ม confidence_level
-   EXCEPTION = ยกเว้นกฎ Defensive เดิมได้ถ้าตรงเงื่อนไขนี้
-
-6. ถ้าข้อมูลน้อยกว่า 3 บิล หรือเป็น variance → ส่ง new_rules_to_add: []
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📤 ตอบกลับ JSON (ภาษาไทย) เท่านั้น:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{{
-  "analysis_summary": "สรุป: pattern ที่พบ | สาเหตุหลัก | ข้อสังเกต AH vs OU | Fav vs Dog",
-  "new_rules_to_add": [
-    {{
-      "rule_text": "[FATAL/WARNING/BOOST/EXCEPTION] IF เงื่อนไข THEN action",
-      "category": "Risk Management [AH]"
-    }}
-  ]
-}}"""
-
-                            try:
-                                m = genai.GenerativeModel('models/gemma-4-31b-it')
-                                d = safe_json_loads(m.generate_content(pd_prompt).text)
-                                if d:
-                                    st.success("✅ Oracle Learning เสร็จสิ้น")
-                                    st.info(f"**📊 Analysis:** {d.get('analysis_summary','—')}")
-                                    nr = d.get("new_rules_to_add", [])
-                                    if nr:
-                                        pl  = []
-                                        bid = datetime.now(timezone(timedelta(hours=7))).strftime("%Y%m%d_%H%M")
-                                        st.markdown(f'<div class="gem-label">◈ NEW RULES — {rule_type}</div>', unsafe_allow_html=True)
-                                        for i, rule in enumerate(nr):
-                                            rid = f"{pfx}{bid}_{i+1}"
-                                            pl.append({
-                                                "rule_id":   rid,
-                                                "rule_text": rule.get("rule_text", ""),
-                                                "category":  rule.get("category", "AI Learning"),
-                                                "is_active": True   # [Fix 3] บังคับให้ active ทันทีหลัง insert
-                                            })
-                                            c2 = ("#ff3b5c" if "DEF" in pfx
-                                                  else ("#00ff88" if "OFF" in pfx else "#ffd600"))
-                                            st.markdown(
-                                                f'<div class="gem-panel" style="border-top:2px solid {c2};">'
-                                                f'<span style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:{c2};">'
-                                                f'[{rid}] {rule.get("category","")}</span><br>'
-                                                f'<span style="color:#c8e6d4;">{rule.get("rule_text","")}</span></div>',
-                                                unsafe_allow_html=True
-                                            )
-                                        supabase.table("gem_knowledge").insert(pl).execute()
-                                        load_gem_rules.clear()
-                                        st.balloons()
-                                        st.success(f"✅ {len(pl)} กฎใหม่ sync ขึ้น Cloud แล้ว (is_active=True — พร้อมใช้งานทันที)")
-                                    else:
-                                        st.info("◈ Oracle ประเมินว่าเป็น variance ปกติ — ไม่จำเป็นต้องสร้างกฎใหม่")
                                 else:
-                                    st.error("⚠️ AI ตอบกลับผิดรูปแบบ JSON — ลองใหม่อีกครั้ง")
-                            except Exception as e:
-                                st.error(f"❌ Error: {e}")
+                                    task_detail = """ภารกิจ: MIXED ANALYSIS (เปรียบเทียบชนะ vs แพ้)
+    1. แยกบิลชนะ vs บิลแพ้ แล้วหาความแตกต่างของ pattern อย่างละเอียด
+    2. ตรวจ AH vs O/U แยกกัน — ตลาดไหนทำผลดีกว่า?
+    3. ตรวจ Fav vs Dog — ฝั่งไหนให้ผลที่ดีกว่าในข้อมูลชุดนี้?
+    4. ตรวจ EV range — บิล EV สูง vs ต่ำ ให้ผลต่างกันแค่ไหน?
+    5. สร้างทั้งกฎป้องกัน (Defensive) สำหรับรูปแบบที่แพ้
+       และกฎเสริมพลัง (Offensive) สำหรับรูปแบบที่ชนะ
+    6. ประเมินว่ากฎเดิมใดในระบบควรปรับ, เพิ่ม, หรือลบ"""
+                                    severity = "FATAL / WARNING / BOOST / EXCEPTION"
+                                    rule_type = "Mixed ⚪"
+
+                                # ── build learning prompt ─────────────────────────────
+                                pd_prompt = f"""คุณคือ Chief Risk Officer (CRO) และ Quant Analyst ของกองทุน Sports Betting
+    ภารกิจ: วิเคราะห์ประวัติการลงทุนและพัฒนา GEM RULES ให้แม่นยำขึ้น
+
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    📋 CASE STUDY DATA
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {csv_s}
+
+    📊 สถิติชุดข้อมูล: {stats_ctx}
+
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {task_detail}
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    📖 GEM RULES ปัจจุบัน (ห้ามซ้ำกฎเดิม)
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {rs if rs else "ยังไม่มีกฎในระบบ — สร้างได้เลย"}
+
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    📌 คำสั่งบังคับสำหรับการสร้างกฎ
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    1. MARKET LABEL (บังคับ)
+       ทุกกฎต้องระบุตลาดใน category:
+       [AH]  = Asian Handicap เท่านั้น
+       [OU]  = Over/Under เท่านั้น
+       [ALL] = ทุกตลาด
+       ตัวอย่าง: "Risk Management [AH]", "Momentum [ALL]"
+
+    2. RULE FORMAT (บังคับ)
+       เริ่มด้วย [{severity}] แล้วตามด้วยเงื่อนไข IF...THEN ที่ชัดเจน
+       ตัวอย่าง:
+       "[WARNING] ถ้า EV < 15% และเส้น > 1.0 ใน Pre-Match → ลด confidence"
+       "[FATAL] ถ้า odds < 1.50 และ Dog → ห้ามลงเด็ดขาด"
+       "[BOOST] ถ้า Steam + EV > 20% → เพิ่ม confidence level 1 ขั้น"
+
+    3. MARKET ISOLATION (บังคับ)
+       กฎ AH ห้ามพาด O/U logic และในทางกลับกัน
+
+    4. QUALITY CONTROL
+       ห้ามระบุชื่อทีม ลีก นักเตะ
+       กฎต้องใช้ได้กว้างในหลายแมตช์
+       ห้ามซ้ำกฎที่มีอยู่แล้ว
+       สร้างได้สูงสุด 3 กฎต่อ session
+
+    5. SEVERITY DEFINITIONS
+       FATAL   = ห้ามลงเด็ดขาด ไม่ว่า EV จะสูงแค่ไหน
+       WARNING = ระวัง ลด impact_score แต่ยังลงได้ถ้า EV แข็งแกร่ง
+       BOOST   = เพิ่มความมั่นใจ เพิ่ม confidence_level
+       EXCEPTION = ยกเว้นกฎ Defensive เดิมได้ถ้าตรงเงื่อนไขนี้
+
+    6. ถ้าข้อมูลน้อยกว่า 3 บิล หรือเป็น variance → ส่ง new_rules_to_add: []
+
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    📤 ตอบกลับ JSON (ภาษาไทย) เท่านั้น:
+    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    {{
+      "analysis_summary": "สรุป: pattern ที่พบ | สาเหตุหลัก | ข้อสังเกต AH vs OU | Fav vs Dog",
+      "new_rules_to_add": [
+        {{
+          "rule_text": "[FATAL/WARNING/BOOST/EXCEPTION] IF เงื่อนไข THEN action",
+          "category": "Risk Management [AH]"
+        }}
+      ]
+    }}"""
+
+                                try:
+                                    m = genai.GenerativeModel('models/gemma-4-31b-it')
+                                    d = safe_json_loads(m.generate_content(pd_prompt).text)
+                                    if d:
+                                        st.success("✅ Oracle Learning เสร็จสิ้น")
+                                        st.info(f"**📊 Analysis:** {d.get('analysis_summary','—')}")
+                                        nr = d.get("new_rules_to_add", [])
+                                        if nr:
+                                            pl  = []
+                                            bid = datetime.now(timezone(timedelta(hours=7))).strftime("%Y%m%d_%H%M")
+                                            st.markdown(f'<div class="gem-label">◈ NEW RULES — {rule_type}</div>', unsafe_allow_html=True)
+                                            for i, rule in enumerate(nr):
+                                                rid = f"{pfx}{bid}_{i+1}"
+                                                pl.append({
+                                                    "rule_id":   rid,
+                                                    "rule_text": rule.get("rule_text", ""),
+                                                    "category":  rule.get("category", "AI Learning"),
+                                                    "is_active": True   # [Fix 3] บังคับให้ active ทันทีหลัง insert
+                                                })
+                                                c2 = ("#ff3b5c" if "DEF" in pfx
+                                                      else ("#00ff88" if "OFF" in pfx else "#ffd600"))
+                                                st.markdown(
+                                                    f'<div class="gem-panel" style="border-top:2px solid {c2};">'
+                                                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:{c2};">'
+                                                    f'[{rid}] {rule.get("category","")}</span><br>'
+                                                    f'<span style="color:#c8e6d4;">{rule.get("rule_text","")}</span></div>',
+                                                    unsafe_allow_html=True
+                                                )
+                                            supabase.table("gem_knowledge").insert(pl).execute()
+                                            load_gem_rules.clear()
+                                            st.balloons()
+                                            st.success(f"✅ {len(pl)} กฎใหม่ sync ขึ้น Cloud แล้ว (is_active=True — พร้อมใช้งานทันที)")
+                                        else:
+                                            st.info("◈ Oracle ประเมินว่าเป็น variance ปกติ — ไม่จำเป็นต้องสร้างกฎใหม่")
+                                    else:
+                                        st.error("⚠️ AI ตอบกลับผิดรูปแบบ JSON — ลองใหม่อีกครั้ง")
+                                except Exception as e:
+                                    st.error(f"❌ Error: {e}")
             else:
                 st.info("ไม่มีข้อมูลในหมวดหมู่นี้")
         else:
