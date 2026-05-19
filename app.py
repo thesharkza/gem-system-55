@@ -956,8 +956,8 @@ with st.sidebar:
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
-    pre_ah_thr = st.slider("AH %",  1.0, 50.0, 10.0, step=0.5)
-    pre_ou_thr = st.slider("O/U %", 1.0, 50.0, 10.0, step=0.5)
+    pre_ah_thr = st.slider("AH %",  1.0, 50.0, 24.5, step=0.5)
+    pre_ou_thr = st.slider("O/U %", 1.0, 50.0, 23.5, step=0.5)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — IN-PLAY</div>', unsafe_allow_html=True)
     live_ah_thr = st.slider("AH Live %",  5.0, 50.0, 24.0, step=1.0)
     live_ou_thr = st.slider("O/U Live %", 5.0, 50.0, 23.0, step=1.0)
@@ -1482,103 +1482,121 @@ with tab2:
                         except Exception as e:
                             st.error(f"Error: {e}")
 
-            # ── Match Cards loop ──────────────────────────────────────────
-            for idx, row in df2.iterrows():
-                match_raw  = str(row.get('Match', ''))
-                is_live    = '[LIVE' in match_raw.upper()
-                match_name = (match_raw
-                              .replace('[LIVE]', '').replace('[LIVE', '')
-                              .strip().strip("'").rstrip("]").strip())
+            # ── Match Cards loop — 3 cards per row ────────────────────────
+            CARDS_PER_ROW = 3
+            rows_data = df2.to_dict('records')
 
-                target   = str(row.get('Target', '—'))
-                hdp      = row.get('HDP', 0)
-                odds     = float(row.get('Odds', 0))
-                ev_pct   = float(row.get('EV_Pct', 0))
-                invest   = float(row.get('Investment', 0))
-                result   = str(row.get('Result', '')).strip()
-                closing  = row.get('Closing_Odds', 0.0)
-                net_pnl  = float(row.get('Net_Profit', 0.0))
-                row_id   = row.get('id', idx)
-                time_str = str(row.get('Time', ''))[:16]
+            for row_idx in range(0, len(rows_data), CARDS_PER_ROW):
+                chunk = rows_data[row_idx : row_idx + CARDS_PER_ROW]
+                cols  = st.columns(CARDS_PER_ROW)
 
-                if is_live:
-                    border_col = "#ff8c00"; status_label = "🟠 LIVE"
-                elif not result:
-                    border_col = "#ffd600"; status_label = "⏳ PENDING"
-                elif net_pnl > 0:
-                    border_col = "#00ff88"; status_label = "✅ WIN"
-                elif net_pnl < 0:
-                    border_col = "#ff3b5c"; status_label = "❌ LOSS"
-                else:
-                    border_col = "#4a7a60"; status_label = "➖ PUSH"
+                for col_idx, row in enumerate(chunk):
+                    with cols[col_idx]:
+                        match_raw  = str(row.get('Match', ''))
+                        is_live    = '[LIVE' in match_raw.upper()
+                        match_name = (match_raw
+                                      .replace('[LIVE]', '').replace('[LIVE', '')
+                                      .strip().strip("'").rstrip("]").strip())
 
-                pnl_display = f"฿{net_pnl:+,.0f}" if result else "—"
-                pnl_color   = ("#00ff88" if net_pnl > 0
-                               else ("#ff3b5c" if net_pnl < 0 else "#4a7a60"))
+                        target   = str(row.get('Target', '—'))
+                        hdp      = row.get('HDP', 0)
+                        odds     = float(row.get('Odds', 0))
+                        ev_pct   = float(row.get('EV_Pct', 0))
+                        invest   = float(row.get('Investment', 0))
+                        result   = str(row.get('Result', '')).strip()
+                        closing  = row.get('Closing_Odds', 0.0)
+                        net_pnl  = float(row.get('Net_Profit', 0.0))
+                        row_id   = row.get('id', row_idx + col_idx)
+                        time_str = str(row.get('Time', ''))[:16]
 
-                # ── card HTML ─────────────────────────────────────────────
-                st.markdown(
-                    f'<div style="border-left:3px solid {border_col};'
-                    f'background:#0d1e2e;border-radius:0 6px 6px 0;'
-                    f'padding:14px 18px;margin-bottom:4px;">'
-                    f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
-                    f'<span style="font-family:\'Exo 2\',sans-serif;font-weight:600;'
-                    f'font-size:0.95rem;color:#c8e6d4;flex:1;">'
-                    f'{"🔴 " if is_live else ""}{match_name}</span>'
-                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.7rem;'
-                    f'color:{border_col};">{status_label}</span>'
-                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.65rem;'
-                    f'color:#2a5040;">{time_str}</span>'
-                    f'</div>'
-                    f'<div style="display:flex;gap:20px;margin-top:8px;flex-wrap:wrap;">'
-                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
-                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">TARGET</span><br>'
-                    f'<span style="color:#c8e6d4;">{target}</span></span>'
-                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
-                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">LINE</span><br>'
-                    f'<span style="color:#c8e6d4;">{hdp}</span></span>'
-                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
-                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">ODDS</span><br>'
-                    f'<span style="color:#c8e6d4;">{odds:.2f}</span></span>'
-                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
-                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">EV</span><br>'
-                    f'<span style="color:#c8e6d4;">{ev_pct:.1f}%</span></span>'
-                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
-                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">INVEST</span><br>'
-                    f'<span style="color:#c8e6d4;">฿{invest:,.0f}</span></span>'
-                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
-                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">RESULT</span><br>'
-                    f'<span style="color:#c8e6d4;">{result if result else "—"}</span></span>'
-                    f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.78rem;color:#4a7a60;">'
-                    f'<span style="font-size:0.6rem;letter-spacing:.1em;">P&amp;L</span><br>'
-                    f'<span style="color:{pnl_color};font-weight:600;">{pnl_display}</span></span>'
-                    f'</div></div>',
-                    unsafe_allow_html=True
-                )
+                        if is_live:
+                            border_col = "#ff8c00"; status_label = "🟠 LIVE"
+                        elif not result:
+                            border_col = "#ffd600"; status_label = "⏳ PENDING"
+                        elif net_pnl > 0:
+                            border_col = "#00ff88"; status_label = "✅ WIN"
+                        elif net_pnl < 0:
+                            border_col = "#ff3b5c"; status_label = "❌ LOSS"
+                        else:
+                            border_col = "#4a7a60"; status_label = "➖ PUSH"
 
-                # ── popup trigger button (flush ใต้การ์ด) ────────────────
-                if st.button(
-                    "📋  ดูรายละเอียด & กรอกผล",
-                    key=f"open_dlg_{row_id}",
-                    use_container_width=True
-                ):
-                    show_match_dialog({
-                        'match_name':  match_name,
-                        'target':      target,
-                        'hdp':         hdp,
-                        'odds':        odds,
-                        'ev_pct':      ev_pct,
-                        'invest':      invest,
-                        'result':      result,
-                        'closing':     closing,
-                        'net_pnl':     net_pnl,
-                        'row_id':      row_id,
-                        'time_str':    time_str,
-                        'border_col':  border_col,
-                        'status_label':status_label,
-                    })
+                        pnl_display = f"฿{net_pnl:+,.0f}" if result else "—"
+                        pnl_color   = ("#00ff88" if net_pnl > 0
+                                       else ("#ff3b5c" if net_pnl < 0 else "#4a7a60"))
 
-                st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
+                        # ── COMPACT CARD ──────────────────────────────────
+                        # ชื่อทีมบนสุด, สถานะ+เวลาบรรทัด 2
+                        # ข้อมูล 2 บรรทัด: Target/Line/Odds — EV/Inv/P&L
+                        st.markdown(
+                            f'<div style="border-left:3px solid {border_col};'
+                            f'background:#0d1e2e;border-radius:0 6px 6px 0;'
+                            f'padding:10px 12px;margin-bottom:4px;min-height:130px;">'
+
+                            # row 1: match name
+                            f'<div style="font-family:\'Exo 2\',sans-serif;font-weight:600;'
+                            f'font-size:0.82rem;color:#c8e6d4;line-height:1.2;'
+                            f'overflow:hidden;text-overflow:ellipsis;'
+                            f'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">'
+                            f'{"🔴 " if is_live else ""}{match_name}</div>'
+
+                            # row 2: status + time
+                            f'<div style="display:flex;justify-content:space-between;'
+                            f'margin-top:4px;">'
+                            f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.62rem;'
+                            f'color:{border_col};">{status_label}</span>'
+                            f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.58rem;'
+                            f'color:#2a5040;">{time_str[5:]}</span>'  # ตัดปีออกประหยัดพื้นที่
+                            f'</div>'
+
+                            # divider
+                            f'<div style="height:1px;background:#1a3528;margin:6px 0;"></div>'
+
+                            # row 3: target / line / odds
+                            f'<div style="display:flex;justify-content:space-between;'
+                            f'font-family:\'Share Tech Mono\',monospace;font-size:0.7rem;'
+                            f'color:#c8e6d4;line-height:1.4;">'
+                            f'<span title="Target">{target}</span>'
+                            f'<span title="Line" style="color:#4a7a60;">{hdp}</span>'
+                            f'<span title="Odds" style="color:#4a7a60;">@{odds:.2f}</span>'
+                            f'</div>'
+
+                            # row 4: EV / Invest / P&L
+                            f'<div style="display:flex;justify-content:space-between;'
+                            f'margin-top:3px;font-family:\'Share Tech Mono\',monospace;'
+                            f'font-size:0.68rem;line-height:1.4;">'
+                            f'<span style="color:#4a7a60;">EV {ev_pct:.1f}%</span>'
+                            f'<span style="color:#4a7a60;">฿{invest:,.0f}</span>'
+                            f'<span style="color:{pnl_color};font-weight:600;">{pnl_display}</span>'
+                            f'</div>'
+
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+
+                        # ── popup trigger button (flush ใต้การ์ด) ─────────
+                        if st.button(
+                            "📋  ดูรายละเอียด",
+                            key=f"open_dlg_{row_id}",
+                            use_container_width=True
+                        ):
+                            show_match_dialog({
+                                'match_name':  match_name,
+                                'target':      target,
+                                'hdp':         hdp,
+                                'odds':        odds,
+                                'ev_pct':      ev_pct,
+                                'invest':      invest,
+                                'result':      result,
+                                'closing':     closing,
+                                'net_pnl':     net_pnl,
+                                'row_id':      row_id,
+                                'time_str':    time_str,
+                                'border_col':  border_col,
+                                'status_label':status_label,
+                            })
+
+                # spacer ระหว่างแถว
+                st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
 
         # ── Quick refresh ─────────────────────────────────────────────────
         if st.button("↺  REFRESH ALL", use_container_width=True):
@@ -1755,68 +1773,95 @@ with tab2:
                     if select_mode == "✅ เลือกทั้งหมด":
                         st.session_state[sel_key] = set(tl['id'].astype(str).tolist()) if 'id' in tl.columns else set(tl.index.astype(str).tolist())
 
-                    # ── render cards ────────────────────────────────────
-                    for idx_l, row_l in tl.iterrows():
-                        rid_l    = str(row_l.get('id', idx_l))
-                        match_l  = str(row_l.get('Match',''))
-                        is_live_l= '[LIVE' in match_l.upper()
-                        mn_l     = (match_l.replace('[LIVE]','').replace('[LIVE','')
-                                    .strip().strip("'").rstrip("]").strip())
-                        tgt_l    = str(row_l.get('Target','—'))
-                        hdp_l    = row_l.get('HDP',0)
-                        odds_l   = float(row_l.get('Odds',0))
-                        ev_l     = float(row_l.get('EV_Pct',0))
-                        result_l = str(row_l.get('Result','')).strip()
-                        pnl_l    = float(row_l.get('Net_Profit',0))
-                        time_l   = str(row_l.get('Time',''))[:16]
+                    # ── render cards — 6 cards per row ──────────────────
+                    LEARN_PER_ROW = 6
+                    learn_rows = tl.to_dict('records')
 
-                        is_selected = rid_l in st.session_state[sel_key]
-                        is_win      = pnl_l > 0
+                    for r_idx in range(0, len(learn_rows), LEARN_PER_ROW):
+                        chunk_l = learn_rows[r_idx : r_idx + LEARN_PER_ROW]
+                        cols_l  = st.columns(LEARN_PER_ROW)
 
-                        # card style
-                        if is_selected:
-                            bg_l     = "rgba(0,255,136,0.08)"
-                            border_l = "#00ff88"
-                            check    = "✓"
-                        else:
-                            bg_l     = "#0d1e2e"
-                            border_l = "#00ff88" if is_win else "#ff3b5c"
-                            check    = "○"
+                        for c_idx, row_l in enumerate(chunk_l):
+                            with cols_l[c_idx]:
+                                rid_l    = str(row_l.get('id', r_idx + c_idx))
+                                match_l  = str(row_l.get('Match',''))
+                                is_live_l= '[LIVE' in match_l.upper()
+                                mn_l     = (match_l.replace('[LIVE]','').replace('[LIVE','')
+                                            .strip().strip("'").rstrip("]").strip())
+                                tgt_l    = str(row_l.get('Target','—'))
+                                hdp_l    = row_l.get('HDP',0)
+                                odds_l   = float(row_l.get('Odds',0))
+                                ev_l     = float(row_l.get('EV_Pct',0))
+                                pnl_l    = float(row_l.get('Net_Profit',0))
+                                time_l   = str(row_l.get('Time',''))[:16]
 
-                        pnl_col_l = "#00ff88" if is_win else "#ff3b5c"
-                        result_emoji = "✅" if is_win else "❌"
+                                is_selected = rid_l in st.session_state[sel_key]
+                                is_win      = pnl_l > 0
 
-                        st.markdown(
-                            f'<div style="border-left:3px solid {border_l};'
-                            f'background:{bg_l};border-radius:0 6px 6px 0;'
-                            f'padding:10px 14px;margin-bottom:2px;">'
-                            f'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">'
-                            f'<span style="font-family:\'Share Tech Mono\';font-size:1.1rem;'
-                            f'color:{border_l};width:18px;">{check}</span>'
-                            f'<span style="font-family:\'Exo 2\';font-weight:600;'
-                            f'font-size:0.88rem;color:#c8e6d4;flex:1;min-width:160px;">'
-                            f'{"🔴 " if is_live_l else ""}{mn_l}</span>'
-                            f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
-                            f'color:#4a7a60;">{tgt_l} {hdp_l} @ {odds_l:.2f}</span>'
-                            f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
-                            f'color:#4a7a60;">EV {ev_l:.1f}%</span>'
-                            f'<span style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
-                            f'color:{pnl_col_l};font-weight:600;">{result_emoji} ฿{pnl_l:+,.0f}</span>'
-                            f'<span style="font-family:\'Share Tech Mono\';font-size:0.62rem;'
-                            f'color:#2a5040;">{time_l}</span>'
-                            f'</div></div>',
-                            unsafe_allow_html=True
-                        )
-                        if select_mode == "☑️ เลือกเอง":
-                            btn_label = "✓ ยกเลิก" if is_selected else "○ เลือก"
-                            if st.button(btn_label, key=f"learn_toggle_{rid_l}",
-                                         use_container_width=True):
+                                # card style
                                 if is_selected:
-                                    st.session_state[sel_key].discard(rid_l)
+                                    bg_l     = "rgba(0,255,136,0.12)"
+                                    border_l = "#00ff88"
+                                    check    = "✓"
                                 else:
-                                    st.session_state[sel_key].add(rid_l)
-                                st.rerun()
-                        st.markdown('<div style="height:2px"></div>', unsafe_allow_html=True)
+                                    bg_l     = "#0d1e2e"
+                                    border_l = "#00ff88" if is_win else "#ff3b5c"
+                                    check    = "○"
+
+                                pnl_col_l    = "#00ff88" if is_win else "#ff3b5c"
+                                result_emoji = "✅" if is_win else "❌"
+
+                                # ── COMPACT MINI CARD ──────────────────────
+                                # 6 ต่อแถวต้อง compact มาก แสดงเฉพาะข้อมูลสำคัญ
+                                st.markdown(
+                                    f'<div style="border-left:3px solid {border_l};'
+                                    f'background:{bg_l};border-radius:0 4px 4px 0;'
+                                    f'padding:8px 10px;margin-bottom:2px;min-height:115px;">'
+
+                                    # check + match name
+                                    f'<div style="display:flex;align-items:flex-start;gap:5px;">'
+                                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.95rem;'
+                                    f'color:{border_l};line-height:1;">{check}</span>'
+                                    f'<span style="font-family:\'Exo 2\';font-weight:600;'
+                                    f'font-size:0.7rem;color:#c8e6d4;line-height:1.2;flex:1;'
+                                    f'overflow:hidden;display:-webkit-box;'
+                                    f'-webkit-line-clamp:2;-webkit-box-orient:vertical;">'
+                                    f'{"🔴" if is_live_l else ""}{mn_l}</span>'
+                                    f'</div>'
+
+                                    # target & line
+                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.6rem;'
+                                    f'color:#4a7a60;margin-top:4px;">'
+                                    f'{tgt_l[:8]} {hdp_l} @ {odds_l:.2f}</div>'
+
+                                    # EV
+                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.6rem;'
+                                    f'color:#4a7a60;">EV {ev_l:.1f}%</div>'
+
+                                    # P&L
+                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.72rem;'
+                                    f'color:{pnl_col_l};font-weight:600;margin-top:2px;">'
+                                    f'{result_emoji} ฿{pnl_l:+,.0f}</div>'
+
+                                    # time (just date)
+                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.55rem;'
+                                    f'color:#2a5040;margin-top:2px;">{time_l[5:10]}</div>'
+
+                                    f'</div>',
+                                    unsafe_allow_html=True
+                                )
+
+                                if select_mode == "☑️ เลือกเอง":
+                                    btn_label = "✓" if is_selected else "○"
+                                    if st.button(btn_label, key=f"learn_toggle_{rid_l}",
+                                                 use_container_width=True):
+                                        if is_selected:
+                                            st.session_state[sel_key].discard(rid_l)
+                                        else:
+                                            st.session_state[sel_key].add(rid_l)
+                                        st.rerun()
+
+                        st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
 
                     # selected count
                     sel_count = len(st.session_state[sel_key])
