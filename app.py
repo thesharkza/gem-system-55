@@ -1136,29 +1136,34 @@ with st.sidebar:
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
-    # [Calibration v3 - ทาง 3] แยก threshold ตามฝั่งเพราะแต่ละฝั่งมี structural edge ต่างกัน
-    # Over หายาก → ใช้ threshold ต่ำ (มี value bet แม้ EV ไม่สูงมาก)
-    # Under เจอบ่อย → ใช้ threshold สูง (กรอง false positive จาก Poisson skew)
-    # Fav ดูยาก → threshold ต่ำ
-    # Dog เจอบ่อย → threshold สูง
+    # [Calibration v3.1] Default ใหม่เหมาะกับ Base EV (Math เปล่าๆ ก่อน AI)
+    # ตัวเลขเก่า 20-30% เป็น Net EV (รวม AI dump แล้ว) ใช้กับระบบใหม่จะไม่เจอ bet เลย
+    # ตัวเลขใหม่อิงจาก distribution analysis: P75-P85 ของ market noise
+    st.markdown(
+        '<p style="font-family:\'Rajdhani\';font-size:0.75rem;color:#4a7a60;'
+        'margin-top:-4px;margin-bottom:8px;">'
+        'ⓘ Base EV mode — threshold ต่ำกว่าเดิมเพราะคัดที่ Math เท่านั้น</p>',
+        unsafe_allow_html=True
+    )
     col_pre_ah1, col_pre_ah2 = st.columns(2)
-    pre_ah_fav_thr = col_pre_ah1.slider("AH Fav %", 1.0, 50.0, 20.0, step=0.5,
-                                         help="Threshold สำหรับทีมต่อ (ต่ำกว่า Dog)")
-    pre_ah_dog_thr = col_pre_ah2.slider("AH Dog %", 1.0, 50.0, 30.0, step=0.5,
-                                         help="Threshold สำหรับทีมรอง (สูงกว่า Fav เพราะมี structural edge)")
+    pre_ah_fav_thr = col_pre_ah1.slider("AH Fav %", 1.0, 50.0, 8.0, step=0.5,
+                                         help="Threshold สำหรับทีมต่อ (Base EV) — แนะนำ 8-12%")
+    pre_ah_dog_thr = col_pre_ah2.slider("AH Dog %", 1.0, 50.0, 14.0, step=0.5,
+                                         help="Threshold สำหรับทีมรอง (Base EV) — แนะนำ 14-18%")
     col_pre_ou1, col_pre_ou2 = st.columns(2)
-    pre_ou_over_thr  = col_pre_ou1.slider("OU Over %",  1.0, 50.0, 18.0, step=0.5,
-                                           help="Threshold สำหรับสูง (ต่ำเพราะหายาก)")
-    pre_ou_under_thr = col_pre_ou2.slider("OU Under %", 1.0, 50.0, 28.0, step=0.5,
-                                           help="Threshold สำหรับต่ำ (สูงเพราะ Poisson skew)")
+    pre_ou_over_thr  = col_pre_ou1.slider("OU Over %",  1.0, 50.0, 5.0, step=0.5,
+                                           help="Threshold สำหรับสูง (Base EV) — แนะนำ 5-8%")
+    pre_ou_under_thr = col_pre_ou2.slider("OU Under %", 1.0, 50.0, 12.0, step=0.5,
+                                           help="Threshold สำหรับต่ำ (Base EV) — แนะนำ 12-15%")
 
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — IN-PLAY</div>', unsafe_allow_html=True)
     col_lv_ah1, col_lv_ah2 = st.columns(2)
-    live_ah_fav_thr = col_lv_ah1.slider("AH Live Fav %", 5.0, 50.0, 20.0, step=1.0)
-    live_ah_dog_thr = col_lv_ah2.slider("AH Live Dog %", 5.0, 50.0, 28.0, step=1.0)
+    live_ah_fav_thr = col_lv_ah1.slider("AH Live Fav %", 1.0, 50.0, 10.0, step=1.0,
+                                          help="Live volatility สูงกว่า → threshold สูงนิด")
+    live_ah_dog_thr = col_lv_ah2.slider("AH Live Dog %", 1.0, 50.0, 15.0, step=1.0)
     col_lv_ou1, col_lv_ou2 = st.columns(2)
-    live_ou_over_thr  = col_lv_ou1.slider("OU Live Over %",  5.0, 50.0, 18.0, step=1.0)
-    live_ou_under_thr = col_lv_ou2.slider("OU Live Under %", 5.0, 50.0, 26.0, step=1.0)
+    live_ou_over_thr  = col_lv_ou1.slider("OU Live Over %",  1.0, 50.0, 6.0, step=1.0)
+    live_ou_under_thr = col_lv_ou2.slider("OU Live Under %", 1.0, 50.0, 13.0, step=1.0)
 
     # ── 🛑 DAILY RISK STATUS DISPLAY ─────────────────────────────────
     if enable_stop_loss:
