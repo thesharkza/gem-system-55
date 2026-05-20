@@ -657,6 +657,13 @@ def ev_ah(hdp, w2, w1, d, l1, l2, odds, fav):
 # [แก้ไข #3] รวมทุก case เข้า res แล้ว return ครั้งเดียว
 # ป้องกัน early return ที่หนีการ apply penalty
 def ev_ou(line, pt, odds, over):
+    """
+    [Calibration v3 - ทาง 2] Poisson Skew Offset
+    Poisson sum distribution มี right-skew ตามธรรมชาติ ทำให้ P(Under) สูงกว่า P(Over)
+    แม้ et = ou_line พอดี — measured: Under bias +8% ถึง +22% บน line 2.0-2.5
+
+    วิธีแก้: เพิ่ม +3% ให้ Over และ -3% ให้ Under เป็นการ offset structural skew
+    """
     b  = odds - 1
     fl = math.floor(line)
     rm = line - fl
@@ -674,6 +681,15 @@ def ev_ou(line, pt, odds, over):
         elif rm == 0.5:  res = g(lambda k: k <= fl) * b  - g(lambda k: k >= fl+1)
         elif rm == 0.75: res = g(lambda k: k <= fl) * b  - pt.get(fl+1, 0)*0.5  - g(lambda k: k >= fl+2)
         else: res = 0.0
+
+    # [Calibration v3] Poisson skew offset
+    # +3% bonus to Over, -3% penalty to Under เพื่อ neutralize structural skew
+    # ค่านี้มาจาก empirical test: เฉลี่ย Poisson skew อยู่ที่ ~6-9% บน line ปกติ
+    POISSON_SKEW_OFFSET = 0.030
+    if over:
+        res += POISSON_SKEW_OFFSET
+    else:
+        res -= POISSON_SKEW_OFFSET
 
     return _quant_penalty(res, line, odds)
 
@@ -1072,10 +1088,13 @@ with st.sidebar:
     total_bankroll = st.number_input("Bankroll (THB)", min_value=0.0, value=10000.0)
     # HDBA slider ยังคงไว้เพื่อใช้ใน future หรือ manual override
     # แต่ระบบใช้ Dynamic HDBA = pd × dog_odds × 0.25 เป็นค่าหลัก
+    # [Calibration v3] เพิ่ม HDBA factor default จาก 0.25 → 0.45
+    # เพราะ Dog edge ฟรี = pd × odds เฉลี่ย 47-53% หักด้วย factor 0.25 เหลือ edge +35-40%
+    # เพิ่มเป็น 0.45 จะหัก ~80% ของ Dog advantage ทำให้ Fav vs Dog ใกล้สมดุล
     hdba_val = st.slider(
         "HDBA Adj Factor",
-        0.10, 0.50, 0.25, step=0.05,
-        help="Dynamic Dog Penalty = pd × odds × factor (0.25 = หัก 25% ของ draw advantage)"
+        0.10, 0.80, 0.45, step=0.05,
+        help="Dynamic Dog Penalty = pd × odds × factor (0.45 = หัก ~80% ของ draw advantage)"
     )
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
@@ -1108,11 +1127,29 @@ with st.sidebar:
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
-    pre_ah_thr = st.slider("AH %",  1.0, 50.0, 24.5, step=0.5)
-    pre_ou_thr = st.slider("O/U %", 1.0, 50.0, 23.5, step=0.5)
+    # [Calibration v3 - ทาง 3] แยก threshold ตามฝั่งเพราะแต่ละฝั่งมี structural edge ต่างกัน
+    # Over หายาก → ใช้ threshold ต่ำ (มี value bet แม้ EV ไม่สูงมาก)
+    # Under เจอบ่อย → ใช้ threshold สูง (กรอง false positive จาก Poisson skew)
+    # Fav ดูยาก → threshold ต่ำ
+    # Dog เจอบ่อย → threshold สูง
+    col_pre_ah1, col_pre_ah2 = st.columns(2)
+    pre_ah_fav_thr = col_pre_ah1.slider("AH Fav %", 1.0, 50.0, 20.0, step=0.5,
+                                         help="Threshold สำหรับทีมต่อ (ต่ำกว่า Dog)")
+    pre_ah_dog_thr = col_pre_ah2.slider("AH Dog %", 1.0, 50.0, 30.0, step=0.5,
+                                         help="Threshold สำหรับทีมรอง (สูงกว่า Fav เพราะมี structural edge)")
+    col_pre_ou1, col_pre_ou2 = st.columns(2)
+    pre_ou_over_thr  = col_pre_ou1.slider("OU Over %",  1.0, 50.0, 18.0, step=0.5,
+                                           help="Threshold สำหรับสูง (ต่ำเพราะหายาก)")
+    pre_ou_under_thr = col_pre_ou2.slider("OU Under %", 1.0, 50.0, 28.0, step=0.5,
+                                           help="Threshold สำหรับต่ำ (สูงเพราะ Poisson skew)")
+
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — IN-PLAY</div>', unsafe_allow_html=True)
-    live_ah_thr = st.slider("AH Live %",  5.0, 50.0, 24.0, step=1.0)
-    live_ou_thr = st.slider("O/U Live %", 5.0, 50.0, 23.0, step=1.0)
+    col_lv_ah1, col_lv_ah2 = st.columns(2)
+    live_ah_fav_thr = col_lv_ah1.slider("AH Live Fav %", 5.0, 50.0, 20.0, step=1.0)
+    live_ah_dog_thr = col_lv_ah2.slider("AH Live Dog %", 5.0, 50.0, 28.0, step=1.0)
+    col_lv_ou1, col_lv_ou2 = st.columns(2)
+    live_ou_over_thr  = col_lv_ou1.slider("OU Live Over %",  5.0, 50.0, 18.0, step=1.0)
+    live_ou_under_thr = col_lv_ou2.slider("OU Live Under %", 5.0, 50.0, 26.0, step=1.0)
 
     # ── 🛑 DAILY RISK STATUS DISPLAY ─────────────────────────────────
     if enable_stop_loss:
@@ -1152,10 +1189,21 @@ with st.sidebar:
                 unsafe_allow_html=True
             )
 
-pre_ah_lim  = pre_ah_thr  / 100
-pre_ou_lim  = pre_ou_thr  / 100
-live_ah_lim = live_ah_thr / 100
-live_ou_lim = live_ou_thr / 100
+# [Calibration v3] แปลง threshold เป็นทศนิยม — แยก 8 ตัวตามฝั่ง
+pre_ah_fav_lim   = pre_ah_fav_thr   / 100
+pre_ah_dog_lim   = pre_ah_dog_thr   / 100
+pre_ou_over_lim  = pre_ou_over_thr  / 100
+pre_ou_under_lim = pre_ou_under_thr / 100
+live_ah_fav_lim  = live_ah_fav_thr  / 100
+live_ah_dog_lim  = live_ah_dog_thr  / 100
+live_ou_over_lim = live_ou_over_thr / 100
+live_ou_under_lim= live_ou_under_thr/ 100
+
+# [Backward compat] ใช้ค่าต่ำสุดของแต่ละตลาดสำหรับ gauge display
+pre_ah_thr   = min(pre_ah_fav_thr,   pre_ah_dog_thr)
+pre_ou_thr   = min(pre_ou_over_thr,  pre_ou_under_thr)
+live_ah_thr  = min(live_ah_fav_thr,  live_ah_dog_thr)
+live_ou_thr  = min(live_ou_over_thr, live_ou_under_thr)
 
 # ตัวแปร global สำหรับใช้ใน tab1 และ tab3
 if enable_stop_loss:
@@ -1355,14 +1403,24 @@ with tab1:
         p2.metric("DRAW",     f"{pd_*100:.1f}%")
         p3.metric("AWAY WIN", f"{pa*100:.1f}%")
 
-        g1, g2 = st.columns(2)
-        with g1: st.plotly_chart(ev_gauge(bah['ev'], f"TARGET: {bah['n']}", pre_ah_thr), use_container_width=True)
-        with g2: st.plotly_chart(ev_gauge(bou['ev'], f"TARGET: {bou['n']}", pre_ou_thr), use_container_width=True)
+        # [Calibration v3] ใช้ threshold ตามฝั่ง — Fav/Dog และ Over/Under มี threshold ต่างกัน
+        # หาว่า bah ฝั่งไหน (Fav หรือ Dog) แล้วใช้ threshold ของฝั่งนั้น
+        bah_is_fav = (bah['n'] == "เจ้าบ้าน" and fav_h) or (bah['n'] == "ทีมเยือน" and not fav_h)
+        ah_threshold  = pre_ah_fav_lim if bah_is_fav else pre_ah_dog_lim
+        ah_threshold_pct = pre_ah_fav_thr if bah_is_fav else pre_ah_dog_thr
 
-        # Cross-Market Dutching — วิเคราะห์ทุกตลาดที่ผ่าน threshold
+        bou_is_over = (bou['n'] == "สูง")
+        ou_threshold = pre_ou_over_lim if bou_is_over else pre_ou_under_lim
+        ou_threshold_pct = pre_ou_over_thr if bou_is_over else pre_ou_under_thr
+
+        g1, g2 = st.columns(2)
+        with g1: st.plotly_chart(ev_gauge(bah['ev'], f"TARGET: {bah['n']}", ah_threshold_pct), use_container_width=True)
+        with g2: st.plotly_chart(ev_gauge(bou['ev'], f"TARGET: {bou['n']}", ou_threshold_pct), use_container_width=True)
+
+        # Cross-Market Dutching — ใช้ threshold ที่ตรงกับฝั่งของ bet
         valid_bets = []
-        if bah['ev'] >= pre_ah_lim: valid_bets.append(bah)
-        if bou['ev'] >= pre_ou_lim: valid_bets.append(bou)
+        if bah['ev'] >= ah_threshold: valid_bets.append(bah)
+        if bou['ev'] >= ou_threshold: valid_bets.append(bou)
 
         if valid_bets:
             with st.spinner("◈ THE ORACLE PROCESSING..."):
@@ -1370,8 +1428,13 @@ with tab1:
                     tf = None
                     if tc['n'] == "เจ้าบ้าน": tf = fav_h
                     elif tc['n'] == "ทีมเยือน": tf = not fav_h
+                    # [Calibration v3] เลือก threshold ที่ตรงกับ bet ฝั่งนี้
+                    if tc['n'] in ["เจ้าบ้าน", "ทีมเยือน"]:
+                        bet_thr = pre_ah_fav_lim if (tf is True) else pre_ah_dog_lim
+                    else:
+                        bet_thr = pre_ou_over_lim if (tc['n'] == "สูง") else pre_ou_under_lim
                     v   = ai_engine(match_name, tc['n'], tc['ev'], tc['hdp'], tc['odds'],
-                                    live=False, thr=pre_ah_lim, stats=match_stats,
+                                    live=False, thr=bet_thr, stats=match_stats,
                                     fav=tf, line_movement=line_movement)
                     nev = tc['ev'] + v.get('impact_score', 0)
 
@@ -1426,7 +1489,7 @@ with tab1:
             st.markdown(
                 f'<div class="gem-panel" style="border-top:2px solid #ffd600;">'
                 f'<div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ BELOW THRESHOLD — NO SIGNAL</div>'
-                f'<p class="gem-warn">AH {bah["ev"]*100:.2f}% (min {pre_ah_thr}%) | O/U {bou["ev"]*100:.2f}% (min {pre_ou_thr}%)</p></div>',
+                f'<p class="gem-warn">AH {bah["ev"]*100:.2f}% (min {ah_threshold_pct}%) | O/U {bou["ev"]*100:.2f}% (min {ou_threshold_pct}%)</p></div>',
                 unsafe_allow_html=True
             )
 
@@ -2453,16 +2516,25 @@ with tab3:
         bav = max(evhl, eval_); tah = "เจ้าบ้าน" if evhl > eval_ else "ทีมเยือน"
         bov = max(evol, evul);  tou = "สูง" if evol > evul else "ต่ำ"
 
+        # [Calibration v3] หา threshold ตามฝั่งสำหรับ Live
+        tah_is_fav = (tah == "เจ้าบ้าน" and fvl) or (tah == "ทีมเยือน" and not fvl)
+        live_ah_threshold     = live_ah_fav_lim if tah_is_fav else live_ah_dog_lim
+        live_ah_threshold_pct = live_ah_fav_thr if tah_is_fav else live_ah_dog_thr
+
+        tou_is_over = (tou == "สูง")
+        live_ou_threshold     = live_ou_over_lim if tou_is_over else live_ou_under_lim
+        live_ou_threshold_pct = live_ou_over_thr if tou_is_over else live_ou_under_thr
+
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
         gg1, gg2 = st.columns(2)
-        with gg1: st.plotly_chart(ev_gauge(bav, f"AH: {tah}", live_ah_thr), use_container_width=True)
-        with gg2: st.plotly_chart(ev_gauge(bov, f"O/U: {tou}", live_ou_thr), use_container_width=True)
+        with gg1: st.plotly_chart(ev_gauge(bav, f"AH: {tah}", live_ah_threshold_pct), use_container_width=True)
+        with gg2: st.plotly_chart(ev_gauge(bov, f"O/U: {tou}", live_ou_threshold_pct), use_container_width=True)
 
         valid_bets_live = []
-        if bav >= live_ah_lim:
+        if bav >= live_ah_threshold:
             valid_bets_live.append({"n": tah, "ev": bav, "hdp": lhdp,
                                     "odds": fix(lhdph) if tah == "เจ้าบ้าน" else fix(lhdpa)})
-        if bov >= live_ou_lim:
+        if bov >= live_ou_threshold:
             valid_bets_live.append({"n": tou, "ev": bov, "hdp": lou,
                                     "odds": fix(louov) if tou == "สูง" else fix(louun)})
 
@@ -2472,11 +2544,16 @@ with tab3:
                     tf2 = None
                     if tl2['n'] == "เจ้าบ้าน":  tf2 = fvl
                     elif tl2['n'] == "ทีมเยือน": tf2 = not fvl
+                    # [Calibration v3] เลือก threshold สำหรับ AI engine ตามฝั่ง bet
+                    if tl2['n'] in ["เจ้าบ้าน", "ทีมเยือน"]:
+                        live_bet_thr = live_ah_fav_lim if (tf2 is True) else live_ah_dog_lim
+                    else:
+                        live_bet_thr = live_ou_over_lim if (tl2['n'] == "สูง") else live_ou_under_lim
                     live_mn_val = st.session_state.get('match_name_live_input', live_mn)
                     al  = ai_engine(
                         live_mn_val, tl2['n'], tl2['ev'], tl2['hdp'], tl2['odds'],
                         live=True, current_min=cmin, score=f"{csh}-{csa}",
-                        thr=live_ah_lim, fav=tf2, line_movement=line_movement_live
+                        thr=live_bet_thr, fav=tf2, line_movement=line_movement_live
                     )
                     nlev = tl2['ev'] + al.get('impact_score', 0)
 
@@ -2492,7 +2569,8 @@ with tab3:
                         st.error(f"**RISK:** {al.get('cons_analysis','—')}")
                         st.info(f"**RULES:** {al.get('rule_triggered','None')}")
 
-                    lim = live_ah_lim if tl2['n'] in ["เจ้าบ้าน","ทีมเยือน"] else live_ou_lim
+                    # [Calibration v3] เช็ค Net EV ผ่าน threshold ฝั่งที่ตรง
+                    lim = live_bet_thr
                     if al.get('final_decision', False) and nlev >= lim:
                         st.balloons()
                         st.markdown(
@@ -2529,7 +2607,7 @@ with tab3:
             st.markdown(
                 f'<div class="gem-panel" style="border-top:2px solid #0f2535;">'
                 f'<div class="gem-label">◈ WITHIN NORMAL RANGE</div>'
-                f'<p class="gem-dim">AH {bav*100:.2f}% (min {live_ah_thr}%) | O/U {bov*100:.2f}% (min {live_ou_thr}%)</p></div>',
+                f'<p class="gem-dim">AH {bav*100:.2f}% (min {live_ah_threshold_pct}%) | O/U {bov*100:.2f}% (min {live_ou_threshold_pct}%)</p></div>',
                 unsafe_allow_html=True
             )
 
