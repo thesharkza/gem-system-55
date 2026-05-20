@@ -2533,6 +2533,9 @@ with tab3:
             for err in live_errors:
                 st.error(f"❌ {err}")
             st.stop()
+
+        # [Fix] คำนวณ true prob จาก pre-match odds (ที่หายไปจาก patch ก่อน)
+        lph, lpd, lpa = shin_devig(fix(preh), fix(pred), fix(prea))
         ml = max(90 - cmin, 1)
 
         hw2l, hw1l, dexl, aw1l, aw2l, ptl = calc_dixon_coles_matrix(
