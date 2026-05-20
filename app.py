@@ -919,8 +919,17 @@ def load_logs():
         if r.data:
             df = pd.DataFrame(r.data)
             df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
-            for c in ['EV_Pct', 'Investment', 'Odds', 'Closing_Odds']:
-                df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
+            # numeric columns รวม Base_EV_Pct และ AI_Impact_Pct
+            for c in ['EV_Pct', 'Investment', 'Odds', 'Closing_Odds',
+                      'Base_EV_Pct', 'AI_Impact_Pct']:
+                if c in df.columns:
+                    df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
+                else:
+                    # Backward compat: ถ้ายังไม่มีคอลัมน์ใหม่ ให้ใช้ EV_Pct เป็น fallback
+                    if c == 'Base_EV_Pct' and 'EV_Pct' in df.columns:
+                        df[c] = df['EV_Pct']
+                    else:
+                        df[c] = 0.0
             if 'Result' in df.columns: df['Result'] = df['Result'].fillna("")
             return df.dropna(subset=['Time'])
         return pd.DataFrame()
@@ -1417,7 +1426,9 @@ with tab1:
         with g1: st.plotly_chart(ev_gauge(bah['ev'], f"TARGET: {bah['n']}", ah_threshold_pct), use_container_width=True)
         with g2: st.plotly_chart(ev_gauge(bou['ev'], f"TARGET: {bou['n']}", ou_threshold_pct), use_container_width=True)
 
-        # Cross-Market Dutching — ใช้ threshold ที่ตรงกับฝั่งของ bet
+        # [Calibration v3.1] Threshold filter ใช้ Base EV (Math เท่านั้น)
+        # AI Oracle ทำหน้าที่ approve/reject ทีหลัง ไม่บวกเข้า EV ที่ใช้คัดกรอง
+        # → เจอ value bet มากขึ้น เพราะไม่ต้องรอ AI ดัน EV ผ่าน threshold
         valid_bets = []
         if bah['ev'] >= ah_threshold: valid_bets.append(bah)
         if bou['ev'] >= ou_threshold: valid_bets.append(bou)
@@ -1478,11 +1489,18 @@ with tab1:
                                 "— ระบบลด exposure เหลือ 60% ต่อตลาด"
                             )
                         tz_th = timezone(timedelta(hours=7))
+                        # [Calibration v3.1] แยกบันทึก Base EV, AI Impact, Net EV
+                        # ทำให้ Backtest/Optimizer แยกประเมิน Math vs Math+AI ได้
+                        ai_impact = v.get('impact_score', 0)
                         save_db([{
                             "Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"),
                             "Match": match_name, "HDP": tc['hdp'], "Target": tc['n'],
-                            "EV_Pct": round(nev * 100, 2), "Investment": round(inv, 2),
-                            "Odds": tc['odds'], "Closing_Odds": 0.0, "Result": ""
+                            "EV_Pct":        round(nev * 100, 2),         # Net (backward compat)
+                            "Base_EV_Pct":   round(tc['ev'] * 100, 2),    # Math เท่านั้น
+                            "AI_Impact_Pct": round(ai_impact * 100, 2),   # Oracle adjustment
+                            "Investment":    round(inv, 2),
+                            "Odds":          tc['odds'],
+                            "Closing_Odds":  0.0, "Result": ""
                         }])
                         st.success(f"บันทึกบิล {tc['n']} สำเร็จ!")
         else:
@@ -1666,12 +1684,22 @@ with tab2:
 
                 # ── left: oracle metrics ──────────────────────────────────
                 with det1:
-                    st.markdown('<div class="gem-label">◈ ORACLE METRICS</div>',
+                    st.markdown('<div class="gem-label">◈ EV BREAKDOWN</div>',
                                 unsafe_allow_html=True)
-                    d1, d2, d3 = st.columns(3)
-                    d1.metric("EV ตอนลง",  f"{ev_d:.2f}%")
-                    d2.metric("Odds",       f"{odds_d:.2f}")
-                    d3.metric("เงินลงทุน", f"฿{invest_d:,.0f}")
+                    # [Calibration v3.1] แสดง Base EV / AI Impact / Net EV แยก
+                    base_ev_d = row_data.get('base_ev_pct', ev_d)
+                    ai_impact_d = row_data.get('ai_impact_pct', 0.0)
+                    eb1, eb2, eb3 = st.columns(3)
+                    eb1.metric("Base EV (Math)", f"{base_ev_d:.2f}%")
+                    ai_delta_color = "normal" if ai_impact_d >= 0 else "inverse"
+                    eb2.metric("AI Impact", f"{ai_impact_d:+.2f}%", delta_color=ai_delta_color)
+                    eb3.metric("Net EV",     f"{ev_d:.2f}%")
+
+                    st.markdown('<div class="gem-label" style="margin-top:8px;">◈ TRADE INFO</div>',
+                                unsafe_allow_html=True)
+                    d1, d2 = st.columns(2)
+                    d1.metric("Odds",       f"{odds_d:.2f}")
+                    d2.metric("เงินลงทุน", f"฿{invest_d:,.0f}")
 
                     try:
                         clv_val = float(closing_d) if closing_d and float(closing_d) > 1.0 else None
@@ -1784,6 +1812,9 @@ with tab2:
                         hdp      = row.get('HDP', 0)
                         odds     = float(row.get('Odds', 0))
                         ev_pct   = float(row.get('EV_Pct', 0))
+                        # [Calibration v3.1] ดึง Base EV และ AI Impact (backward compat)
+                        base_ev_pct   = float(row.get('Base_EV_Pct', ev_pct))
+                        ai_impact_pct = float(row.get('AI_Impact_Pct', 0.0))
                         invest   = float(row.get('Investment', 0))
                         result   = str(row.get('Result', '')).strip()
                         closing  = row.get('Closing_Odds', 0.0)
@@ -1862,19 +1893,21 @@ with tab2:
                             use_container_width=True
                         ):
                             show_match_dialog({
-                                'match_name':  match_name,
-                                'target':      target,
-                                'hdp':         hdp,
-                                'odds':        odds,
-                                'ev_pct':      ev_pct,
-                                'invest':      invest,
-                                'result':      result,
-                                'closing':     closing,
-                                'net_pnl':     net_pnl,
-                                'row_id':      row_id,
-                                'time_str':    time_str,
-                                'border_col':  border_col,
-                                'status_label':status_label,
+                                'match_name':    match_name,
+                                'target':        target,
+                                'hdp':           hdp,
+                                'odds':          odds,
+                                'ev_pct':        ev_pct,
+                                'base_ev_pct':   base_ev_pct,
+                                'ai_impact_pct': ai_impact_pct,
+                                'invest':        invest,
+                                'result':        result,
+                                'closing':       closing,
+                                'net_pnl':       net_pnl,
+                                'row_id':        row_id,
+                                'time_str':      time_str,
+                                'border_col':    border_col,
+                                'status_label':  status_label,
                             })
 
                 # spacer ระหว่างแถว
@@ -2588,12 +2621,18 @@ with tab3:
                         if len(valid_bets_live) == 2:
                             st.warning("⚠️ Dutching 2 markets: exposure ลดเหลือ 60% ต่อตลาด")
                         tz2 = timezone(timedelta(hours=7))
+                        # [Calibration v3.1] แยกบันทึก Base EV, AI Impact, Net EV
+                        ai_impact_live = al.get('impact_score', 0)
                         save_db([{
                             "Time": datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"),
                             "Match": f"[LIVE {cmin}'] {live_mn_val if live_mn_val else 'Live Match'}",
                             "HDP": tl2['hdp'], "Target": tl2['n'],
-                            "EV_Pct": round(nlev * 100, 2), "Investment": round(inv, 2),
-                            "Odds": tl2['odds'], "Closing_Odds": 0.0, "Result": ""
+                            "EV_Pct":        round(nlev * 100, 2),         # Net (backward compat)
+                            "Base_EV_Pct":   round(tl2['ev'] * 100, 2),    # Math เท่านั้น
+                            "AI_Impact_Pct": round(ai_impact_live * 100, 2),  # Oracle adjustment
+                            "Investment":    round(inv, 2),
+                            "Odds":          tl2['odds'],
+                            "Closing_Odds":  0.0, "Result": ""
                         }])
                         st.toast("✅ SNIPER DEPLOYED: บันทึกข้อมูลแล้ว", icon="🚀")
                     else:
@@ -2667,19 +2706,21 @@ with tab4:
             if fin.empty:
                 st.info("◈ ไม่สามารถคำนวณผลลัพธ์ได้")
             else:
-                # ── [Fix 2] ใช้ pure GEM prob แทน blended ──────────────
-                # Bookmaker probability (baseline)
+                # [Calibration v3.1] เปรียบเทียบ 3 models
+                # Bookmaker (baseline) — จาก odds
                 fin['BP'] = (1 / fin['Odds']).clip(0.01, 0.99)
-                # GEM's pure predicted prob: (EV%/100 + 1) / Odds
-                # ที่มา: EV = prob × (odds-1) - (1-prob) → prob = (EV+1)/odds
+                # Pure GEM Math — จาก Base_EV_Pct (Math เท่านั้น ไม่มี AI)
+                fin['MP'] = (((fin['Base_EV_Pct'] / 100.0) + 1.0) / fin['Odds']).clip(0.01, 0.99)
+                # GEM + AI Oracle — จาก EV_Pct (Net = Math + AI)
                 fin['GP'] = (((fin['EV_Pct'] / 100.0) + 1.0) / fin['Odds']).clip(0.01, 0.99)
                 # Brier errors
-                fin['GE'] = (fin['GP'] - fin['Actual']) ** 2
                 fin['BE'] = (fin['BP'] - fin['Actual']) ** 2
+                fin['ME'] = (fin['MP'] - fin['Actual']) ** 2
+                fin['GE'] = (fin['GP'] - fin['Actual']) ** 2
 
-                gem_brier  = fin['GE'].mean()
                 book_brier = fin['BE'].mean()
-                diff = book_brier - gem_brier
+                math_brier = fin['ME'].mean()
+                gem_brier  = fin['GE'].mean()
 
                 # ── Header metrics ─────────────────────────────────────
                 total_bets   = len(fin)
@@ -2699,50 +2740,85 @@ with tab4:
                 hm3.metric("Total P&L", f"฿{total_pnl:+,.0f}")
                 hm4.metric("ROI",       f"{overall_roi:+.2f}%")
 
-                # ── Brier Score Comparison ─────────────────────────────
-                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ BRIER SCORE — GEM vs BOOKMAKER</div>',
+                # ── 3-Model Brier Score Comparison ─────────────────────
+                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ BRIER SCORE — 3 MODELS COMPARISON</div>',
                             unsafe_allow_html=True)
+                st.markdown(
+                    '<p style="font-family:\'Rajdhani\';font-size:0.82rem;color:#4a7a60;">'
+                    'ต่ำกว่า = แม่นยำกว่า · เทียบ Math เปล่า vs Math+AI vs Bookmaker</p>',
+                    unsafe_allow_html=True
+                )
                 rc1, rc2, rc3 = st.columns(3)
-                rc1.metric("GEM SCORE",     f"{gem_brier:.4f}",
-                           f"{-diff:+.4f} vs bookie", delta_color="inverse")
-                rc2.metric("BOOKIE SCORE",  f"{book_brier:.4f}")
-                col3 = "#00ff88" if gem_brier < book_brier else "#ff3b5c"
-                lab3 = "▲ GEM ชนะตลาด" if gem_brier < book_brier else "▼ ต้อง CALIBRATE"
-                rc3.markdown(
-                    f'<div class="gem-panel" style="border-top:2px solid {col3};text-align:center;padding:10px;">'
-                    f'<span style="font-family:\'Share Tech Mono\';color:{col3};font-size:0.82rem;">{lab3}</span></div>',
+                rc1.metric("BOOKIE (baseline)",  f"{book_brier:.4f}")
+                rc2.metric("PURE MATH",          f"{math_brier:.4f}",
+                           f"{(book_brier-math_brier):+.4f} vs Bookie",
+                           delta_color="normal")
+                rc3.metric("MATH + AI ORACLE",   f"{gem_brier:.4f}",
+                           f"{(math_brier-gem_brier):+.4f} vs Math",
+                           delta_color="normal")
+
+                # Verdict — ใครชนะ
+                models = {"Bookie": book_brier, "Math": math_brier, "Math+AI": gem_brier}
+                winner = min(models, key=models.get)
+                ai_helps = gem_brier < math_brier   # AI ทำให้ดีขึ้นจริงไหม
+
+                ai_msg_col = "#00ff88" if ai_helps else "#ff3b5c"
+                ai_msg = (f"✅ AI Oracle ทำงาน: ปรับ Brier ดีขึ้น {(math_brier-gem_brier)*1000:+.1f}‰"
+                          if ai_helps
+                          else f"⚠️ AI Oracle ลดความแม่น: Brier แย่ลง {(gem_brier-math_brier)*1000:+.1f}‰")
+
+                st.markdown(
+                    f'<div class="gem-panel" style="border-top:2px solid {ai_msg_col};padding:12px 16px;">'
+                    f'<div class="gem-label" style="border-color:{ai_msg_col};color:{ai_msg_col};">'
+                    f'🏆 WINNER: {winner} ({models[winner]:.4f})</div>'
+                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.82rem;color:{ai_msg_col};">'
+                    f'{ai_msg}</div></div>',
                     unsafe_allow_html=True
                 )
 
+                # backward compat สำหรับโค้ดด้านล่าง
+                diff = book_brier - gem_brier
+
                 # ── [Fix 4] Cumulative chart ใช้ Time แทน index ─────────
-                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE BRIER ERROR — TIMELINE</div>',
+                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE BRIER ERROR — 3 MODELS</div>',
                             unsafe_allow_html=True)
                 fin = fin.sort_values('Time').reset_index(drop=True)
-                fin['CumG'] = fin['GE'].cumsum()
                 fin['CumB'] = fin['BE'].cumsum()
+                fin['CumM'] = fin['ME'].cumsum()
+                fin['CumG'] = fin['GE'].cumsum()
                 fig_bt = go.Figure()
-                fig_bt.add_trace(go.Scatter(
-                    x=fin['Time'], y=fin['CumG'], mode='lines',
-                    name='GEM', line=dict(color='#00ff88', width=2)
-                ))
                 fig_bt.add_trace(go.Scatter(
                     x=fin['Time'], y=fin['CumB'], mode='lines',
                     name='Bookmaker', line=dict(color='#ff3b5c', width=2, dash='dot')
                 ))
-                neon_layout(fig_bt, "CUMULATIVE BRIER ERROR — เส้น GEM ต่ำกว่าคือดี")
+                fig_bt.add_trace(go.Scatter(
+                    x=fin['Time'], y=fin['CumM'], mode='lines',
+                    name='Pure Math', line=dict(color='#00b4ff', width=2)
+                ))
+                fig_bt.add_trace(go.Scatter(
+                    x=fin['Time'], y=fin['CumG'], mode='lines',
+                    name='Math + AI', line=dict(color='#00ff88', width=2)
+                ))
+                neon_layout(fig_bt, "CUMULATIVE BRIER ERROR — เส้นต่ำกว่าคือแม่นกว่า")
                 fig_bt.update_layout(xaxis_title="วันที่", yaxis_title="Cumulative Error")
                 st.plotly_chart(fig_bt, use_container_width=True)
 
-                with st.expander("◈ RAW DATA TABLE"):
+                with st.expander("◈ RAW DATA TABLE — 3 Models Comparison"):
                     st.dataframe(
-                        fin[['Time','Match','Target','Odds','EV_Pct','Result',
-                             'Net_Profit','Actual','BP','GP','GE','BE']],
+                        fin[['Time','Match','Target','Odds','Base_EV_Pct','AI_Impact_Pct',
+                             'EV_Pct','Result','Net_Profit','Actual','BP','MP','GP',
+                             'BE','ME','GE']],
                         use_container_width=True,
                         column_config={
-                            "BP": st.column_config.NumberColumn("Bookie Prob", format="%.3f"),
-                            "GP": st.column_config.NumberColumn("GEM Prob",    format="%.3f"),
-                            "GE": st.column_config.NumberColumn("GEM Error",   format="%.4f"),
-                            "BE": st.column_config.NumberColumn("Bookie Error",format="%.4f"),
+                            "Base_EV_Pct":   st.column_config.NumberColumn("Base EV %", format="%.2f"),
+                            "AI_Impact_Pct": st.column_config.NumberColumn("AI Impact %", format="%.2f"),
+                            "EV_Pct":        st.column_config.NumberColumn("Net EV %", format="%.2f"),
+                            "BP": st.column_config.NumberColumn("Bookie Prob",  format="%.3f"),
+                            "MP": st.column_config.NumberColumn("Math Prob",    format="%.3f"),
+                            "GP": st.column_config.NumberColumn("Math+AI Prob", format="%.3f"),
+                            "BE": st.column_config.NumberColumn("Bookie Error", format="%.4f"),
+                            "ME": st.column_config.NumberColumn("Math Error",   format="%.4f"),
+                            "GE": st.column_config.NumberColumn("Math+AI Error",format="%.4f"),
                             "Actual": st.column_config.NumberColumn("Outcome",  format="%.2f"),
                         }
                     )
@@ -2759,7 +2835,7 @@ with tab4:
                     unsafe_allow_html=True
                 )
 
-                opt_c1, opt_c2 = st.columns(2)
+                opt_c1, opt_c2, opt_c3 = st.columns(3)
                 with opt_c1:
                     min_samples = st.number_input(
                         "Minimum Sample Size",
@@ -2772,6 +2848,13 @@ with tab4:
                         ["ROI per Bet (recommended)", "Total P&L (raw profit)", "Win Rate"],
                         help="ROI per bet สมดุลที่สุด — Total P&L เน้นปริมาณ — Win Rate เน้นความแม่น"
                     )
+                with opt_c3:
+                    ev_source = st.selectbox(
+                        "EV Source",
+                        ["Base EV (Math only)", "Net EV (Math + AI)"],
+                        help="Base EV = stable threshold ไม่ขึ้นกับ AI · Net EV = ระบบรวมปัจจุบัน"
+                    )
+                ev_col = 'Base_EV_Pct' if "Base" in ev_source else 'EV_Pct'
 
                 if st.button("🧪  RUN BACKTEST OPTIMIZATION",
                              type="primary", use_container_width=True):
@@ -2783,7 +2866,7 @@ with tab4:
                             """หา threshold ที่ดีที่สุดสำหรับตลาดนี้"""
                             results = []
                             for t in np.arange(1.0, 35.0, 0.5):
-                                f = logs[logs['EV_Pct'] >= t]
+                                f = logs[logs[ev_col] >= t]
                                 n = len(f)
                                 if n < min_samples:
                                     continue
