@@ -957,6 +957,71 @@ def calc_clv(row):
 
 
 # ==========================================
+# 🛑 DAILY STOP LOSS / RISK GUARD
+# ==========================================
+def check_daily_risk_status(bankroll, stop_loss_pct, bet_cap):
+    """
+    ตรวจสอบสถานะความเสี่ยงประจำวันจาก investment_logs
+    คืนค่า dict:
+      'blocked'       : True ถ้าโดน lock (ห้ามลงไม้ใหม่)
+      'reason'        : เหตุผลที่ block
+      'today_pnl'     : กำไร/ขาดทุนวันนี้
+      'today_bets'    : จำนวนไม้วันนี้
+      'today_invested': เงินลงทุนรวมวันนี้
+      'stop_loss_thb' : จำนวนเงิน stop loss (THB)
+      'remaining_thb' : เหลือก่อนถึง stop loss
+    """
+    tz_th     = timezone(timedelta(hours=7))
+    today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
+    stop_loss_thb = bankroll * (stop_loss_pct / 100.0)
+
+    logs = load_logs()
+    if logs.empty:
+        return {
+            'blocked': False, 'reason': '',
+            'today_pnl': 0.0, 'today_bets': 0, 'today_invested': 0.0,
+            'stop_loss_thb': stop_loss_thb, 'remaining_thb': stop_loss_thb
+        }
+
+    # filter เฉพาะวันนี้
+    today_logs = logs[logs['Time'].astype(str).str.contains(today_str, na=False)].copy()
+    if today_logs.empty:
+        return {
+            'blocked': False, 'reason': '',
+            'today_pnl': 0.0, 'today_bets': 0, 'today_invested': 0.0,
+            'stop_loss_thb': stop_loss_thb, 'remaining_thb': stop_loss_thb
+        }
+
+    # คำนวณ P&L วันนี้
+    today_logs['Net_Profit'] = today_logs.apply(calc_pnl, axis=1)
+    today_pnl      = float(today_logs['Net_Profit'].sum())
+    today_bets     = int(len(today_logs))
+    today_invested = float(today_logs[today_logs['Investment'] > 0]['Investment'].sum())
+
+    # ตรวจ stop loss
+    blocked = False
+    reason  = ''
+    if today_pnl <= -stop_loss_thb:
+        blocked = True
+        reason  = (f"🛑 ถึงเพดาน Daily Stop Loss แล้ว ({today_pnl:+,.0f} ≤ -{stop_loss_thb:,.0f}) "
+                   f"— ระบบล็อกการลงไม้ใหม่จนถึงเที่ยงคืน เพื่อป้องกัน Tilt")
+    elif today_bets >= bet_cap:
+        blocked = True
+        reason  = (f"🛑 ถึงเพดาน Max Bets / Day ({today_bets} ≥ {bet_cap} ไม้) "
+                   f"— ระบบล็อกการลงไม้ใหม่จนถึงเที่ยงคืน เพื่อป้องกัน Over-trading")
+
+    return {
+        'blocked':        blocked,
+        'reason':         reason,
+        'today_pnl':      today_pnl,
+        'today_bets':     today_bets,
+        'today_invested': today_invested,
+        'stop_loss_thb':  stop_loss_thb,
+        'remaining_thb':  stop_loss_thb + today_pnl   # เป็นบวก = เหลือ, เป็นลบ = เกิน
+    }
+
+
+# ==========================================
 # 🖥️ HEADER
 # ==========================================
 st.markdown("""
@@ -1020,6 +1085,27 @@ with st.sidebar:
     max_bet_cap    = st.slider("Max Bet Cap %", 1.0, 10.0, 5.0, step=0.5,
                                help="ลิมิตเงินลงทุนสูงสุดต่อบิล")
 
+    # ── ◈ RISK GUARDS — Daily Stop Loss & Daily Bet Limit ────────────
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ RISK GUARDS (TILT PROTECTION)</div>', unsafe_allow_html=True)
+    enable_stop_loss = st.checkbox(
+        "🛑 เปิด Daily Stop Loss",
+        value=True,
+        help="หยุดรับสัญญาณใหม่อัตโนมัติเมื่อขาดทุนถึงเพดานต่อวัน"
+    )
+    daily_stop_pct = st.slider(
+        "Daily Stop Loss (%)",
+        1.0, 30.0, 10.0, step=1.0,
+        help="เพดานขาดทุนต่อวัน เป็น % ของ Bankroll (แนะนำ 10%)",
+        disabled=not enable_stop_loss
+    )
+    daily_bet_cap = st.slider(
+        "Max Bets / Day",
+        1, 20, 5, step=1,
+        help="จำนวนไม้สูงสุดต่อวัน ป้องกัน over-trading",
+        disabled=not enable_stop_loss
+    )
+
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
     pre_ah_thr = st.slider("AH %",  1.0, 50.0, 24.5, step=0.5)
@@ -1028,10 +1114,56 @@ with st.sidebar:
     live_ah_thr = st.slider("AH Live %",  5.0, 50.0, 24.0, step=1.0)
     live_ou_thr = st.slider("O/U Live %", 5.0, 50.0, 23.0, step=1.0)
 
+    # ── 🛑 DAILY RISK STATUS DISPLAY ─────────────────────────────────
+    if enable_stop_loss:
+        risk_status = check_daily_risk_status(total_bankroll, daily_stop_pct, daily_bet_cap)
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gem-label">◈ TODAY\'S RISK STATUS</div>', unsafe_allow_html=True)
+
+        # PnL วันนี้
+        pnl_color = ("#00ff88" if risk_status['today_pnl'] > 0
+                     else ("#ff3b5c" if risk_status['today_pnl'] < 0 else "#4a7a60"))
+        st.markdown(
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#4a7a60;line-height:1.7;">'
+            f'P&L วันนี้: <span style="color:{pnl_color};">฿{risk_status["today_pnl"]:+,.0f}</span><br>'
+            f'จำนวนไม้: <span style="color:#c8e6d4;">{risk_status["today_bets"]} / {daily_bet_cap}</span><br>'
+            f'Stop Loss: <span style="color:#ffd600;">-฿{risk_status["stop_loss_thb"]:,.0f}</span><br>'
+            f'เหลือ buffer: <span style="color:#c8e6d4;">฿{risk_status["remaining_thb"]:+,.0f}</span>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # warning หรือ blocked banner
+        if risk_status['blocked']:
+            st.markdown(
+                f'<div style="margin-top:8px;padding:8px;background:rgba(255,59,92,0.15);'
+                f'border-left:3px solid #ff3b5c;border-radius:3px;'
+                f'font-family:\'Share Tech Mono\';font-size:0.68rem;color:#ff3b5c;">'
+                f'🛑 SYSTEM LOCKED</div>',
+                unsafe_allow_html=True
+            )
+        elif risk_status['today_pnl'] <= -risk_status['stop_loss_thb'] * 0.7:
+            # เตือนเมื่อใกล้ stop loss (70%)
+            st.markdown(
+                f'<div style="margin-top:8px;padding:8px;background:rgba(255,214,0,0.12);'
+                f'border-left:3px solid #ffd600;border-radius:3px;'
+                f'font-family:\'Share Tech Mono\';font-size:0.68rem;color:#ffd600;">'
+                f'⚠️ ใกล้ Stop Loss — ระวัง</div>',
+                unsafe_allow_html=True
+            )
+
 pre_ah_lim  = pre_ah_thr  / 100
 pre_ou_lim  = pre_ou_thr  / 100
 live_ah_lim = live_ah_thr / 100
 live_ou_lim = live_ou_thr / 100
+
+# ตัวแปร global สำหรับใช้ใน tab1 และ tab3
+if enable_stop_loss:
+    is_risk_blocked    = risk_status['blocked']
+    risk_block_reason  = risk_status['reason']
+else:
+    is_risk_blocked    = False
+    risk_block_reason  = ''
 
 # ==========================================
 # 📑 TABS  — เรียงตามขั้นตอนการใช้งาน: วิเคราะห์ → ลงไม้ → ติดตามผล → ปรับจูน
@@ -1151,9 +1283,29 @@ with tab1:
                                       "🔥 Steam (ราคาไหลลง/เงินเข้า)",
                                       "❄️ Drift (ราคาไหลขึ้น/เงินออก)"])
 
+    # ── 🛑 Daily Risk Guard Banner ────────────────────────────────────
+    if is_risk_blocked:
+        st.markdown(
+            f'<div style="background:rgba(255,59,92,0.10);border:1px solid rgba(255,59,92,0.4);'
+            f'border-left:4px solid #ff3b5c;border-radius:4px;padding:14px 18px;margin-bottom:10px;">'
+            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;color:#ff3b5c;'
+            f'letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;">'
+            f'🛑 RISK GUARD ACTIVATED</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;line-height:1.6;">'
+            f'{risk_block_reason}</div></div>',
+            unsafe_allow_html=True
+        )
+
     st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
 
-    if st.button("⚡  RUN ORACLE ANALYSIS", use_container_width=True, type="primary"):
+    if st.button("⚡  RUN ORACLE ANALYSIS",
+                 use_container_width=True, type="primary",
+                 disabled=is_risk_blocked):
+        # [Risk Guard] ถ้าโดน block อย่าให้รัน
+        if is_risk_blocked:
+            st.error(risk_block_reason)
+            st.stop()
+
         # [แก้ไข ข้อจำกัด #3] ตรวจสอบ input ก่อนคำนวณ
         # fix(0.0) = 1.0 → odds-1 = 0 → EV = 0 ทุกกรณีโดยไม่แจ้งเตือน
         input_errors = []
@@ -2237,11 +2389,31 @@ with tab3:
         key="lm_live"
     )
 
+    # ── 🛑 Daily Risk Guard Banner ────────────────────────────────────
+    if is_risk_blocked:
+        st.markdown(
+            f'<div style="background:rgba(255,59,92,0.10);border:1px solid rgba(255,59,92,0.4);'
+            f'border-left:4px solid #ff3b5c;border-radius:4px;padding:14px 18px;margin-bottom:10px;">'
+            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;color:#ff3b5c;'
+            f'letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;">'
+            f'🛑 RISK GUARD ACTIVATED</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;line-height:1.6;">'
+            f'{risk_block_reason}</div></div>',
+            unsafe_allow_html=True
+        )
+
     ac1, ac2 = st.columns([4, 1])
-    snap = ac1.button("⚡  ENGAGE SNIPER", use_container_width=True, type="primary")
+    snap = ac1.button("⚡  ENGAGE SNIPER",
+                       use_container_width=True, type="primary",
+                       disabled=is_risk_blocked)
     ac2.button("↺ RESET", use_container_width=True, on_click=clear_inplay_data)
 
     if snap:
+        # [Risk Guard] ถ้าโดน block อย่าให้รัน
+        if is_risk_blocked:
+            st.error(risk_block_reason)
+            st.stop()
+
         # [แก้ไข ข้อจำกัด #3] ตรวจสอบ input Live ก่อนคำนวณ
         live_errors = []
         if preh <= 0 or pred <= 0 or prea <= 0:
