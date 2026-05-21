@@ -1797,6 +1797,49 @@ with tab2:
                         except Exception as e:
                             st.error(f"Error: {e}")
 
+                    # ── DANGER ZONE: ลบบิล ────────────────────────────────
+                    st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
+                    st.markdown(
+                        '<div style="border-top:1px solid #2a1015;padding-top:10px;">'
+                        '<div class="gem-label" style="border-color:#ff3b5c;color:#ff3b5c;">'
+                        '◈ DANGER ZONE</div></div>',
+                        unsafe_allow_html=True
+                    )
+
+                    confirm_key = f"dlg_confirm_del_{rid}"
+                    if confirm_key not in st.session_state:
+                        st.session_state[confirm_key] = False
+
+                    if not st.session_state[confirm_key]:
+                        # Step 1: ปุ่มเริ่มต้น
+                        if st.button("🗑  ลบบิลนี้",
+                                     key=f"dlg_del_{rid}",
+                                     use_container_width=True):
+                            st.session_state[confirm_key] = True
+                            st.rerun()
+                    else:
+                        # Step 2: ยืนยัน
+                        st.warning(f"⚠️ ยืนยันลบบิล: **{row_data['match_name']}** — {row_data['target']} ?")
+                        cc1, cc2 = st.columns(2)
+                        if cc1.button("✓  ใช่, ลบเลย",
+                                       key=f"dlg_del_yes_{rid}",
+                                       use_container_width=True,
+                                       type="primary"):
+                            try:
+                                supabase.table("investment_logs").delete().eq("id", rid).execute()
+                                load_logs.clear()
+                                st.session_state[confirm_key] = False
+                                st.toast("🗑 ลบบิลเรียบร้อยแล้ว", icon="✅")
+                                time.sleep(0.5)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Error: {e}")
+                        if cc2.button("✗  ยกเลิก",
+                                       key=f"dlg_del_no_{rid}",
+                                       use_container_width=True):
+                            st.session_state[confirm_key] = False
+                            st.rerun()
+
             # ── Match Cards loop — 3 cards per row ────────────────────────
             CARDS_PER_ROW = 3
             rows_data = df2.to_dict('records')
