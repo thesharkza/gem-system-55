@@ -1798,6 +1798,8 @@ with tab2:
                             st.error(f"Error: {e}")
 
                     # ── DANGER ZONE: ลบบิล ────────────────────────────────
+                    # ใช้ checkbox + button แทน 2-step rerun
+                    # (rerun ปิด dialog → ต้องเปิดใหม่ ซึ่งเป็น UX ที่แย่)
                     st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
                     st.markdown(
                         '<div style="border-top:1px solid #2a1015;padding-top:10px;">'
@@ -1806,39 +1808,28 @@ with tab2:
                         unsafe_allow_html=True
                     )
 
-                    confirm_key = f"dlg_confirm_del_{rid}"
-                    if confirm_key not in st.session_state:
-                        st.session_state[confirm_key] = False
+                    # Step 1: checkbox ยืนยันก่อน
+                    confirm = st.checkbox(
+                        "⚠️ ฉันยืนยันต้องการลบบิลนี้",
+                        key=f"dlg_del_confirm_{rid}"
+                    )
 
-                    if not st.session_state[confirm_key]:
-                        # Step 1: ปุ่มเริ่มต้น
-                        if st.button("🗑  ลบบิลนี้",
-                                     key=f"dlg_del_{rid}",
-                                     use_container_width=True):
-                            st.session_state[confirm_key] = True
+                    # Step 2: ปุ่มลบ — disabled จนกว่าจะติ๊ก checkbox
+                    if st.button(
+                        "🗑  ลบบิลนี้ถาวร",
+                        key=f"dlg_del_{rid}",
+                        use_container_width=True,
+                        disabled=not confirm,
+                        help="ติ๊ก checkbox ก่อนเพื่อเปิดปุ่ม" if not confirm else "กดเพื่อลบบิลถาวร"
+                    ):
+                        try:
+                            supabase.table("investment_logs").delete().eq("id", rid).execute()
+                            load_logs.clear()
+                            st.toast(f"🗑 ลบบิล {row_data['match_name']} แล้ว", icon="✅")
+                            time.sleep(0.6)
                             st.rerun()
-                    else:
-                        # Step 2: ยืนยัน
-                        st.warning(f"⚠️ ยืนยันลบบิล: **{row_data['match_name']}** — {row_data['target']} ?")
-                        cc1, cc2 = st.columns(2)
-                        if cc1.button("✓  ใช่, ลบเลย",
-                                       key=f"dlg_del_yes_{rid}",
-                                       use_container_width=True,
-                                       type="primary"):
-                            try:
-                                supabase.table("investment_logs").delete().eq("id", rid).execute()
-                                load_logs.clear()
-                                st.session_state[confirm_key] = False
-                                st.toast("🗑 ลบบิลเรียบร้อยแล้ว", icon="✅")
-                                time.sleep(0.5)
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Error: {e}")
-                        if cc2.button("✗  ยกเลิก",
-                                       key=f"dlg_del_no_{rid}",
-                                       use_container_width=True):
-                            st.session_state[confirm_key] = False
-                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
 
             # ── Match Cards loop — 3 cards per row ────────────────────────
             CARDS_PER_ROW = 3
