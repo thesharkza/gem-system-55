@@ -962,6 +962,20 @@ def calc_pnl(row):
         odds = float(row['Odds'])
         inv  = float(row['Investment'])
 
+        # [Bug Fix - Live PnL] หักสกอร์ตอนลงสำหรับ Live bet
+        # Match format: "[LIVE 63'@1-0] ชื่อทีม VS ..."
+        # parse "@H-A" → ใช้คำนวณ "goals หลังลง" แทน "goals ทั้งเกม"
+        match_str = str(row.get('Match', ''))
+        live_score_match = re.search(r"@(\d+)-(\d+)", match_str)
+        if live_score_match:
+            start_hs = int(live_score_match.group(1))
+            start_as = int(live_score_match.group(2))
+            # ตรวจสอบความสมเหตุสมผล: สกอร์จบต้อง >= สกอร์ตอนลง
+            if hs >= start_hs and as_ >= start_as:
+                hs  = hs - start_hs
+                as_ = as_ - start_as
+            # ถ้าสกอร์จบ < สกอร์ตอนลง (ผู้ใช้กรอกผิด) → ใช้สกอร์เต็มเกม
+
         if tgt == "เจ้าบ้าน":
             nm = (hs - as_) - hdp
         elif tgt == "ทีมเยือน":
@@ -3066,9 +3080,12 @@ with tab3:
                         tz2 = timezone(timedelta(hours=7))
                         # [Calibration v3.1] แยกบันทึก Base EV, AI Impact, Net EV
                         ai_impact_live = al.get('impact_score', 0)
+                        # [Bug Fix - Live PnL] embed สกอร์ตอนลง ใน Match name
+                        # format: "[LIVE 63'@1-0] ชื่อทีม VS ชื่อทีม"
+                        # calc_pnl จะ parse "@H-A" ออก แล้วใช้ในการคำนวณ goals หลังลง
                         save_db([{
                             "Time": datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"),
-                            "Match": f"[LIVE {cmin}'] {live_mn_val if live_mn_val else 'Live Match'}",
+                            "Match": f"[LIVE {cmin}'@{csh}-{csa}] {live_mn_val if live_mn_val else 'Live Match'}",
                             "HDP": tl2['hdp'], "Target": tl2['n'],
                             "EV_Pct":        round(nlev * 100, 2),         # Net (backward compat)
                             "Base_EV_Pct":   round(tl2['ev'] * 100, 2),    # Math เท่านั้น
