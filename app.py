@@ -336,7 +336,7 @@ def init_session_state():
         'h1x2_val': 1.0, 'd1x2_val': 1.0, 'a1x2_val': 1.0,
         'hdp_line_val': 0.0, 'hdp_h_w_val': 0.0, 'hdp_a_w_val': 0.0,
         'ou_line_val': 2.5, 'ou_over_w_val': 0.0, 'ou_under_w_val': 0.0,
-        'raw_text': "", 'live_hdp': 0.0, 'live_ou': 2.50,
+        'raw_text': "", 'live_hdp': 0.0, 'live_hdp_abs': 0.0, 'live_ou': 2.50,
         'lh_s_input': 0, 'la_s_input': 0, 'current_min': 45,
         'rc_h_chk': False, 'rc_a_chk': False,
         'xg_h_val': 0.0, 'xg_a_val': 0.0,
@@ -351,7 +351,7 @@ def clear_inplay_data():
         'lh_s_input': 0, 'la_s_input': 0,
         'rc_h_chk': False, 'rc_a_chk': False, 'current_min': 45,
         'pre_h': 2.0, 'pre_d': 3.0, 'pre_a': 3.0, 'pre_ou': 2.5,
-        'live_hdp': 0.0, 'live_hdp_h': 0.9, 'live_hdp_a': 0.9,
+        'live_hdp': 0.0, 'live_hdp_abs': 0.0, 'live_hdp_h': 0.9, 'live_hdp_a': 0.9,
         'live_ou': 2.5, 'live_ou_over': 0.9, 'live_ou_under': 0.9,
     }.items():
         st.session_state[k] = v
@@ -904,7 +904,10 @@ def neon_layout(fig, title=""):
     return fig
 
 
-def adj_hdp(v): st.session_state['live_hdp'] += v
+def adj_hdp(v):
+    # [Fix] ปรับ live_hdp_abs (ค่า absolute) ป้องกันค่าติดลบ
+    cur = st.session_state.get('live_hdp_abs', 0.0)
+    st.session_state['live_hdp_abs'] = max(0.0, cur + v)
 def adj_ou(v):  st.session_state['live_ou']  += v
 def fix(o):     return o + 1.0 if o < 1.1 else o
 
@@ -1577,7 +1580,20 @@ with tab1:
         st.markdown('</div>', unsafe_allow_html=True)
     with mc2:
         st.markdown('<div class="gem-panel"><div class="gem-label">HANDICAP (AH)</div>', unsafe_allow_html=True)
-        hdp_line = st.number_input("LINE",      format="%.2f", step=0.25, key="hdp_line_val")
+        hdp_line_abs = st.number_input("LINE",      format="%.2f", step=0.25, key="hdp_line_val",
+                                         min_value=0.0,
+                                         help="ใส่เลขแฮนดิแคปแบบ absolute (เช่น 0.75) แล้วเลือกฝั่งต่อด้านล่าง")
+        # [Direction Toggle] ผู้ใช้ระบุฝั่งต่อชัดเจน — Default: เจ้าบ้านต่อ
+        hdp_direction = st.radio(
+            "ฝั่งต่อ (Handicap Direction)",
+            ["🏠 เจ้าบ้านต่อ", "✈️ ทีมเยือนต่อ"],
+            horizontal=True,
+            key="hdp_direction_val",
+            help="🏠 เจ้าบ้านต่อ = HOME เป็นทีมแกร่งกว่า ให้แต้มต่อ\n✈️ เยือนต่อ = AWAY เป็นทีมแกร่งกว่า"
+        )
+        # แปลง absolute → signed: เจ้าบ้านต่อ = บวก, เยือนต่อ = ลบ
+        hdp_line = hdp_line_abs if "เจ้าบ้านต่อ" in hdp_direction else -hdp_line_abs
+
         hdp_h_w  = st.number_input("HOME ODDS", format="%.2f", key="hdp_h_w_val")
         hdp_a_w  = st.number_input("AWAY ODDS", format="%.2f", key="hdp_a_w_val")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -2904,9 +2920,22 @@ with tab3:
         st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── HANDICAP ──</div>', unsafe_allow_html=True)
         bh1, bh2, bh3 = st.columns([1, 2, 1])
         bh1.button("◀ -0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
-        lhdp = bh2.number_input("HDP", value=st.session_state['live_hdp'], step=0.25,
-                                  key="live_hdp", label_visibility="collapsed", format="%.2f")
+        lhdp_abs = bh2.number_input("HDP", value=abs(st.session_state.get('live_hdp', 0.0)),
+                                      step=0.25, min_value=0.0,
+                                      key="live_hdp_abs", label_visibility="collapsed", format="%.2f")
         bh3.button("▶ +0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
+
+        # [Direction Toggle - Live] เลือกฝั่งต่อ
+        live_hdp_direction = st.radio(
+            "ฝั่งต่อ",
+            ["🏠 เจ้าบ้านต่อ", "✈️ เยือนต่อ"],
+            horizontal=True,
+            key="live_hdp_direction",
+            label_visibility="collapsed"
+        )
+        # แปลง absolute → signed
+        lhdp = lhdp_abs if "เจ้าบ้านต่อ" in live_hdp_direction else -lhdp_abs
+
         hw1, hw2_ = st.columns(2)
         lhdph = hw1.number_input("HOME",  value=st.session_state.get('live_hdp_h', 0.9), format="%.2f", key="live_hdp_h")
         lhdpa = hw2_.number_input("AWAY", value=st.session_state.get('live_hdp_a', 0.9), format="%.2f", key="live_hdp_a")
