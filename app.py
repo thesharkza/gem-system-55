@@ -838,17 +838,27 @@ def ai_engine(match_name, target, base_ev, hdp, odds,
                 return data
         except Exception as e:
             if attempt == 2:
+                # [แก้ไข] เมื่อ AI fail ทั้งหมด → ไม่ approve, ส่ง flag บอกว่าต้อง retry
+                # เพื่อป้องกันการบันทึกบิลโดย AI ไม่ทำงาน
+                err_msg = str(e)
+                err_code = "500" if "500" in err_msg else (
+                          "503" if "503" in err_msg else (
+                          "429" if "429" in err_msg or "quota" in err_msg.lower() else "ERR"))
                 return {
-                    "pros_analysis": "ระบบ AI ขัดข้องชั่วคราว ใช้ Base EV แทน",
-                    "cons_analysis": f"Error: {str(e)}",
-                    "rule_triggered": "System Fallback — ไม่สามารถโหลด GEM RULES ได้",
+                    "pros_analysis": "—",
+                    "cons_analysis": f"Oracle AI ไม่ตอบสนอง ({err_code})",
+                    "rule_triggered": "System Error — รอ retry",
                     "impact_score": 0.0,
-                    "final_decision": base_ev >= thr,
+                    "final_decision": False,   # ❌ ไม่ approve เลย เพื่อกัน save
                     "final_comment": (
-                        "⚠️ Oracle ไม่ตอบสนอง — ยืนยันด้วย Base EV เท่านั้น "
-                        "ควรตรวจสอบ API Key และ connection ก่อนใช้งาน"
+                        f"⚠️ AI Error {err_code}: {err_msg[:100]} — "
+                        "ระบบจะไม่บันทึกบิลจนกว่า AI จะทำงานปกติ "
+                        "กรุณากดปุ่ม '🔄 รีรัน Oracle' เพื่อลองใหม่"
                     ),
-                    "confidence_level": 1
+                    "confidence_level": 0,
+                    "ai_error": True,           # flag บอกว่าเกิด error
+                    "error_code": err_code,
+                    "error_message": err_msg
                 }
             time.sleep(2)
 
@@ -979,6 +989,71 @@ def calc_clv(row):
         return ((float(row['Odds']) / float(row['Closing_Odds'])) - 1.0) * 100.0
     except:
         return 0.0
+
+
+# ==========================================
+# 🔍 DUPLICATE BET DETECTOR (Hybrid Mode)
+# ==========================================
+def find_duplicate_bets(match_name, target, hours_window=24):
+    """
+    หาบิลซ้ำในฐานข้อมูล:
+    - Match name เหมือนกัน (case-insensitive, strip)
+    - Target เหมือนกัน
+    - ภายใน N ชั่วโมง
+    - Result == "" (ยังไม่ settled)
+    - ไม่เป็น [LIVE] (เพราะคนละตลาด)
+
+    Returns: list of duplicate row dicts หรือ []
+    """
+    if not supabase: return []
+    try:
+        logs = load_logs()
+        if logs is None or logs.empty: return []
+
+        # Normalize match name สำหรับเทียบ
+        clean_target_name = str(match_name).strip().lower()
+
+        # filter conditions
+        df = logs.copy()
+        df['_clean_match'] = df['Match'].astype(str).str.strip().str.lower()
+        df['_is_live']     = df['Match'].astype(str).str.upper().str.contains('LIVE', na=False)
+        df['_result_str']  = df['Result'].astype(str).str.strip()
+
+        # หาเฉพาะที่ตรงเงื่อนไข
+        cutoff = datetime.now(timezone(timedelta(hours=7))) - timedelta(hours=hours_window)
+        df_match = df[
+            (df['_clean_match'] == clean_target_name) &
+            (df['Target'] == target) &
+            (df['_result_str'] == "") &
+            (~df['_is_live']) &
+            (df['Time'] >= pd.Timestamp(cutoff).tz_localize(None) if df['Time'].dt.tz is None else df['Time'] >= cutoff)
+        ].copy()
+
+        return df_match.to_dict('records')
+    except Exception as e:
+        return []
+
+
+def get_recommendation(new_base_ev, old_base_ev, new_odds, old_odds, delta_thr=3.0):
+    """
+    คำนวณคำแนะนำการตัดสินใจ
+    Returns: (color, emoji, message, action_hint)
+    """
+    ev_diff = new_base_ev - old_base_ev      # หน่วยเป็น %
+    odds_diff = new_odds - old_odds
+
+    if ev_diff >= delta_thr:
+        return ("#00ff88", "🟢",
+                f"แนะนำลงทับ — EV ใหม่ดีกว่าเดิม {ev_diff:+.2f}%",
+                "ราคาใหม่ดีขึ้นอย่างมีนัยสำคัญ ตลาดยังไม่ปรับ → จับโอกาสได้")
+    elif ev_diff <= -delta_thr:
+        return ("#ff3b5c", "🔴",
+                f"แนะนำลบบิลเก่าทิ้ง — EV ใหม่แย่กว่าเดิม {ev_diff:+.2f}%",
+                "ราคาแย่ลงมาก ตลาดปรับแล้ว → บิลเก่ามี value ลดลง ควรยกเลิก")
+    else:
+        return ("#ffd600", "🟡",
+                f"ไม่แนะนำลงซ้ำ — EV ใกล้เดิม ({ev_diff:+.2f}%)",
+                "ความแตกต่างไม่มีนัยสำคัญ ไม่จำเป็นต้องซื้อซ้ำ")
 
 
 # ==========================================
@@ -1228,6 +1303,179 @@ else:
     risk_block_reason  = ''
 
 # ==========================================
+# 🔍 PENDING SAVE STATE — สำหรับ Duplicate Detection Hybrid
+# ==========================================
+# เก็บข้อมูลบิลที่กำลังจะ save แต่ตรวจพบซ้ำ → รอผู้ใช้ตัดสินใจ
+if 'pending_save_queue' not in st.session_state:
+    st.session_state['pending_save_queue'] = []   # list of {new_row, duplicates}
+
+
+@st.dialog("⚠️ DUPLICATE MATCH DETECTED", width="large")
+def show_duplicate_dialog(new_row, duplicates):
+    """
+    Popup เปรียบเทียบบิลใหม่ vs บิลเก่า + 3 ตัวเลือก
+    """
+    st.markdown(
+        f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;'
+        f'color:#ffd600;margin-bottom:10px;">'
+        f'พบบิลซ้ำของแมตช์: {new_row["Match"]} ({new_row["Target"]})</div>',
+        unsafe_allow_html=True
+    )
+
+    # ── คำแนะนำอัตโนมัติ ──────────────────────────────────────
+    # ใช้บิลเก่าตัวล่าสุดเป็น reference
+    old_bet = max(duplicates, key=lambda x: pd.to_datetime(x['Time']))
+    old_base_ev = float(old_bet.get('Base_EV_Pct', old_bet.get('EV_Pct', 0)))
+    old_odds    = float(old_bet.get('Odds', 0))
+    new_base_ev = float(new_row['Base_EV_Pct'])
+    new_odds    = float(new_row['Odds'])
+
+    rec_color, rec_emoji, rec_msg, rec_hint = get_recommendation(
+        new_base_ev, old_base_ev, new_odds, old_odds
+    )
+
+    st.markdown(
+        f'<div style="background:rgba(0,0,0,0.3);border-left:4px solid {rec_color};'
+        f'border-radius:4px;padding:14px 18px;margin-bottom:14px;">'
+        f'<div style="font-family:\'Share Tech Mono\';font-size:0.9rem;color:{rec_color};'
+        f'font-weight:600;margin-bottom:4px;">{rec_emoji} {rec_msg}</div>'
+        f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
+        f'{rec_hint}</div></div>',
+        unsafe_allow_html=True
+    )
+
+    # ── เปรียบเทียบ 2 ฝั่ง ─────────────────────────────────────
+    st.markdown('<div class="gem-label">◈ COMPARISON</div>', unsafe_allow_html=True)
+    cmp1, cmp2, cmp3 = st.columns([1, 1, 1])
+
+    with cmp1:
+        st.markdown(
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
+            f'color:#4a7a60;letter-spacing:0.1em;">FIELD</div>',
+            unsafe_allow_html=True
+        )
+        for label in ["Target", "Base EV", "Net EV", "Odds", "AI Impact", "Time"]:
+            st.markdown(
+                f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
+                f'color:#c8e6d4;line-height:2.2;">{label}</div>',
+                unsafe_allow_html=True
+            )
+
+    with cmp2:
+        old_time = pd.to_datetime(old_bet['Time'])
+        time_ago = datetime.now(timezone(timedelta(hours=7))) - (
+            old_time.tz_localize('UTC') if old_time.tz is None else old_time
+        )
+        hours_ago = time_ago.total_seconds() / 3600
+        time_ago_str = f"{hours_ago:.1f} ชม.ที่แล้ว"
+
+        st.markdown(
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
+            f'color:#ff8c00;letter-spacing:0.1em;">เก่า ({time_ago_str})</div>',
+            unsafe_allow_html=True
+        )
+        old_ai = float(old_bet.get('AI_Impact_Pct', 0))
+        old_net = float(old_bet.get('EV_Pct', 0))
+        for val in [
+            str(old_bet['Target']),
+            f"{old_base_ev:.2f}%",
+            f"{old_net:.2f}%",
+            f"{old_odds:.2f}",
+            f"{old_ai:+.2f}%",
+            old_time.strftime("%H:%M")
+        ]:
+            st.markdown(
+                f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
+                f'color:#c8e6d4;line-height:2.2;">{val}</div>',
+                unsafe_allow_html=True
+            )
+
+    with cmp3:
+        st.markdown(
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
+            f'color:#00ff88;letter-spacing:0.1em;">ใหม่ (ตอนนี้)</div>',
+            unsafe_allow_html=True
+        )
+        new_ai = float(new_row.get('AI_Impact_Pct', 0))
+        new_net = float(new_row.get('EV_Pct', 0))
+
+        ev_delta = new_base_ev - old_base_ev
+        net_delta = new_net - old_net
+        odds_delta = new_odds - old_odds
+        ai_delta = new_ai - old_ai
+
+        def color_arrow(d, threshold=0.5):
+            if d > threshold:   return f' <span style="color:#00ff88;">↑{d:+.2f}</span>'
+            elif d < -threshold: return f' <span style="color:#ff3b5c;">↓{d:+.2f}</span>'
+            else: return f' <span style="color:#4a7a60;">≈</span>'
+
+        values_new = [
+            new_row['Target'],
+            f"{new_base_ev:.2f}%{color_arrow(ev_delta)}",
+            f"{new_net:.2f}%{color_arrow(net_delta)}",
+            f"{new_odds:.2f}{color_arrow(odds_delta, 0.02)}",
+            f"{new_ai:+.2f}%{color_arrow(ai_delta)}",
+            "ตอนนี้"
+        ]
+        for val in values_new:
+            st.markdown(
+                f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
+                f'color:#c8e6d4;line-height:2.2;">{val}</div>',
+                unsafe_allow_html=True
+            )
+
+    # ── เงินลงทุน ─────────────────────────────────────────────
+    st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
+    inv_c1, inv_c2 = st.columns(2)
+    inv_c1.metric("Investment เก่า", f"฿{float(old_bet.get('Investment',0)):,.0f}")
+    inv_c2.metric("Investment ใหม่",  f"฿{float(new_row['Investment']):,.0f}")
+
+    # ── 3 ปุ่มตัดสินใจ ────────────────────────────────────────
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ DECISION</div>', unsafe_allow_html=True)
+
+    bc1, bc2, bc3 = st.columns(3)
+
+    if bc1.button("🔄  บันทึกทับ",
+                   key=f"dup_overwrite_{old_bet['id']}",
+                   use_container_width=True,
+                   type="primary",
+                   help="ลบบิลเก่า + บันทึกบิลใหม่"):
+        try:
+            # ลบเก่าก่อน
+            supabase.table("investment_logs").delete().eq("id", old_bet['id']).execute()
+            # ใส่ใหม่
+            save_db([new_row])
+            load_logs.clear()
+            st.toast(f"🔄 ทับบิลเก่าด้วยบิลใหม่แล้ว", icon="✅")
+            time.sleep(0.6)
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+    if bc2.button("🗑  ลบบิลเก่าทิ้ง",
+                   key=f"dup_delete_{old_bet['id']}",
+                   use_container_width=True,
+                   help="ลบบิลเก่า + ไม่บันทึกบิลใหม่ (ยกเลิกการลงทุน)"):
+        try:
+            supabase.table("investment_logs").delete().eq("id", old_bet['id']).execute()
+            load_logs.clear()
+            st.toast(f"🗑 ลบบิลเก่าแล้ว — ไม่ได้บันทึกบิลใหม่", icon="🚫")
+            time.sleep(0.6)
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error: {e}")
+
+    if bc3.button("⏭  ข้าม",
+                   key=f"dup_skip_{old_bet['id']}",
+                   use_container_width=True,
+                   help="เก็บบิลเก่าไว้ + ไม่บันทึกบิลใหม่"):
+        st.toast("⏭ ข้าม — บิลเก่ายังอยู่ ไม่ได้บันทึกบิลใหม่", icon="ℹ️")
+        time.sleep(0.6)
+        st.rerun()
+
+
+# ==========================================
 # 📑 TABS  — เรียงตามขั้นตอนการใช้งาน: วิเคราะห์ → ลงไม้ → ติดตามผล → ปรับจูน
 # ==========================================
 tab1, tab3, tab2, tab4 = st.tabs([
@@ -1456,6 +1704,41 @@ with tab1:
 
                     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
                     st.markdown(f'<div class="gem-label">◈ ORACLE VERDICT : {tc["n"]}</div>', unsafe_allow_html=True)
+
+                    # ── [AI Error Handler] แสดง error banner + retry ─────
+                    if v.get('ai_error'):
+                        err_code = v.get('error_code', 'ERR')
+                        err_msg  = v.get('error_message', '')[:150]
+                        st.markdown(
+                            f'<div style="background:rgba(255,59,92,0.10);'
+                            f'border:1px solid rgba(255,59,92,0.4);'
+                            f'border-left:4px solid #ff3b5c;border-radius:4px;'
+                            f'padding:14px 18px;margin:10px 0;">'
+                            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;'
+                            f'color:#ff3b5c;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;">'
+                            f'⚠️ ORACLE AI ERROR — {err_code}</div>'
+                            f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;line-height:1.5;">'
+                            f'AI ไม่สามารถวิเคราะห์ได้ — <strong>ระบบจะไม่บันทึกบิลนี้</strong><br>'
+                            f'รายละเอียด: <code style="color:#ff8c00;">{err_msg}</code></div></div>',
+                            unsafe_allow_html=True
+                        )
+
+                        # ปุ่มรีรัน Oracle (ไม่บันทึกบิล)
+                        retry_key = f"retry_oracle_{tc['n']}_{tc['hdp']}"
+                        if st.button(
+                            f"🔄  รีรัน Oracle สำหรับ {tc['n']}",
+                            key=retry_key,
+                            use_container_width=True,
+                            type="primary",
+                            help="พยายามเรียก AI Oracle อีกครั้ง โดยไม่ต้องคำนวณใหม่ทั้งหมด"
+                        ):
+                            st.toast("🔄 กำลังเรียก Oracle ใหม่...", icon="⚡")
+                            time.sleep(0.5)
+                            st.rerun()
+
+                        # ข้ามไป bet ถัดไปโดยไม่ save
+                        continue
+
                     vc1, vc2, vc3 = st.columns(3)
                     vc1.metric("BASE EV",    f"{tc['ev']*100:.2f}%")
                     vc2.metric("ORACLE ADJ", f"{v.get('impact_score',0)*100:.2f}%")
@@ -1479,7 +1762,6 @@ with tab1:
                     )
 
                     if v.get('final_decision', False) and nev > 0:
-                        st.balloons()
                         # [แก้ไข #8] dutch_factor พร้อม correlation warning
                         # AH และ O/U อาจ correlated สูง → ลด exposure เหลือ 60% ต่อตลาด
                         # แทนที่จะเป็น 50% flat ซึ่งไม่สะท้อน correlation จริง
@@ -1497,7 +1779,7 @@ with tab1:
                         # [Calibration v3.1] แยกบันทึก Base EV, AI Impact, Net EV
                         # ทำให้ Backtest/Optimizer แยกประเมิน Math vs Math+AI ได้
                         ai_impact = v.get('impact_score', 0)
-                        save_db([{
+                        new_row = {
                             "Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"),
                             "Match": match_name, "HDP": tc['hdp'], "Target": tc['n'],
                             "EV_Pct":        round(nev * 100, 2),         # Net (backward compat)
@@ -1506,8 +1788,25 @@ with tab1:
                             "Investment":    round(inv, 2),
                             "Odds":          tc['odds'],
                             "Closing_Odds":  0.0, "Result": ""
-                        }])
-                        st.success(f"บันทึกบิล {tc['n']} สำเร็จ!")
+                        }
+
+                        # ── [Hybrid Duplicate Detection] ────────────────
+                        # ตรวจหาบิลซ้ำใน 24 ชั่วโมง ก่อน save จริง
+                        duplicates = find_duplicate_bets(match_name, tc['n'], hours_window=24)
+
+                        if duplicates:
+                            # เจอซ้ำ → แสดง popup ให้ผู้ใช้ตัดสินใจ
+                            st.warning(
+                                f"⚠️ พบบิลซ้ำของ **{tc['n']}** ในแมตช์นี้ "
+                                f"({len(duplicates)} รายการ ใน 24 ชม.) "
+                                f"— กรุณาตัดสินใจในป๊อปอัพ"
+                            )
+                            show_duplicate_dialog(new_row, duplicates)
+                        else:
+                            # ไม่ซ้ำ → save ตามปกติ
+                            st.balloons()
+                            save_db([new_row])
+                            st.success(f"บันทึกบิล {tc['n']} สำเร็จ!")
         else:
             st.markdown(
                 f'<div class="gem-panel" style="border-top:2px solid #ffd600;">'
@@ -2634,6 +2933,39 @@ with tab3:
 
                     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
                     st.markdown(f'<div class="gem-label">◈ ORACLE VERDICT : {tl2["n"]}</div>', unsafe_allow_html=True)
+
+                    # ── [AI Error Handler] แสดง error banner + retry ─────
+                    if al.get('ai_error'):
+                        err_code = al.get('error_code', 'ERR')
+                        err_msg  = al.get('error_message', '')[:150]
+                        st.markdown(
+                            f'<div style="background:rgba(255,59,92,0.10);'
+                            f'border:1px solid rgba(255,59,92,0.4);'
+                            f'border-left:4px solid #ff3b5c;border-radius:4px;'
+                            f'padding:14px 18px;margin:10px 0;">'
+                            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;'
+                            f'color:#ff3b5c;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;">'
+                            f'⚠️ SNIPER AI ERROR — {err_code}</div>'
+                            f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;line-height:1.5;">'
+                            f'AI ไม่สามารถวิเคราะห์ได้ — <strong>ระบบจะไม่บันทึกบิลนี้</strong><br>'
+                            f'รายละเอียด: <code style="color:#ff8c00;">{err_msg}</code></div></div>',
+                            unsafe_allow_html=True
+                        )
+
+                        retry_live_key = f"retry_sniper_{tl2['n']}_{tl2['hdp']}"
+                        if st.button(
+                            f"🔄  รีรัน Sniper สำหรับ {tl2['n']}",
+                            key=retry_live_key,
+                            use_container_width=True,
+                            type="primary",
+                            help="พยายามเรียก AI Oracle อีกครั้ง"
+                        ):
+                            st.toast("🔄 กำลังเรียก Sniper ใหม่...", icon="⚡")
+                            time.sleep(0.5)
+                            st.rerun()
+
+                        continue   # ข้ามไม่ให้ save bill
+
                     lc1, lc2, lc3 = st.columns(3)
                     lc1.metric("LIVE EV",    f"{tl2['ev']*100:.2f}%")
                     lc2.metric("ORACLE ADJ", f"{al.get('impact_score',0)*100:.2f}%")
