@@ -1982,6 +1982,7 @@ with tab2:
                 time_d    = row_data['time_str']
                 border_d  = row_data['border_col']
                 status_d  = row_data['status_label']
+                is_live_d = row_data.get('is_live', False)   # [Fix] Live flag
 
                 pnl_col = ("#00ff88" if pnl_d > 0
                            else ("#ff3b5c" if pnl_d < 0 else "#4a7a60"))
@@ -2019,16 +2020,18 @@ with tab2:
                     d1.metric("Odds",       f"{odds_d:.2f}")
                     d2.metric("เงินลงทุน", f"฿{invest_d:,.0f}")
 
-                    try:
-                        clv_val = float(closing_d) if closing_d and float(closing_d) > 1.0 else None
-                    except:
-                        clv_val = None
-                    if clv_val:
-                        clv_pct = ((odds_d / clv_val) - 1.0) * 100
-                        d4, d5 = st.columns(2)
-                        d4.metric("Closing Odds", f"{clv_val:.2f}")
-                        d5.metric("CLV", f"{clv_pct:+.2f}%",
-                                  delta_color="normal" if clv_pct >= 0 else "inverse")
+                    # [Fix - Live] CLV ใช้ไม่ได้กับ Live bet
+                    if not is_live_d:
+                        try:
+                            clv_val = float(closing_d) if closing_d and float(closing_d) > 1.0 else None
+                        except:
+                            clv_val = None
+                        if clv_val:
+                            clv_pct = ((odds_d / clv_val) - 1.0) * 100
+                            d4, d5 = st.columns(2)
+                            d4.metric("Closing Odds", f"{clv_val:.2f}")
+                            d5.metric("CLV", f"{clv_pct:+.2f}%",
+                                      delta_color="normal" if clv_pct >= 0 else "inverse")
 
                     if result_d:
                         st.markdown('<div class="gem-label" style="margin-top:12px;">◈ FINAL RESULT</div>',
@@ -2145,18 +2148,33 @@ with tab2:
                 with det2:
                     st.markdown('<div class="gem-label">◈ UPDATE RESULT</div>',
                                 unsafe_allow_html=True)
-                    try:
-                        closing_default = float(closing_d) if closing_d and float(closing_d) > 0 else 0.0
-                    except:
-                        closing_default = 0.0
 
-                    new_closing = st.number_input(
-                        "Closing Odds",
-                        min_value=0.0,
-                        value=closing_default,
-                        format="%.2f",
-                        key=f"dlg_closing_{rid}"
-                    )
+                    # [Fix - Live] Closing Odds ใช้ไม่ได้กับ Live bet
+                    # เพราะลงระหว่างเกม ไม่ใช่ก่อนเกม → ไม่มี "closing line"
+                    if is_live_d:
+                        st.markdown(
+                            '<div style="background:rgba(255,140,0,0.08);'
+                            'border-left:3px solid #ff8c00;border-radius:3px;'
+                            'padding:8px 12px;margin-bottom:8px;'
+                            'font-family:\'Share Tech Mono\';font-size:0.72rem;color:#ff8c00;">'
+                            '🟠 LIVE BET — ไม่มี Closing Odds (CLV ใช้ไม่ได้กับ in-play)'
+                            '</div>',
+                            unsafe_allow_html=True
+                        )
+                        new_closing = 0.0   # ตั้งเป็น 0 เพื่อ skip CLV calculation
+                    else:
+                        try:
+                            closing_default = float(closing_d) if closing_d and float(closing_d) > 0 else 0.0
+                        except:
+                            closing_default = 0.0
+                        new_closing = st.number_input(
+                            "Closing Odds",
+                            min_value=0.0,
+                            value=closing_default,
+                            format="%.2f",
+                            key=f"dlg_closing_{rid}"
+                        )
+
                     new_result = st.text_input(
                         "Result (สกอร์ เช่น 2-1)",
                         value=result_d,
@@ -2168,10 +2186,12 @@ with tab2:
                     if st.button("💾  บันทึก", key=f"dlg_save_{rid}",
                                  use_container_width=True, type="primary"):
                         try:
-                            supabase.table("investment_logs").update({
-                                "Closing_Odds": float(new_closing),
-                                "Result":       str(new_result).strip()
-                            }).eq("id", rid).execute()
+                            # [Fix - Live] Live bet: บันทึกแค่ Result ไม่แตะ Closing_Odds
+                            update_data = {"Result": str(new_result).strip()}
+                            if not is_live_d:
+                                update_data["Closing_Odds"] = float(new_closing)
+
+                            supabase.table("investment_logs").update(update_data).eq("id", rid).execute()
                             load_logs.clear()   # invalidate cache เพื่อโชว์ผลใหม่ทันที
                             st.toast("✓ บันทึกเรียบร้อยแล้ว", icon="💾")
                             time.sleep(0.5)
@@ -2329,6 +2349,7 @@ with tab2:
                                 'time_str':      time_str,
                                 'border_col':    border_col,
                                 'status_label':  status_label,
+                                'is_live':       is_live,   # [Fix] ส่งสถานะ Live เข้า dialog
                             })
 
                 # spacer ระหว่างแถว
