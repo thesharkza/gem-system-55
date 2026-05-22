@@ -2031,10 +2031,8 @@ with tab2:
                     mkt  = ("Asian Handicap (AH)"
                             if target_d in ["เจ้าบ้าน","ทีมเยือน"] else "Total Goals (O/U)")
 
-                    # [Fix] Fav/Dog detection — ใช้ HDP + Odds รวมกันให้แม่นยำ
-                    # ลำดับการตรวจ:
-                    # 1. ถ้า HDP มีเครื่องหมาย (+/-) ชัด → ใช้ HDP เป็นหลัก
-                    # 2. ถ้า HDP เป็นบวกหรือ 0 (ไม่บ่งทิศ) → ใช้ Odds เป็นตัวตัดสิน
+                    # [Fix - Clarity] Fav/Dog detection พร้อมแสดง 2 ทีมแยกชัด
+                    # ป้องกันความสับสนระหว่าง "Target ที่ลง" กับ "Direction ของตลาด"
                     try:
                         hdp_val  = float(hdp_d)
                         odds_val = float(odds_d)
@@ -2042,38 +2040,68 @@ with tab2:
                         hdp_val, odds_val = 0.0, 1.95
 
                     if target_d in ["เจ้าบ้าน", "ทีมเยือน"]:
+                        abs_hdp = abs(hdp_val)
+                        # Determine direction ตลาด
                         if hdp_val < 0:
-                            # HDP ลบ = เยือนต่อ (เยือน = Fav, เจ้าบ้าน = Dog)
-                            if target_d == "ทีมเยือน":
-                                role = f"[ทีมต่อ / Fav] (เยือนต่อ {abs(hdp_val):.2f})"
-                            else:
-                                role = f"[ทีมรอง / Dog] (เยือนต่อ {abs(hdp_val):.2f})"
+                            # HDP ลบ = เยือนต่อ
+                            fav_side, dog_side = "ทีมเยือน", "เจ้าบ้าน"
+                            line_desc = f"เยือนต่อ {abs_hdp:.2f}"
                         elif hdp_val > 0:
-                            # HDP บวก — อาจหมายถึง "เจ้าบ้านต่อ" หรือเป็น absolute value
-                            # ใช้ odds ตัดสินอีกที: ฝั่ง Fav ต้องมี odds ต่ำกว่า
                             if odds_val < 1.92:
-                                # ฝั่งที่ target นี้มี odds ต่ำ = Fav
-                                role = f"[ทีมต่อ / Fav] (เส้น {hdp_val:.2f} · @{odds_val:.2f})"
+                                # ฝั่งนี้ราคาต่ำ = Fav
+                                fav_side = target_d
+                                dog_side = "ทีมเยือน" if target_d == "เจ้าบ้าน" else "เจ้าบ้าน"
+                                line_desc = f"{fav_side}ต่อ {abs_hdp:.2f}"
                             elif odds_val > 1.98:
-                                # ฝั่งที่ target นี้มี odds สูง = Dog
-                                role = f"[ทีมรอง / Dog] (เส้น {hdp_val:.2f} · @{odds_val:.2f})"
+                                # ฝั่งนี้ราคาสูง = Dog
+                                dog_side = target_d
+                                fav_side = "ทีมเยือน" if target_d == "เจ้าบ้าน" else "เจ้าบ้าน"
+                                line_desc = f"{fav_side}ต่อ {abs_hdp:.2f}"
                             else:
-                                # odds 1.92-1.98 = กลางๆ → ใช้ Home/Away convention
-                                # เพราะ AH ปกติ "เจ้าบ้านต่อ" คือ default
-                                if target_d == "เจ้าบ้าน":
-                                    role = f"[ทีมต่อ / Fav] (เส้น {hdp_val:.2f})"
-                                else:
-                                    role = f"[ทีมรอง / Dog] (เส้น {hdp_val:.2f})"
+                                # default convention
+                                fav_side, dog_side = "เจ้าบ้าน", "ทีมเยือน"
+                                line_desc = f"เจ้าบ้านต่อ {abs_hdp:.2f}"
                         else:
-                            # HDP = 0 → odds ตัดสินอย่างเดียว
                             if odds_val < 1.95:
-                                role = f"[ทีมต่อ / Fav] (@{odds_val:.2f})"
+                                fav_side = target_d
+                                dog_side = "ทีมเยือน" if target_d == "เจ้าบ้าน" else "เจ้าบ้าน"
+                                line_desc = "เสมอกัน (HDP 0)"
                             elif odds_val > 1.95:
-                                role = f"[ทีมรอง / Dog] (@{odds_val:.2f})"
+                                dog_side = target_d
+                                fav_side = "ทีมเยือน" if target_d == "เจ้าบ้าน" else "เจ้าบ้าน"
+                                line_desc = "เสมอกัน (HDP 0)"
                             else:
-                                role = "[เสมอ / Even]"
+                                fav_side = dog_side = "เสมอ"
+                                line_desc = "เสมอกัน (HDP 0)"
+
+                        # บทบาทของ Target ที่เราลง
+                        if target_d == fav_side:
+                            role_short = "ต่อ / Fav"
+                            role_color = "#ff8c00"
+                        elif target_d == dog_side:
+                            role_short = "รอง / Dog"
+                            role_color = "#00ff88"
+                        else:
+                            role_short = "Even"
+                            role_color = "#4a7a60"
+
+                        # build display: target ที่ลง + ตำแหน่ง + ราคา + context
+                        role = (
+                            f'<div style="line-height:1.6;">'
+                            f'<span style="color:{role_color};font-weight:600;">'
+                            f'▸ {target_d} ({role_short}) @ {odds_val:.2f}'
+                            f'</span>'
+                            f'<br><span style="color:#4a7a60;font-size:0.7rem;">'
+                            f'  ตลาด: {line_desc}'
+                            f'</span></div>'
+                        )
                     else:
-                        role = target_d   # สูง/ต่ำ แสดงเดิม
+                        # OU
+                        role_color = "#00b4ff" if target_d == "สูง" else "#ff8c00"
+                        role = (
+                            f'<span style="color:{role_color};font-weight:600;">'
+                            f'▸ {target_d} @ {odds_val:.2f}</span>'
+                        )
                     ev_flag = ("🟢 EV ดีมาก" if ev_d >= 25
                                else "🟡 EV ปานกลาง" if ev_d >= 10
                                else "🔴 EV ต่ำ")
