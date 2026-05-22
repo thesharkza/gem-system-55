@@ -2030,9 +2030,50 @@ with tab2:
                                 unsafe_allow_html=True)
                     mkt  = ("Asian Handicap (AH)"
                             if target_d in ["เจ้าบ้าน","ทีมเยือน"] else "Total Goals (O/U)")
-                    role = ("[ทีมต่อ / Fav]" if target_d == "เจ้าบ้าน"
-                            else "[ทีมรอง / Dog]" if target_d == "ทีมเยือน"
-                            else target_d)
+
+                    # [Fix] Fav/Dog detection — ใช้ HDP + Odds รวมกันให้แม่นยำ
+                    # ลำดับการตรวจ:
+                    # 1. ถ้า HDP มีเครื่องหมาย (+/-) ชัด → ใช้ HDP เป็นหลัก
+                    # 2. ถ้า HDP เป็นบวกหรือ 0 (ไม่บ่งทิศ) → ใช้ Odds เป็นตัวตัดสิน
+                    try:
+                        hdp_val  = float(hdp_d)
+                        odds_val = float(odds_d)
+                    except:
+                        hdp_val, odds_val = 0.0, 1.95
+
+                    if target_d in ["เจ้าบ้าน", "ทีมเยือน"]:
+                        if hdp_val < 0:
+                            # HDP ลบ = เยือนต่อ (เยือน = Fav, เจ้าบ้าน = Dog)
+                            if target_d == "ทีมเยือน":
+                                role = f"[ทีมต่อ / Fav] (เยือนต่อ {abs(hdp_val):.2f})"
+                            else:
+                                role = f"[ทีมรอง / Dog] (เยือนต่อ {abs(hdp_val):.2f})"
+                        elif hdp_val > 0:
+                            # HDP บวก — อาจหมายถึง "เจ้าบ้านต่อ" หรือเป็น absolute value
+                            # ใช้ odds ตัดสินอีกที: ฝั่ง Fav ต้องมี odds ต่ำกว่า
+                            if odds_val < 1.92:
+                                # ฝั่งที่ target นี้มี odds ต่ำ = Fav
+                                role = f"[ทีมต่อ / Fav] (เส้น {hdp_val:.2f} · @{odds_val:.2f})"
+                            elif odds_val > 1.98:
+                                # ฝั่งที่ target นี้มี odds สูง = Dog
+                                role = f"[ทีมรอง / Dog] (เส้น {hdp_val:.2f} · @{odds_val:.2f})"
+                            else:
+                                # odds 1.92-1.98 = กลางๆ → ใช้ Home/Away convention
+                                # เพราะ AH ปกติ "เจ้าบ้านต่อ" คือ default
+                                if target_d == "เจ้าบ้าน":
+                                    role = f"[ทีมต่อ / Fav] (เส้น {hdp_val:.2f})"
+                                else:
+                                    role = f"[ทีมรอง / Dog] (เส้น {hdp_val:.2f})"
+                        else:
+                            # HDP = 0 → odds ตัดสินอย่างเดียว
+                            if odds_val < 1.95:
+                                role = f"[ทีมต่อ / Fav] (@{odds_val:.2f})"
+                            elif odds_val > 1.95:
+                                role = f"[ทีมรอง / Dog] (@{odds_val:.2f})"
+                            else:
+                                role = "[เสมอ / Even]"
+                    else:
+                        role = target_d   # สูง/ต่ำ แสดงเดิม
                     ev_flag = ("🟢 EV ดีมาก" if ev_d >= 25
                                else "🟡 EV ปานกลาง" if ev_d >= 10
                                else "🔴 EV ต่ำ")
