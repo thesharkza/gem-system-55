@@ -1257,6 +1257,31 @@ with st.sidebar:
     live_ou_over_thr  = col_lv_ou1.slider("OU Live Over %",  1.0, 50.0, 6.0, step=1.0)
     live_ou_under_thr = col_lv_ou2.slider("OU Live Under %", 1.0, 50.0, 13.0, step=1.0)
 
+    # ── ◈ BET SELECTION MODE ────────────────────────────────────────
+    # Best Bet Only: scan 4 ฝั่ง (Fav/Dog/Over/Under) → เลือกฝั่งที่มี
+    # EV-to-threshold ratio สูงสุด → ส่งเข้า AI 1 ไม้
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ BET SELECTION MODE</div>', unsafe_allow_html=True)
+    best_bet_only = st.checkbox(
+        "🎯 Best Bet Only Mode",
+        value=False,
+        help=(
+            "เปิด: scan ทั้ง 4 ฝั่ง (Fav/Dog/Over/Under) แล้วเลือก 1 ฝั่งที่มี value มากที่สุด\n"
+            "ปิด: ลงได้ทั้ง AH และ OU พร้อมกัน (default - dutching)\n\n"
+            "เกณฑ์: EV-to-threshold ratio สูงสุด"
+        )
+    )
+    if best_bet_only:
+        st.markdown(
+            '<div style="background:rgba(0,255,136,0.08);'
+            'border-left:3px solid #00ff88;border-radius:3px;'
+            'padding:6px 10px;margin-top:4px;'
+            'font-family:\'Share Tech Mono\';font-size:0.66rem;color:#00ff88;">'
+            '🎯 BEST BET MODE — เลือก 1 ฝั่งที่ดีที่สุดจากทั้ง 4'
+            '</div>',
+            unsafe_allow_html=True
+        )
+
     # ── 🛑 DAILY RISK STATUS DISPLAY ─────────────────────────────────
     if enable_stop_loss:
         risk_status = check_daily_risk_status(total_bankroll, daily_stop_pct, daily_bet_cap)
@@ -1711,10 +1736,109 @@ with tab1:
 
         # [Calibration v3.1] Threshold filter ใช้ Base EV (Math เท่านั้น)
         # AI Oracle ทำหน้าที่ approve/reject ทีหลัง ไม่บวกเข้า EV ที่ใช้คัดกรอง
-        # → เจอ value bet มากขึ้น เพราะไม่ต้องรอ AI ดัน EV ผ่าน threshold
         valid_bets = []
-        if bah['ev'] >= ah_threshold: valid_bets.append(bah)
-        if bou['ev'] >= ou_threshold: valid_bets.append(bou)
+
+        if best_bet_only:
+            # ════════════════════════════════════════════════════════════
+            # [Best Bet Only Mode] Scan ทั้ง 4 ฝั่ง → เลือก ratio สูงสุด
+            # ════════════════════════════════════════════════════════════
+            # สร้าง candidates ทั้ง 4 ฝั่ง พร้อม threshold ของแต่ละฝั่ง
+            candidates = []
+
+            # AH Home
+            ah_home_is_fav = fav_h   # เจ้าบ้านเป็น Fav ถ้า ph >= pa
+            ah_home_thr    = pre_ah_fav_lim if ah_home_is_fav else pre_ah_dog_lim
+            if evh > 0 and evh >= ah_home_thr:
+                candidates.append({
+                    "n": "เจ้าบ้าน", "ev": evh, "odds": hwo, "hdp": hdp_line,
+                    "side_label": "AH Fav" if ah_home_is_fav else "AH Dog",
+                    "threshold": ah_home_thr,
+                    "ratio": evh / ah_home_thr if ah_home_thr > 0 else 0
+                })
+
+            # AH Away
+            ah_away_is_fav = not fav_h
+            ah_away_thr    = pre_ah_fav_lim if ah_away_is_fav else pre_ah_dog_lim
+            # eva ถูกหัก HDBA แล้วใน math engine
+            if eva > 0 and eva >= ah_away_thr:
+                candidates.append({
+                    "n": "ทีมเยือน", "ev": eva, "odds": awo, "hdp": hdp_line,
+                    "side_label": "AH Fav" if ah_away_is_fav else "AH Dog",
+                    "threshold": ah_away_thr,
+                    "ratio": eva / ah_away_thr if ah_away_thr > 0 else 0
+                })
+
+            # OU Over
+            if evo > 0 and evo >= pre_ou_over_lim:
+                candidates.append({
+                    "n": "สูง", "ev": evo, "odds": owo, "hdp": ou_line,
+                    "side_label": "OU Over",
+                    "threshold": pre_ou_over_lim,
+                    "ratio": evo / pre_ou_over_lim if pre_ou_over_lim > 0 else 0
+                })
+
+            # OU Under
+            if evu > 0 and evu >= pre_ou_under_lim:
+                candidates.append({
+                    "n": "ต่ำ", "ev": evu, "odds": uwo, "hdp": ou_line,
+                    "side_label": "OU Under",
+                    "threshold": pre_ou_under_lim,
+                    "ratio": evu / pre_ou_under_lim if pre_ou_under_lim > 0 else 0
+                })
+
+            # แสดงตารางเปรียบเทียบ 4 ฝั่ง
+            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ BEST BET SCANNER — ทั้ง 4 ฝั่ง</div>',
+                        unsafe_allow_html=True)
+
+            # สร้าง summary ของทั้ง 4 ฝั่ง (รวมที่ไม่ผ่าน threshold ด้วย)
+            all_sides = [
+                {"side": "AH Home", "name": "เจ้าบ้าน", "ev": evh,
+                 "thr": pre_ah_fav_lim if fav_h else pre_ah_dog_lim,
+                 "side_type": "Fav" if fav_h else "Dog"},
+                {"side": "AH Away", "name": "ทีมเยือน", "ev": eva,
+                 "thr": pre_ah_fav_lim if not fav_h else pre_ah_dog_lim,
+                 "side_type": "Fav" if not fav_h else "Dog"},
+                {"side": "OU Over", "name": "สูง", "ev": evo,
+                 "thr": pre_ou_over_lim, "side_type": "Over"},
+                {"side": "OU Under", "name": "ต่ำ", "ev": evu,
+                 "thr": pre_ou_under_lim, "side_type": "Under"},
+            ]
+            for s in all_sides:
+                s['ratio'] = s['ev']/s['thr'] if s['thr'] > 0 else 0
+                s['pass']  = s['ev'] >= s['thr']
+
+            scan_df = pd.DataFrame([
+                {
+                    "ฝั่ง":       f"{s['side']} ({s['side_type']})",
+                    "Target":     s['name'],
+                    "EV %":       round(s['ev']*100, 2),
+                    "Threshold":  round(s['thr']*100, 1),
+                    "Ratio":      round(s['ratio'], 2),
+                    "ผ่าน":       "✅" if s['pass'] else "❌",
+                }
+                for s in all_sides
+            ])
+            st.dataframe(scan_df, use_container_width=True, hide_index=True)
+
+            if candidates:
+                # เลือกฝั่งที่ ratio สูงสุด
+                best_bet = max(candidates, key=lambda x: x['ratio'])
+                valid_bets = [best_bet]
+                st.success(
+                    f"🎯 **BEST BET:** {best_bet['side_label']} — "
+                    f"{best_bet['n']} @ {best_bet['odds']:.2f} "
+                    f"(EV {best_bet['ev']*100:.2f}% / threshold {best_bet['threshold']*100:.1f}% "
+                    f"= ratio **{best_bet['ratio']:.2f}**)"
+                )
+            else:
+                st.warning("⚠️ ไม่มีฝั่งไหนผ่าน threshold — No signal")
+
+        else:
+            # ════════════════════════════════════════════════════════════
+            # [Default Mode] Dutching — ลงทั้ง AH และ OU ที่ผ่าน threshold
+            # ════════════════════════════════════════════════════════════
+            if bah['ev'] >= ah_threshold: valid_bets.append(bah)
+            if bou['ev'] >= ou_threshold: valid_bets.append(bou)
 
         if valid_bets:
             with st.spinner("◈ THE ORACLE PROCESSING..."):
@@ -3038,12 +3162,106 @@ with tab3:
         with gg2: st.plotly_chart(ev_gauge(bov, f"O/U: {tou}", live_ou_threshold_pct), use_container_width=True)
 
         valid_bets_live = []
-        if bav >= live_ah_threshold:
-            valid_bets_live.append({"n": tah, "ev": bav, "hdp": lhdp,
-                                    "odds": fix(lhdph) if tah == "เจ้าบ้าน" else fix(lhdpa)})
-        if bov >= live_ou_threshold:
-            valid_bets_live.append({"n": tou, "ev": bov, "hdp": lou,
-                                    "odds": fix(louov) if tou == "สูง" else fix(louun)})
+
+        if best_bet_only:
+            # ════════════════════════════════════════════════════════════
+            # [Live Best Bet Only] Scan ทั้ง 4 ฝั่ง → เลือก ratio สูงสุด
+            # ════════════════════════════════════════════════════════════
+            candidates_live = []
+
+            # AH Home
+            ah_h_is_fav_live = fvl
+            ah_h_thr_live    = live_ah_fav_lim if ah_h_is_fav_live else live_ah_dog_lim
+            if evhl > 0 and evhl >= ah_h_thr_live:
+                candidates_live.append({
+                    "n": "เจ้าบ้าน", "ev": evhl, "odds": fix(lhdph), "hdp": lhdp,
+                    "side_label": "AH Fav" if ah_h_is_fav_live else "AH Dog",
+                    "threshold": ah_h_thr_live,
+                    "ratio": evhl / ah_h_thr_live if ah_h_thr_live > 0 else 0
+                })
+
+            # AH Away (eval_ ถูกหัก HDBA แล้ว)
+            ah_a_is_fav_live = not fvl
+            ah_a_thr_live    = live_ah_fav_lim if ah_a_is_fav_live else live_ah_dog_lim
+            if eval_ > 0 and eval_ >= ah_a_thr_live:
+                candidates_live.append({
+                    "n": "ทีมเยือน", "ev": eval_, "odds": fix(lhdpa), "hdp": lhdp,
+                    "side_label": "AH Fav" if ah_a_is_fav_live else "AH Dog",
+                    "threshold": ah_a_thr_live,
+                    "ratio": eval_ / ah_a_thr_live if ah_a_thr_live > 0 else 0
+                })
+
+            # OU Over
+            if evol > 0 and evol >= live_ou_over_lim:
+                candidates_live.append({
+                    "n": "สูง", "ev": evol, "odds": fix(louov), "hdp": lou,
+                    "side_label": "OU Over",
+                    "threshold": live_ou_over_lim,
+                    "ratio": evol / live_ou_over_lim if live_ou_over_lim > 0 else 0
+                })
+
+            # OU Under
+            if evul > 0 and evul >= live_ou_under_lim:
+                candidates_live.append({
+                    "n": "ต่ำ", "ev": evul, "odds": fix(louun), "hdp": lou,
+                    "side_label": "OU Under",
+                    "threshold": live_ou_under_lim,
+                    "ratio": evul / live_ou_under_lim if live_ou_under_lim > 0 else 0
+                })
+
+            # แสดงตารางเปรียบเทียบ
+            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ LIVE BEST BET SCANNER</div>',
+                        unsafe_allow_html=True)
+            all_sides_live = [
+                {"side": "AH Home", "name": "เจ้าบ้าน", "ev": evhl,
+                 "thr": live_ah_fav_lim if fvl else live_ah_dog_lim,
+                 "side_type": "Fav" if fvl else "Dog"},
+                {"side": "AH Away", "name": "ทีมเยือน", "ev": eval_,
+                 "thr": live_ah_fav_lim if not fvl else live_ah_dog_lim,
+                 "side_type": "Fav" if not fvl else "Dog"},
+                {"side": "OU Over", "name": "สูง", "ev": evol,
+                 "thr": live_ou_over_lim, "side_type": "Over"},
+                {"side": "OU Under", "name": "ต่ำ", "ev": evul,
+                 "thr": live_ou_under_lim, "side_type": "Under"},
+            ]
+            for s in all_sides_live:
+                s['ratio'] = s['ev']/s['thr'] if s['thr'] > 0 else 0
+                s['pass']  = s['ev'] >= s['thr']
+            scan_df_live = pd.DataFrame([
+                {
+                    "ฝั่ง":       f"{s['side']} ({s['side_type']})",
+                    "Target":     s['name'],
+                    "EV %":       round(s['ev']*100, 2),
+                    "Threshold":  round(s['thr']*100, 1),
+                    "Ratio":      round(s['ratio'], 2),
+                    "ผ่าน":       "✅" if s['pass'] else "❌",
+                }
+                for s in all_sides_live
+            ])
+            st.dataframe(scan_df_live, use_container_width=True, hide_index=True)
+
+            if candidates_live:
+                best_live = max(candidates_live, key=lambda x: x['ratio'])
+                valid_bets_live = [best_live]
+                st.success(
+                    f"🎯 **BEST LIVE BET:** {best_live['side_label']} — "
+                    f"{best_live['n']} @ {best_live['odds']:.2f} "
+                    f"(EV {best_live['ev']*100:.2f}% / threshold {best_live['threshold']*100:.1f}% "
+                    f"= ratio **{best_live['ratio']:.2f}**)"
+                )
+            else:
+                st.warning("⚠️ ไม่มีฝั่งไหนผ่าน threshold — No live signal")
+
+        else:
+            # ════════════════════════════════════════════════════════════
+            # [Default Mode] Live Dutching
+            # ════════════════════════════════════════════════════════════
+            if bav >= live_ah_threshold:
+                valid_bets_live.append({"n": tah, "ev": bav, "hdp": lhdp,
+                                        "odds": fix(lhdph) if tah == "เจ้าบ้าน" else fix(lhdpa)})
+            if bov >= live_ou_threshold:
+                valid_bets_live.append({"n": tou, "ev": bov, "hdp": lou,
+                                        "odds": fix(louov) if tou == "สูง" else fix(louun)})
 
         if valid_bets_live:
             with st.spinner("◈ SNIPER ORACLE PROCESSING..."):
