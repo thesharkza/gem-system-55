@@ -1392,13 +1392,51 @@ with st.sidebar:
 
         # warning หรือ blocked banner
         if risk_status['blocked']:
-            st.markdown(
-                f'<div style="margin-top:8px;padding:8px;background:rgba(255,59,92,0.15);'
-                f'border-left:3px solid #ff3b5c;border-radius:3px;'
-                f'font-family:\'Share Tech Mono\';font-size:0.68rem;color:#ff3b5c;">'
-                f'🛑 SYSTEM LOCKED</div>',
-                unsafe_allow_html=True
-            )
+            # ── Manual Override Toggle ─────────────────────────────────
+            # ผู้ใช้สามารถปลดล็อกเองได้ (responsibility อยู่ที่ user)
+            # session_state เก็บ "วันที่ปลดล็อก" — รีเซ็ตอัตโนมัติเมื่อข้ามวัน
+            tz_th = timezone(timedelta(hours=7))
+            today_date = datetime.now(tz_th).strftime("%Y-%m-%d")
+            override_key = 'risk_override_date'
+
+            # ถ้าเป็นวันใหม่ → reset override
+            if (override_key in st.session_state and
+                st.session_state[override_key] != today_date):
+                st.session_state[override_key] = None
+
+            is_overridden = st.session_state.get(override_key) == today_date
+
+            if is_overridden:
+                # โหมด unlock — แสดง banner สีเหลืองและปุ่ม lock กลับ
+                st.markdown(
+                    f'<div style="margin-top:8px;padding:8px;background:rgba(255,214,0,0.15);'
+                    f'border-left:3px solid #ffd600;border-radius:3px;'
+                    f'font-family:\'Share Tech Mono\';font-size:0.68rem;color:#ffd600;">'
+                    f'⚠️ UNLOCKED — ลงไม้ได้แต่เสี่ยง</div>',
+                    unsafe_allow_html=True
+                )
+                if st.button("🔒  Lock System อีกครั้ง",
+                              use_container_width=True,
+                              key="btn_lock_again"):
+                    st.session_state[override_key] = None
+                    st.rerun()
+            else:
+                # โหมด locked — แสดง banner แดงและปุ่ม unlock
+                st.markdown(
+                    f'<div style="margin-top:8px;padding:8px;background:rgba(255,59,92,0.15);'
+                    f'border-left:3px solid #ff3b5c;border-radius:3px;'
+                    f'font-family:\'Share Tech Mono\';font-size:0.68rem;color:#ff3b5c;">'
+                    f'🛑 SYSTEM LOCKED</div>',
+                    unsafe_allow_html=True
+                )
+                if st.button("🔓  Unlock (รับผิดชอบเอง)",
+                              use_container_width=True,
+                              key="btn_unlock",
+                              help="ปลดล็อกระบบเพื่อลงไม้ต่อ — รีเซ็ตอัตโนมัติเที่ยงคืน"):
+                    st.session_state[override_key] = today_date
+                    st.toast("🔓 ระบบปลดล็อกแล้ว — โปรดลงทุนอย่างมีสติ", icon="⚠️")
+                    time.sleep(0.5)
+                    st.rerun()
         elif risk_status['today_pnl'] <= -risk_status['stop_loss_thb'] * 0.7:
             # เตือนเมื่อใกล้ stop loss (70%)
             st.markdown(
@@ -1426,9 +1464,19 @@ live_ah_thr  = min(live_ah_fav_thr,  live_ah_dog_thr)
 live_ou_thr  = min(live_ou_over_thr, live_ou_under_thr)
 
 # ตัวแปร global สำหรับใช้ใน tab1 และ tab3
+# [Manual Override] ถ้าผู้ใช้กด unlock วันนี้ → ปลดล็อก
 if enable_stop_loss:
-    is_risk_blocked    = risk_status['blocked']
-    risk_block_reason  = risk_status['reason']
+    tz_check = timezone(timedelta(hours=7))
+    today_check = datetime.now(tz_check).strftime("%Y-%m-%d")
+    user_override_today = (st.session_state.get('risk_override_date') == today_check)
+
+    if user_override_today and risk_status['blocked']:
+        # User ปลดล็อกเอง → ไม่ block แต่ยังเตือนใน reason
+        is_risk_blocked   = False
+        risk_block_reason = ''
+    else:
+        is_risk_blocked   = risk_status['blocked']
+        risk_block_reason = risk_status['reason']
 else:
     is_risk_blocked    = False
     risk_block_reason  = ''
