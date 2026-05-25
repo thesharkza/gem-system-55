@@ -3369,8 +3369,41 @@ with tab4:
                 if st.button("🧪  RUN BACKTEST OPTIMIZATION",
                              type="primary", use_container_width=True):
                     with st.spinner("วนลูปย้อนหลังเพื่อหา Threshold ที่ดีที่สุด..."):
+                        # [v3.1 Optimizer] แยก 4 ฝั่ง: AH Fav, AH Dog, OU Over, OU Under
+                        # เพราะ threshold ใน sidebar แยก 4 ตัวแล้ว ต้อง backtest ให้ตรง
                         ah_logs = fin[fin['Target'].isin(['เจ้าบ้าน', 'ทีมเยือน'])].copy()
+
+                        # AH side classification — ใช้ HDP sign + Odds เป็น fallback
+                        def classify_ah_side(row):
+                            try:
+                                hdp = float(row['HDP'])
+                                odds = float(row['Odds'])
+                                target = str(row['Target'])
+                            except:
+                                return 'Unknown'
+                            if hdp < 0:
+                                # เยือนต่อ
+                                return 'Fav' if target == 'ทีมเยือน' else 'Dog'
+                            elif hdp > 0:
+                                if odds < 1.92:
+                                    return 'Fav'
+                                elif odds > 1.98:
+                                    return 'Dog'
+                                else:
+                                    # default convention: เจ้าบ้านต่อ
+                                    return 'Fav' if target == 'เจ้าบ้าน' else 'Dog'
+                            else:
+                                if odds < 1.95:    return 'Fav'
+                                elif odds > 1.95:  return 'Dog'
+                                return 'Even'
+
+                        ah_logs['_side'] = ah_logs.apply(classify_ah_side, axis=1)
+                        ah_fav_logs = ah_logs[ah_logs['_side'] == 'Fav'].copy()
+                        ah_dog_logs = ah_logs[ah_logs['_side'] == 'Dog'].copy()
+
                         ou_logs = fin[fin['Target'].isin(['สูง', 'ต่ำ'])].copy()
+                        ou_over_logs  = ou_logs[ou_logs['Target'] == 'สูง'].copy()
+                        ou_under_logs = ou_logs[ou_logs['Target'] == 'ต่ำ'].copy()
 
                         def find_best(logs, label):
                             """หา threshold ที่ดีที่สุดสำหรับตลาดนี้"""
@@ -3405,51 +3438,79 @@ with tab4:
                                 best = res_df.loc[res_df['win_rate'].idxmax()]
                             return best, res_df
 
-                        best_ah, ah_df = find_best(ah_logs, "AH")
-                        best_ou, ou_df = find_best(ou_logs, "O/U")
+                        # หา threshold ที่ดีที่สุดสำหรับทั้ง 4 ฝั่ง
+                        best_ah_fav, ah_fav_df   = find_best(ah_fav_logs,  "AH Fav")
+                        best_ah_dog, ah_dog_df   = find_best(ah_dog_logs,  "AH Dog")
+                        best_ou_over, ou_over_df = find_best(ou_over_logs, "OU Over")
+                        best_ou_under, ou_under_df = find_best(ou_under_logs, "OU Under")
 
                         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
 
-                        # AH section
-                        st.markdown('<div class="gem-label">◈ ASIAN HANDICAP — OPTIMAL THRESHOLD</div>',
-                                    unsafe_allow_html=True)
-                        if best_ah is not None:
-                            ac1, ac2, ac3, ac4 = st.columns(4)
-                            ac1.metric("AH Threshold", f"{best_ah['threshold']:.1f}%")
-                            ac2.metric("Bets",         f"{int(best_ah['count'])}")
-                            ac3.metric("P&L",          f"฿{best_ah['pnl']:+,.0f}")
-                            ac4.metric("ROI",          f"{best_ah['roi']:+.2f}%",
-                                       f"WR {best_ah['win_rate']:.1f}%")
-                            with st.expander("◈ AH — ทุก threshold ที่ทดสอบ"):
-                                st.dataframe(ah_df.style.highlight_max(
-                                    subset=['roi_per_bet','pnl','win_rate'], color='#003322'),
-                                    use_container_width=True)
-                        else:
-                            st.warning(f"⚠️ AH: ไม่พบ threshold ที่มี records ≥ {min_samples} ไม้")
+                        # ── helper render single side ─────────────────────
+                        def render_side(label, best_data, side_df, side_logs_count, color):
+                            st.markdown(
+                                f'<div class="gem-label" style="border-color:{color};color:{color};">'
+                                f'◈ {label} — OPTIMAL THRESHOLD</div>',
+                                unsafe_allow_html=True
+                            )
+                            if best_data is not None:
+                                sc1, sc2, sc3, sc4 = st.columns(4)
+                                sc1.metric("Threshold", f"{best_data['threshold']:.1f}%")
+                                sc2.metric("Bets",      f"{int(best_data['count'])}")
+                                sc3.metric("P&L",       f"฿{best_data['pnl']:+,.0f}")
+                                sc4.metric("ROI",       f"{best_data['roi']:+.2f}%",
+                                           f"WR {best_data['win_rate']:.1f}%")
+                                with st.expander(f"◈ {label} — ทุก threshold ที่ทดสอบ"):
+                                    st.dataframe(side_df.style.highlight_max(
+                                        subset=['roi_per_bet','pnl','win_rate'], color='#003322'),
+                                        use_container_width=True)
+                            else:
+                                st.warning(
+                                    f"⚠️ {label}: ไม่พบ threshold ที่ใช้งานได้ "
+                                    f"(records ทั้งหมด: {side_logs_count} ไม้, "
+                                    f"ต้องการขั้นต่ำ {min_samples} ไม้/threshold)"
+                                )
 
-                        # O/U section
-                        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ OVER/UNDER — OPTIMAL THRESHOLD</div>',
-                                    unsafe_allow_html=True)
-                        if best_ou is not None:
-                            oc1, oc2, oc3, oc4 = st.columns(4)
-                            oc1.metric("O/U Threshold", f"{best_ou['threshold']:.1f}%")
-                            oc2.metric("Bets",          f"{int(best_ou['count'])}")
-                            oc3.metric("P&L",           f"฿{best_ou['pnl']:+,.0f}")
-                            oc4.metric("ROI",           f"{best_ou['roi']:+.2f}%",
-                                       f"WR {best_ou['win_rate']:.1f}%")
-                            with st.expander("◈ O/U — ทุก threshold ที่ทดสอบ"):
-                                st.dataframe(ou_df.style.highlight_max(
-                                    subset=['roi_per_bet','pnl','win_rate'], color='#003322'),
-                                    use_container_width=True)
-                        else:
-                            st.warning(f"⚠️ O/U: ไม่พบ threshold ที่มี records ≥ {min_samples} ไม้")
+                        # ── ASIAN HANDICAP — แยก Fav/Dog ──────────────────
+                        st.markdown(
+                            '<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;'
+                            'color:#00ff88;margin:14px 0 8px 0;letter-spacing:0.05em;">'
+                            '🎯 ASIAN HANDICAP</div>',
+                            unsafe_allow_html=True
+                        )
+                        ah_col1, ah_col2 = st.columns(2)
+                        with ah_col1:
+                            render_side("AH FAV (ทีมต่อ)", best_ah_fav, ah_fav_df,
+                                        len(ah_fav_logs), "#ff8c00")
+                        with ah_col2:
+                            render_side("AH DOG (ทีมรอง)", best_ah_dog, ah_dog_df,
+                                        len(ah_dog_logs), "#00ff88")
 
-                        # Conclusion
-                        ah_thr_txt = f"{best_ah['threshold']:.1f}%" if best_ah is not None else "—"
-                        ou_thr_txt = f"{best_ou['threshold']:.1f}%" if best_ou is not None else "—"
-                        st.info(
-                            f"**🎯 แนะนำ:** นำตัวเลขนี้ไปปรับที่ Sidebar → EV THRESHOLDS\n\n"
-                            f"• AH:  **{ah_thr_txt}**\n"
-                            f"• O/U: **{ou_thr_txt}**\n\n"
+                        # ── OVER/UNDER — แยก Over/Under ───────────────────
+                        st.markdown(
+                            '<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;'
+                            'color:#00b4ff;margin:14px 0 8px 0;letter-spacing:0.05em;">'
+                            '⚡ OVER / UNDER</div>',
+                            unsafe_allow_html=True
+                        )
+                        ou_col1, ou_col2 = st.columns(2)
+                        with ou_col1:
+                            render_side("OU OVER (สูง)", best_ou_over, ou_over_df,
+                                        len(ou_over_logs), "#00b4ff")
+                        with ou_col2:
+                            render_side("OU UNDER (ต่ำ)", best_ou_under, ou_under_df,
+                                        len(ou_under_logs), "#ff8c00")
+
+                        # ── Conclusion / Recommendations ──────────────────
+                        def thr_txt(b):
+                            return f"{b['threshold']:.1f}%" if b is not None else "—"
+
+                        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+                        st.success(
+                            f"**🎯 แนะนำตั้งค่าใน Sidebar → EV THRESHOLDS:**\n\n"
+                            f"• **AH Fav %:** {thr_txt(best_ah_fav)}  "
+                            f"• **AH Dog %:** {thr_txt(best_ah_dog)}\n\n"
+                            f"• **OU Over %:** {thr_txt(best_ou_over)}  "
+                            f"• **OU Under %:** {thr_txt(best_ou_under)}\n\n"
                             f"_optimize ตาม: {opt_metric}, min sample = {min_samples} ไม้_"
                         )
