@@ -1187,100 +1187,189 @@ with st.sidebar:
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ PORTFOLIO</div>', unsafe_allow_html=True)
     total_bankroll = st.number_input("Bankroll (THB)", min_value=0.0, value=10000.0)
-    # HDBA slider ยังคงไว้เพื่อใช้ใน future หรือ manual override
-    # แต่ระบบใช้ Dynamic HDBA = pd × dog_odds × 0.25 เป็นค่าหลัก
-    # [Calibration v3] เพิ่ม HDBA factor default จาก 0.25 → 0.45
-    # เพราะ Dog edge ฟรี = pd × odds เฉลี่ย 47-53% หักด้วย factor 0.25 เหลือ edge +35-40%
-    # เพิ่มเป็น 0.45 จะหัก ~80% ของ Dog advantage ทำให้ Fav vs Dog ใกล้สมดุล
-    hdba_val = st.slider(
-        "HDBA Adj Factor",
-        0.10, 0.80, 0.45, step=0.05,
-        help="Dynamic Dog Penalty = pd × odds × factor (0.45 = หัก ~80% ของ draw advantage)"
+
+    # ══════════════════════════════════════════════════════════════════
+    # ◈ SIMPLE MODE — Risk Profile-Driven Configuration
+    # ══════════════════════════════════════════════════════════════════
+    # ตั้งค่าด้วย dropdown เดียว → ระบบจัดการ HDBA, Kelly, Cap, Thresholds ให้
+    # ผู้ใช้ขั้นสูงสามารถเปิด Advanced Settings เพื่อ override ได้
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ RISK PROFILE</div>', unsafe_allow_html=True)
+
+    risk_profile = st.selectbox(
+        "เลือก Profile",
+        ["⚖️ Balanced (แนะนำ)", "🛡️ Conservative", "🔥 Aggressive"],
+        label_visibility="collapsed",
+        help=(
+            "Conservative: กรองเข้ม, Kelly ต่ำ, Stop Loss แคบ — เหมาะกับมือใหม่\n"
+            "Balanced: ค่ามาตรฐานทางวิชาการ — เหมาะกับคนส่วนใหญ่\n"
+            "Aggressive: กรองหลวม, Kelly สูง, Stop Loss กว้าง — สำหรับ bankroll ใหญ่"
+        )
     )
 
-    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="gem-label">◈ KELLY CRITERION (MONEY MGT)</div>', unsafe_allow_html=True)
-    kelly_fraction = st.slider("Kelly Fraction", 0.05, 0.50, 0.25, step=0.05,
-                               help="สัดส่วน Kelly (แนะนำ 0.25)")
-    max_bet_cap    = st.slider("Max Bet Cap %", 1.0, 10.0, 5.0, step=0.5,
-                               help="ลิมิตเงินลงทุนสูงสุดต่อบิล")
+    # ── Preset Values สำหรับแต่ละ Profile ─────────────────────────
+    if "Conservative" in risk_profile:
+        preset = {
+            'hdba_val':          0.55,    # หัก Dog edge หนัก
+            'kelly_fraction':    0.15,    # Eighth Kelly
+            'max_bet_cap':       3.0,     # ลิมิตเงิน 3%
+            'daily_stop_pct':    7.0,     # Stop loss 7%
+            'daily_bet_cap':     3,       # 3 ไม้/วัน
+            'pre_ah_fav_thr':    12.0,    # threshold สูง
+            'pre_ah_dog_thr':    18.0,
+            'pre_ou_over_thr':   8.0,
+            'pre_ou_under_thr':  15.0,
+            'live_ah_fav_thr':   14.0,
+            'live_ah_dog_thr':   20.0,
+            'live_ou_over_thr':  10.0,
+            'live_ou_under_thr': 16.0,
+            'profile_color':     '#00b4ff',
+            'profile_desc':      'กรองเข้ม Kelly 1/8 — ไม่ค่อยลง แต่ปลอดภัย',
+        }
+    elif "Aggressive" in risk_profile:
+        preset = {
+            'hdba_val':          0.35,    # หัก Dog edge น้อย
+            'kelly_fraction':    0.35,    # > Quarter Kelly
+            'max_bet_cap':       7.0,     # ลิมิตเงิน 7%
+            'daily_stop_pct':    15.0,    # Stop loss กว้าง 15%
+            'daily_bet_cap':     8,       # 8 ไม้/วัน
+            'pre_ah_fav_thr':    5.0,     # threshold ต่ำ
+            'pre_ah_dog_thr':    10.0,
+            'pre_ou_over_thr':   3.0,
+            'pre_ou_under_thr':  8.0,
+            'live_ah_fav_thr':   7.0,
+            'live_ah_dog_thr':   12.0,
+            'live_ou_over_thr':  4.0,
+            'live_ou_under_thr': 10.0,
+            'profile_color':     '#ff8c00',
+            'profile_desc':      'ลงเยอะ Kelly 0.35 — เหมาะกับ bankroll ใหญ่',
+        }
+    else:   # Balanced (default)
+        preset = {
+            'hdba_val':          0.45,    # Calibration v3.1 default
+            'kelly_fraction':    0.25,    # Quarter Kelly (มาตรฐาน)
+            'max_bet_cap':       5.0,     # 5% safety standard
+            'daily_stop_pct':    10.0,    # 10% — anti-tilt
+            'daily_bet_cap':     5,       # 5 ไม้/วัน
+            'pre_ah_fav_thr':    8.0,
+            'pre_ah_dog_thr':    14.0,
+            'pre_ou_over_thr':   5.0,
+            'pre_ou_under_thr':  12.0,
+            'live_ah_fav_thr':   10.0,
+            'live_ah_dog_thr':   15.0,
+            'live_ou_over_thr':  6.0,
+            'live_ou_under_thr': 13.0,
+            'profile_color':     '#00ff88',
+            'profile_desc':      'Quarter Kelly + threshold มาตรฐาน — แนะนำ',
+        }
 
-    # ── ◈ RISK GUARDS — Daily Stop Loss & Daily Bet Limit ────────────
-    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="gem-label">◈ RISK GUARDS (TILT PROTECTION)</div>', unsafe_allow_html=True)
-    enable_stop_loss = st.checkbox(
-        "🛑 เปิด Daily Stop Loss",
-        value=True,
-        help="หยุดรับสัญญาณใหม่อัตโนมัติเมื่อขาดทุนถึงเพดานต่อวัน"
-    )
-    daily_stop_pct = st.slider(
-        "Daily Stop Loss (%)",
-        1.0, 30.0, 10.0, step=1.0,
-        help="เพดานขาดทุนต่อวัน เป็น % ของ Bankroll (แนะนำ 10%)",
-        disabled=not enable_stop_loss
-    )
-    daily_bet_cap = st.slider(
-        "Max Bets / Day",
-        1, 20, 5, step=1,
-        help="จำนวนไม้สูงสุดต่อวัน ป้องกัน over-trading",
-        disabled=not enable_stop_loss
-    )
-
-    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="gem-label">◈ EV THRESHOLDS — PRE-MATCH</div>', unsafe_allow_html=True)
-    # [Calibration v3.1] Default ใหม่เหมาะกับ Base EV (Math เปล่าๆ ก่อน AI)
-    # ตัวเลขเก่า 20-30% เป็น Net EV (รวม AI dump แล้ว) ใช้กับระบบใหม่จะไม่เจอ bet เลย
-    # ตัวเลขใหม่อิงจาก distribution analysis: P75-P85 ของ market noise
+    # Banner แสดง profile
     st.markdown(
-        '<p style="font-family:\'Rajdhani\';font-size:0.75rem;color:#4a7a60;'
-        'margin-top:-4px;margin-bottom:8px;">'
-        'ⓘ Base EV mode — threshold ต่ำกว่าเดิมเพราะคัดที่ Math เท่านั้น</p>',
+        f'<div style="background:rgba(0,0,0,0.3);'
+        f'border-left:3px solid {preset["profile_color"]};border-radius:3px;'
+        f'padding:6px 10px;margin-top:4px;'
+        f'font-family:\'Share Tech Mono\';font-size:0.66rem;color:{preset["profile_color"]};">'
+        f'▸ {preset["profile_desc"]}'
+        f'</div>',
         unsafe_allow_html=True
     )
-    col_pre_ah1, col_pre_ah2 = st.columns(2)
-    pre_ah_fav_thr = col_pre_ah1.slider("AH Fav %", 1.0, 50.0, 8.0, step=0.5,
-                                         help="Threshold สำหรับทีมต่อ (Base EV) — แนะนำ 8-12%")
-    pre_ah_dog_thr = col_pre_ah2.slider("AH Dog %", 1.0, 50.0, 14.0, step=0.5,
-                                         help="Threshold สำหรับทีมรอง (Base EV) — แนะนำ 14-18%")
-    col_pre_ou1, col_pre_ou2 = st.columns(2)
-    pre_ou_over_thr  = col_pre_ou1.slider("OU Over %",  1.0, 50.0, 5.0, step=0.5,
-                                           help="Threshold สำหรับสูง (Base EV) — แนะนำ 5-8%")
-    pre_ou_under_thr = col_pre_ou2.slider("OU Under %", 1.0, 50.0, 12.0, step=0.5,
-                                           help="Threshold สำหรับต่ำ (Base EV) — แนะนำ 12-15%")
 
-    st.markdown('<div class="gem-label">◈ EV THRESHOLDS — IN-PLAY</div>', unsafe_allow_html=True)
-    col_lv_ah1, col_lv_ah2 = st.columns(2)
-    live_ah_fav_thr = col_lv_ah1.slider("AH Live Fav %", 1.0, 50.0, 10.0, step=1.0,
-                                          help="Live volatility สูงกว่า → threshold สูงนิด")
-    live_ah_dog_thr = col_lv_ah2.slider("AH Live Dog %", 1.0, 50.0, 15.0, step=1.0)
-    col_lv_ou1, col_lv_ou2 = st.columns(2)
-    live_ou_over_thr  = col_lv_ou1.slider("OU Live Over %",  1.0, 50.0, 6.0, step=1.0)
-    live_ou_under_thr = col_lv_ou2.slider("OU Live Under %", 1.0, 50.0, 13.0, step=1.0)
-
-    # ── ◈ BET SELECTION MODE ────────────────────────────────────────
-    # Best Bet Only: scan 4 ฝั่ง (Fav/Dog/Over/Under) → เลือกฝั่งที่มี
-    # EV-to-threshold ratio สูงสุด → ส่งเข้า AI 1 ไม้
+    # ── ◈ BET SELECTION MODE — ย้ายขึ้นบนสุด (ใช้บ่อย) ──────────────
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="gem-label">◈ BET SELECTION MODE</div>', unsafe_allow_html=True)
     best_bet_only = st.checkbox(
         "🎯 Best Bet Only Mode",
         value=False,
-        help=(
-            "เปิด: scan ทั้ง 4 ฝั่ง (Fav/Dog/Over/Under) แล้วเลือก 1 ฝั่งที่มี value มากที่สุด\n"
-            "ปิด: ลงได้ทั้ง AH และ OU พร้อมกัน (default - dutching)\n\n"
-            "เกณฑ์: EV-to-threshold ratio สูงสุด"
-        )
+        help="scan 4 ฝั่ง → เลือก 1 ฝั่งที่มี EV/threshold ratio สูงสุด"
     )
-    if best_bet_only:
+
+    # ══════════════════════════════════════════════════════════════════
+    # ◈ ADVANCED SETTINGS — Override Profile (collapsed by default)
+    # ══════════════════════════════════════════════════════════════════
+    with st.expander("⚙️ ADVANCED SETTINGS — Override Profile", expanded=False):
         st.markdown(
-            '<div style="background:rgba(0,255,136,0.08);'
-            'border-left:3px solid #00ff88;border-radius:3px;'
-            'padding:6px 10px;margin-top:4px;'
-            'font-family:\'Share Tech Mono\';font-size:0.66rem;color:#00ff88;">'
-            '🎯 BEST BET MODE — เลือก 1 ฝั่งที่ดีที่สุดจากทั้ง 4'
-            '</div>',
+            '<p style="font-family:\'Rajdhani\';font-size:0.74rem;color:#4a7a60;'
+            'margin:-4px 0 8px 0;">'
+            'ⓘ เปิดเฉพาะเมื่อต้องการปรับค่าจาก profile แนะนำ '
+            'ค่า default = ตาม Risk Profile ที่เลือก</p>',
             unsafe_allow_html=True
         )
+
+        override_advanced = st.checkbox(
+            "🔧 เปิด Override (ปลดล็อกการปรับค่า)",
+            value=False,
+            help="เปิดเมื่อต้องการปรับ Kelly, HDBA, Cap, Thresholds เอง"
+        )
+
+        if override_advanced:
+            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ MONEY MANAGEMENT</div>',
+                        unsafe_allow_html=True)
+            adv_c1, adv_c2 = st.columns(2)
+            hdba_val       = adv_c1.slider("HDBA Factor",     0.10, 0.80,
+                                            preset['hdba_val'],       step=0.05)
+            kelly_fraction = adv_c2.slider("Kelly Fraction",  0.05, 0.50,
+                                            preset['kelly_fraction'], step=0.05)
+            max_bet_cap    = st.slider("Max Bet Cap %",       1.0, 10.0,
+                                        preset['max_bet_cap'],    step=0.5)
+
+            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ DAILY RISK GUARD</div>',
+                        unsafe_allow_html=True)
+            adv_d1, adv_d2 = st.columns(2)
+            daily_stop_pct = adv_d1.slider("Stop Loss %",  1.0, 30.0,
+                                            preset['daily_stop_pct'], step=1.0)
+            daily_bet_cap  = adv_d2.slider("Max Bets/Day", 1, 20,
+                                            preset['daily_bet_cap'])
+
+            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ EV THRESHOLDS — PRE-MATCH</div>',
+                        unsafe_allow_html=True)
+            adv_p1, adv_p2 = st.columns(2)
+            pre_ah_fav_thr   = adv_p1.slider("AH Fav %",   1.0, 50.0, preset['pre_ah_fav_thr'],   step=0.5)
+            pre_ah_dog_thr   = adv_p2.slider("AH Dog %",   1.0, 50.0, preset['pre_ah_dog_thr'],   step=0.5)
+            adv_p3, adv_p4 = st.columns(2)
+            pre_ou_over_thr  = adv_p3.slider("OU Over %",  1.0, 50.0, preset['pre_ou_over_thr'],  step=0.5)
+            pre_ou_under_thr = adv_p4.slider("OU Under %", 1.0, 50.0, preset['pre_ou_under_thr'], step=0.5)
+
+            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ EV THRESHOLDS — IN-PLAY</div>',
+                        unsafe_allow_html=True)
+            adv_l1, adv_l2 = st.columns(2)
+            live_ah_fav_thr  = adv_l1.slider("AH Live Fav %",  1.0, 50.0, preset['live_ah_fav_thr'],   step=1.0)
+            live_ah_dog_thr  = adv_l2.slider("AH Live Dog %",  1.0, 50.0, preset['live_ah_dog_thr'],   step=1.0)
+            adv_l3, adv_l4 = st.columns(2)
+            live_ou_over_thr  = adv_l3.slider("OU Live Over %",  1.0, 50.0, preset['live_ou_over_thr'],  step=1.0)
+            live_ou_under_thr = adv_l4.slider("OU Live Under %", 1.0, 50.0, preset['live_ou_under_thr'], step=1.0)
+        else:
+            # ใช้ค่า preset ทั้งหมด
+            hdba_val          = preset['hdba_val']
+            kelly_fraction    = preset['kelly_fraction']
+            max_bet_cap       = preset['max_bet_cap']
+            daily_stop_pct    = preset['daily_stop_pct']
+            daily_bet_cap     = preset['daily_bet_cap']
+            pre_ah_fav_thr    = preset['pre_ah_fav_thr']
+            pre_ah_dog_thr    = preset['pre_ah_dog_thr']
+            pre_ou_over_thr   = preset['pre_ou_over_thr']
+            pre_ou_under_thr  = preset['pre_ou_under_thr']
+            live_ah_fav_thr   = preset['live_ah_fav_thr']
+            live_ah_dog_thr   = preset['live_ah_dog_thr']
+            live_ou_over_thr  = preset['live_ou_over_thr']
+            live_ou_under_thr = preset['live_ou_under_thr']
+
+            # แสดง summary ของ profile (สรุปย่อ)
+            st.markdown(
+                f'<div style="font-family:\'Share Tech Mono\';font-size:0.64rem;'
+                f'color:#4a7a60;line-height:1.6;margin-top:6px;">'
+                f'Kelly: <span style="color:#c8e6d4;">{kelly_fraction:.2f}</span> · '
+                f'Cap: <span style="color:#c8e6d4;">{max_bet_cap:.0f}%</span> · '
+                f'HDBA: <span style="color:#c8e6d4;">{hdba_val:.2f}</span><br>'
+                f'Stop: <span style="color:#ffd600;">{daily_stop_pct:.0f}%</span> · '
+                f'Max: <span style="color:#c8e6d4;">{daily_bet_cap} ไม้/วัน</span><br>'
+                f'Pre AH: <span style="color:#c8e6d4;">{pre_ah_fav_thr:.0f}/{pre_ah_dog_thr:.0f}%</span> · '
+                f'OU: <span style="color:#c8e6d4;">{pre_ou_over_thr:.0f}/{pre_ou_under_thr:.0f}%</span>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+    # Daily Stop Loss always enabled (จากเดิมเป็น checkbox)
+    # เพราะถูกพิสูจน์แล้วว่าจำเป็น ไม่ควรปิด
+    enable_stop_loss = True
 
     # ── 🛑 DAILY RISK STATUS DISPLAY ─────────────────────────────────
     if enable_stop_loss:
