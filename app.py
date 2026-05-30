@@ -1009,6 +1009,69 @@ def calc_clv(row):
 
 
 # ==========================================
+# 🏆 BET QUALITY TIER SYSTEM — EV + Ratio Hybrid
+# ==========================================
+def get_bet_tier(ev_pct, ratio):
+    """
+    จัด Tier ตามคุณภาพของ bet ใช้ทั้ง EV และ Ratio ร่วมกัน
+
+    🌟 GOLD:    Ratio ≥ 2.0  AND  EV ≥ 15%   — outlier value, high confidence
+    🥈 SILVER:  Ratio ≥ 1.5  AND  EV ≥ 10%   — strong value, normal confidence
+    🥉 BRONZE:  Ratio ≥ 1.0  AND  EV ≥ 5%    — borderline value
+    ❌ REJECT:  Ratio < 1.0   OR   EV < 5%    — not enough edge
+
+    Returns: dict { tier, emoji, color, kelly_mult, description }
+    """
+    if ratio is None or pd.isna(ratio): ratio = 0.0
+    if ev_pct is None or pd.isna(ev_pct): ev_pct = 0.0
+
+    if ratio >= 2.0 and ev_pct >= 15.0:
+        return {
+            'tier':        'GOLD',
+            'emoji':       '🌟',
+            'color':       '#ffd600',
+            'kelly_mult':  1.5,
+            'description': 'Outlier Value — ลงเงินมากขึ้น 50%'
+        }
+    elif ratio >= 1.5 and ev_pct >= 10.0:
+        return {
+            'tier':        'SILVER',
+            'emoji':       '🥈',
+            'color':       '#c0c8d4',
+            'kelly_mult':  1.0,
+            'description': 'Strong Value — ลงตาม Kelly ปกติ'
+        }
+    elif ratio >= 1.0 and ev_pct >= 5.0:
+        return {
+            'tier':        'BRONZE',
+            'emoji':       '🥉',
+            'color':       '#cd7f32',
+            'kelly_mult':  0.5,
+            'description': 'Borderline Value — ลดเงินครึ่ง'
+        }
+    else:
+        return {
+            'tier':        'REJECT',
+            'emoji':       '❌',
+            'color':       '#ff3b5c',
+            'kelly_mult':  0.0,
+            'description': 'Not Enough Edge — ไม่ควรลง'
+        }
+
+
+def get_composite_score(ev_pct, ratio, max_ev=30.0, max_ratio=3.0):
+    """
+    Composite Score แบบ normalize — 0 ถึง 100
+    Score = (EV_norm × 50) + (Ratio_norm × 50)
+    """
+    if ev_pct is None or pd.isna(ev_pct): ev_pct = 0.0
+    if ratio is None or pd.isna(ratio):   ratio  = 0.0
+    ev_norm    = min(max(ev_pct / max_ev, 0), 1)
+    ratio_norm = min(max(ratio / max_ratio, 0), 1)
+    return round((ev_norm * 50) + (ratio_norm * 50), 1)
+
+
+# ==========================================
 # 🔍 DUPLICATE BET DETECTOR (Hybrid Mode)
 # ==========================================
 def find_duplicate_bets(match_name, target, hours_window=24):
@@ -2054,13 +2117,35 @@ with tab1:
 
                     if v.get('final_decision', False) and nev > 0:
                         # [แก้ไข #8] dutch_factor พร้อม correlation warning
-                        # AH และ O/U อาจ correlated สูง → ลด exposure เหลือ 60% ต่อตลาด
-                        # แทนที่จะเป็น 50% flat ซึ่งไม่สะท้อน correlation จริง
                         dutch_factor = 0.60 if len(valid_bets) == 2 else 1.00
+
+                        # [Tier-Based Kelly] ปรับ Kelly fraction ตามคุณภาพ bet
+                        # คำนวณ ratio และ tier ของ bet นี้
+                        bet_thr_pct = bet_thr * 100  # bet_thr เป็นทศนิยม
+                        bet_ratio = (tc['ev'] * 100) / bet_thr_pct if bet_thr_pct > 0 else 0
+                        bet_tier_info = get_bet_tier(tc['ev'] * 100, bet_ratio)
+                        tier_mult = bet_tier_info['kelly_mult']
+
                         kelly_opt = nev / (tc['odds'] - 1)
-                        inv = min(kelly_opt * kelly_fraction * dutch_factor,
+                        # คูณ tier multiplier: GOLD x1.5, SILVER x1.0, BRONZE x0.5
+                        inv = min(kelly_opt * kelly_fraction * tier_mult * dutch_factor,
                                   max_bet_cap / 100.0) * total_bankroll
                         inv = max(inv, 0.0)
+
+                        # แสดง tier ใน UI
+                        st.markdown(
+                            f'<div class="gem-panel" style="border-top:2px solid {bet_tier_info["color"]};">'
+                            f'<div class="gem-label" style="border-color:{bet_tier_info["color"]};color:{bet_tier_info["color"]};">'
+                            f'{bet_tier_info["emoji"]} {bet_tier_info["tier"]} TIER — Kelly × {tier_mult:.1f}</div>'
+                            f'<p style="color:#c8e6d4;font-family:\'Share Tech Mono\';font-size:0.78rem;">'
+                            f'Ratio: <strong>{bet_ratio:.2f}</strong> · '
+                            f'EV: <strong>{tc["ev"]*100:.2f}%</strong> · '
+                            f'Composite Score: <strong>{get_composite_score(tc["ev"]*100, bet_ratio)}/100</strong></p>'
+                            f'<p style="color:#4a7a60;font-family:\'Share Tech Mono\';font-size:0.72rem;">'
+                            f'{bet_tier_info["description"]}</p></div>',
+                            unsafe_allow_html=True
+                        )
+
                         if len(valid_bets) == 2:
                             st.warning(
                                 "⚠️ Dutching 2 markets: AH & O/U อาจ positively correlated "
@@ -2068,7 +2153,6 @@ with tab1:
                             )
                         tz_th = timezone(timedelta(hours=7))
                         # [Calibration v3.1] แยกบันทึก Base EV, AI Impact, Net EV
-                        # ทำให้ Backtest/Optimizer แยกประเมิน Math vs Math+AI ได้
                         ai_impact = v.get('impact_score', 0)
                         new_row = {
                             "Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"),
@@ -2290,6 +2374,45 @@ with tab2:
                     ai_delta_color = "normal" if ai_impact_d >= 0 else "inverse"
                     eb2.metric("AI Impact", f"{ai_impact_d:+.2f}%", delta_color=ai_delta_color)
                     eb3.metric("Net EV",     f"{ev_d:.2f}%")
+
+                    # ── [Quality Tier] แสดง Tier + Ratio + Score ───────────
+                    # คำนวณ ratio ย้อนหลังจาก base_ev + threshold ที่เหมาะกับฝั่ง
+                    try:
+                        hdp_for_tier = float(hdp_d)
+                        odds_for_tier = float(odds_d)
+                    except:
+                        hdp_for_tier, odds_for_tier = 0.0, 1.95
+
+                    # เลือก threshold ตาม side
+                    if target_d == "เจ้าบ้าน":
+                        is_fav_calc = (hdp_for_tier > 0 and odds_for_tier <= 1.92) or \
+                                       (hdp_for_tier > 0 and 1.92 <= odds_for_tier <= 1.98)
+                        thr_for_tier = pre_ah_fav_thr if is_fav_calc else pre_ah_dog_thr
+                    elif target_d == "ทีมเยือน":
+                        is_fav_calc = (hdp_for_tier < 0) or \
+                                       (hdp_for_tier > 0 and odds_for_tier <= 1.92)
+                        thr_for_tier = pre_ah_fav_thr if is_fav_calc else pre_ah_dog_thr
+                    elif target_d == "สูง":
+                        thr_for_tier = pre_ou_over_thr
+                    elif target_d == "ต่ำ":
+                        thr_for_tier = pre_ou_under_thr
+                    else:
+                        thr_for_tier = 10.0
+
+                    ratio_d = base_ev_d / thr_for_tier if thr_for_tier > 0 else 0
+                    tier_info_d = get_bet_tier(base_ev_d, ratio_d)
+                    score_d = get_composite_score(base_ev_d, ratio_d)
+
+                    st.markdown(
+                        f'<div class="gem-label" style="margin-top:10px;'
+                        f'border-color:{tier_info_d["color"]};color:{tier_info_d["color"]};">'
+                        f'◈ QUALITY METRICS — {tier_info_d["emoji"]} {tier_info_d["tier"]}</div>',
+                        unsafe_allow_html=True
+                    )
+                    qm1, qm2, qm3 = st.columns(3)
+                    qm1.metric("Ratio",      f"{ratio_d:.2f}")
+                    qm2.metric("Score",      f"{score_d:.0f}/100")
+                    qm3.metric("Kelly Mult", f"×{tier_info_d['kelly_mult']:.1f}")
 
                     st.markdown('<div class="gem-label" style="margin-top:8px;">◈ TRADE INFO</div>',
                                 unsafe_allow_html=True)
@@ -3476,10 +3599,32 @@ with tab3:
                             unsafe_allow_html=True
                         )
                         dutch_factor = 0.60 if len(valid_bets_live) == 2 else 1.00
+
+                        # [Tier-Based Kelly - Live] ปรับ Kelly ตามคุณภาพ bet
+                        live_thr_pct = live_bet_thr * 100
+                        live_ratio = (tl2['ev'] * 100) / live_thr_pct if live_thr_pct > 0 else 0
+                        live_tier_info = get_bet_tier(tl2['ev'] * 100, live_ratio)
+                        live_tier_mult = live_tier_info['kelly_mult']
+
                         kelly_opt_live = nlev / (tl2['odds'] - 1)
-                        inv = min(kelly_opt_live * kelly_fraction * dutch_factor,
+                        inv = min(kelly_opt_live * kelly_fraction * live_tier_mult * dutch_factor,
                                   max_bet_cap / 100.0) * total_bankroll
                         inv = max(inv, 0.0)
+
+                        # แสดง tier ใน Live UI
+                        st.markdown(
+                            f'<div class="gem-panel" style="border-top:2px solid {live_tier_info["color"]};">'
+                            f'<div class="gem-label" style="border-color:{live_tier_info["color"]};color:{live_tier_info["color"]};">'
+                            f'{live_tier_info["emoji"]} {live_tier_info["tier"]} TIER — Kelly × {live_tier_mult:.1f}</div>'
+                            f'<p style="color:#c8e6d4;font-family:\'Share Tech Mono\';font-size:0.78rem;">'
+                            f'Ratio: <strong>{live_ratio:.2f}</strong> · '
+                            f'EV: <strong>{tl2["ev"]*100:.2f}%</strong> · '
+                            f'Composite Score: <strong>{get_composite_score(tl2["ev"]*100, live_ratio)}/100</strong></p>'
+                            f'<p style="color:#4a7a60;font-family:\'Share Tech Mono\';font-size:0.72rem;">'
+                            f'{live_tier_info["description"]}</p></div>',
+                            unsafe_allow_html=True
+                        )
+
                         if len(valid_bets_live) == 2:
                             st.warning("⚠️ Dutching 2 markets: exposure ลดเหลือ 60% ต่อตลาด")
                         tz2 = timezone(timedelta(hours=7))
