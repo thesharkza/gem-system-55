@@ -462,7 +462,12 @@ def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
     # draw_mult: 8.0 → 4.0   (ลดการขยายเกินจริงในเกมที่เต็งชัด)
     bet = ou + 0.05 + ((top - 0.5) * 2.5)
     et  = max(0.5, bet + (0.25 - pd) * 4.0)
-    sup = (ph - pa) * (et ** 0.60)
+    # [Calibration v3.2 - BIAS FIX] supremacy power: 0.60 → 0.80
+    # เดิมที่ 0.60 ทำให้ supremacy ถูก dampen เกินไป → λ ของ Fav ต่ำเทียม
+    # ทำให้ระบบเห็น "value" ปลอมที่ฝั่ง Dog (P(Fav win) ต่ำกว่าตลาด 5-7%)
+    # ทดสอบกับ devigged market: 0.80 ให้ Δ ใกล้ ±1% (จากเดิม -6%)
+    # ผลข้างเคียง: EV ที่ Fav จะ realistic ขึ้น, EV ปลอมที่ Dog จะหายไป
+    sup = (ph - pa) * (et ** 0.80)
 
     lh = max(0.15, (et + sup) / 2) * (ml / 90) ** 0.75
     la = max(0.15, (et - sup) / 2) * (ml / 90) ** 0.75
