@@ -1077,6 +1077,132 @@ def get_composite_score(ev_pct, ratio, max_ev=30.0, max_ratio=3.0):
 
 
 # ==========================================
+# 🛡️ LAYER 3 — RULE VALIDATION
+# ==========================================
+# ตรวจกฎใหม่ก่อน insert เพื่อป้องกัน AI สร้างกฎมั่ว
+# Reject ถ้ากฎอ้างฟิลด์ที่ระบบไม่มี (BLACKLIST)
+BLACKLIST_KEYWORDS = [
+    # สถิติย้อนหลัง — ระบบไม่มี
+    'สถิติ', 'ค่าเฉลี่ย', 'นัดหลัง', 'นัดหลังสุด', 'นัดล่าสุด',
+    'ประวัติ', 'ฟอร์ม', 'h2h', 'past 5', 'last 5', '5 นัด', '3 นัด',
+    # ข้อมูลลีก — ระบบไม่มี
+    'ลีกใหญ่', 'ลีกรอง', 'ลีกใหม่', 'ลีกกึ่งอาชีพ', 'พรีเมียร์',
+    # สถิติผู้เล่น — ระบบไม่มี
+    'การยิงประตู', 'การเสียประตู', 'อัตราการยิง', 'อัตราการทำประตู',
+    'นักเตะ', 'ผู้รักษาประตู', 'กองหน้า', 'กองหลัง',
+    # เหตุการณ์ — Pre-match ไม่มีข้อมูล
+    'ใบเหลือง', 'ใบแดง',   # Live มี rc_h/rc_a แต่ AI ไม่ควรอ้างใน rule string
+    # คำกำกวม
+    'sweet spot', 'momentum range', 'trap line', 'ultra-low', 'super ev',
+    # ปัจจัยภายนอก
+    'สภาพอากาศ', 'สนาม', 'แฟนบอล', 'derby', 'ดาร์บี้', 'ศึกสายเลือด',
+]
+
+
+def validate_rule_against_whitelist(rule_text):
+    """
+    ตรวจกฎใหม่ — return (is_valid, reason)
+    True  = กฎใช้แค่ whitelist field, ผ่าน
+    False = อ้างฟิลด์ blacklist, reject
+    """
+    if not rule_text or not isinstance(rule_text, str):
+        return False, "กฎว่างเปล่า"
+
+    text_lower = rule_text.lower()
+    found_keywords = []
+    for kw in BLACKLIST_KEYWORDS:
+        if kw.lower() in text_lower:
+            found_keywords.append(kw)
+
+    if found_keywords:
+        return False, f"อ้างฟิลด์ที่ระบบไม่มี: {', '.join(found_keywords[:3])}"
+
+    # ตรวจว่ามี syntax ที่ระบบเข้าใจไหม (อย่างน้อย 1 keyword จาก whitelist)
+    whitelist_keywords = ['ev_pct', 'odds', 'line', 'target', 'market', 'base_ev',
+                          'เจ้าบ้าน', 'ทีมเยือน', 'สูง', 'ต่ำ', 'ทีมต่อ', 'ทีมรอง',
+                          'live', 'minute', 'score']
+    has_whitelist = any(kw in text_lower for kw in whitelist_keywords)
+    if not has_whitelist:
+        return False, "ไม่มีฟิลด์ใน whitelist เลย — กฎใช้งานไม่ได้"
+
+    return True, "OK"
+
+
+def check_rule_duplicate(rule_text, existing_rules_text):
+    """
+    ตรวจ similarity กับกฎที่มีอยู่
+    return True ถ้าน่าจะซ้ำ (>70% เหมือนกัน)
+    """
+    if not existing_rules_text:
+        return False
+    new_words = set(rule_text.lower().split())
+    if len(new_words) < 3:
+        return False
+    for existing in existing_rules_text.split('\n'):
+        if not existing.strip():
+            continue
+        existing_words = set(existing.lower().split())
+        if len(existing_words) < 3:
+            continue
+        overlap = len(new_words & existing_words) / max(len(new_words), len(existing_words))
+        if overlap > 0.70:
+            return True
+    return False
+
+
+# ==========================================
+# 🔍 LAYER 4 — AUTO-AUDIT (Trigger Frequency)
+# ==========================================
+def audit_rule_usage(rule_text, recent_bets, days=30):
+    """
+    เช็คว่ากฎนี้น่าจะ trigger บ่อยแค่ไหนใน N ไม้ที่ผ่านมา
+    Returns: (estimated_trigger_count, percentage, recommendation)
+    """
+    if recent_bets.empty:
+        return 0, 0.0, "ไม่มีข้อมูล"
+
+    # แยก keyword สำคัญจาก rule_text
+    text_lower = rule_text.lower()
+    matches = 0
+    total = len(recent_bets)
+
+    # ตรวจ pattern หลัก ๆ
+    for _, row in recent_bets.iterrows():
+        match_score = 0
+        target = str(row.get('Target', '')).lower()
+        try:
+            line = abs(float(row.get('HDP', 0)))
+            odds = float(row.get('Odds', 0))
+            ev_pct = float(row.get('EV_Pct', 0))
+        except:
+            line, odds, ev_pct = 0, 0, 0
+
+        is_live = '[live' in str(row.get('Match', '')).lower()
+
+        # Match target keyword
+        if 'ต่ำ' in text_lower and target == 'ต่ำ':           match_score += 1
+        if 'สูง' in text_lower and target == 'สูง':           match_score += 1
+        if 'เจ้าบ้าน' in text_lower and target == 'เจ้าบ้าน':  match_score += 1
+        if 'ทีมเยือน' in text_lower and target == 'ทีมเยือน':  match_score += 1
+        if 'live' in text_lower and is_live:                   match_score += 1
+
+        # Match line range (rough)
+        if match_score > 0:
+            matches += 1
+
+    pct = (matches / total * 100) if total > 0 else 0
+
+    if pct < 5:
+        rec = "🟡 Low trigger (<5%) — กฎนี้แทบไม่ active"
+    elif pct < 15:
+        rec = "🟢 Moderate trigger — ใช้งานได้"
+    else:
+        rec = "🔵 High trigger — กฎนี้มีผลต่อระบบสูง"
+
+    return matches, pct, rec
+
+
+# ==========================================
 # 🔍 DUPLICATE BET DETECTOR (Hybrid Mode)
 # ==========================================
 def find_duplicate_bets(match_name, target, hours_window=24):
@@ -2864,9 +2990,23 @@ with tab2:
                 pfx       = "GEM_MIX_"
 
             if len(tl) > 0:
-                # [Fix 2] แสดง warning ถ้าข้อมูลน้อยกว่า 3 ไม้
-                if len(tl) < 3:
-                    st.warning(f"⚠️ มีเพียง {len(tl)} records — AI อาจสร้างกฎจากข้อมูลน้อยเกินไป แนะนำให้มีอย่างน้อย 3 ไม้")
+                # [Layer 2 Protection] ขั้นต่ำ 10 ไม้ก่อนยอมให้สร้างกฎ
+                # 3 ไม้น้อยเกินไป → AI สร้างกฎจาก variance ไม่ใช่ pattern จริง
+                MIN_SAMPLES_FOR_LEARNING = 10
+                if len(tl) < MIN_SAMPLES_FOR_LEARNING:
+                    st.error(
+                        f"🛑 BLOCKED: มีเพียง {len(tl)} records — "
+                        f"ต้องการขั้นต่ำ {MIN_SAMPLES_FOR_LEARNING} ไม้เพื่อสร้างกฎ\n\n"
+                        f"เหตุผล: น้อยกว่า {MIN_SAMPLES_FOR_LEARNING} ไม้มักเป็น **variance** ไม่ใช่ pattern จริง\n"
+                        f"การสร้างกฎจากข้อมูลน้อยจะทำให้กฎมั่ว และทำลายระบบในระยะยาว"
+                    )
+                    st.info(f"💡 รอเก็บข้อมูลถึง {MIN_SAMPLES_FOR_LEARNING} ไม้ในหมวดที่เลือก แล้วลองอีกครั้ง")
+                    st.stop()
+                elif len(tl) < 20:
+                    st.warning(
+                        f"⚠️ มี {len(tl)} records — เพียงพอที่จะสร้างกฎได้ "
+                        f"แต่ระบบจะ validate กฎเข้มงวด อาจมีบางกฎถูก reject"
+                    )
                 total_pnl   = tl['Net_Profit'].sum()
                 avg_ev      = tl['EV_Pct'].mean() if 'EV_Pct' in tl.columns else 0
                 ah_count    = len(tl[tl['Target'].isin(['เจ้าบ้าน','ทีมเยือน'])])
@@ -3144,36 +3284,58 @@ with tab2:
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     📌 คำสั่งบังคับสำหรับการสร้างกฎ
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    1. MARKET LABEL (บังคับ)
+    1. ✅ WHITELIST — ฟิลด์ที่ใช้ได้เท่านั้น (ระบบมีข้อมูลจริง):
+       - Target: 'เจ้าบ้าน' / 'ทีมเยือน' / 'สูง' / 'ต่ำ'
+       - Line: ตัวเลข (เช่น -1.5, +0.75, 2.25)
+       - Odds: ค่าน้ำ (เช่น 1.95, 2.10)
+       - EV_Pct, Base_EV_Pct: เปอร์เซ็นต์ Expected Value
+       - Market: 'AH' หรือ 'OU'
+       - Match contains '[LIVE]': สำหรับ Live bet
+       - Current minute, current score: เฉพาะ Live เท่านั้น
+
+    2. 🚫 BLACKLIST — ฟิลด์ที่ห้ามอ้างเด็ดขาด (ระบบไม่มีข้อมูล AI ต้องเดา):
+       - สถิติย้อนหลัง, ฟอร์ม, H2H, "5 นัดหลังสุด", "3 นัดหลัง"
+       - ค่าเฉลี่ยลีก, ลีกรอง, ลีกใหญ่, ลีกใหม่
+       - การยิงประตู, การเสียประตู, อัตราการทำประตู
+       - ใบเหลือง/แดง (pre-match), Steam/Drift (ไม่ได้ส่งเป็น input)
+       - "Sweet Spot" หรือคำที่ไม่มี definition ชัดเจน
+       - เวลาในเกม (pre-match), สภาพอากาศ, นักเตะ
+       กฎที่อ้างฟิลด์เหล่านี้จะถูก REJECT ทันที
+
+    3. MARKET LABEL (บังคับ)
        ทุกกฎต้องระบุตลาดใน category:
        [AH]  = Asian Handicap เท่านั้น
        [OU]  = Over/Under เท่านั้น
        [ALL] = ทุกตลาด
-       ตัวอย่าง: "Risk Management [AH]", "Momentum [ALL]"
 
-    2. RULE FORMAT (บังคับ)
+    4. RULE FORMAT (บังคับ)
        เริ่มด้วย [{severity}] แล้วตามด้วยเงื่อนไข IF...THEN ที่ชัดเจน
-       ตัวอย่าง:
-       "[WARNING] ถ้า EV < 15% และเส้น > 1.0 ใน Pre-Match → ลด confidence"
-       "[FATAL] ถ้า odds < 1.50 และ Dog → ห้ามลงเด็ดขาด"
-       "[BOOST] ถ้า Steam + EV > 20% → เพิ่ม confidence level 1 ขั้น"
+       ตัวอย่างที่ถูก:
+       "[WARNING] IF Target = 'ต่ำ' AND Line >= 2.25 AND EV_Pct < 15% THEN ลด stake 50%"
+       "[FATAL] IF Market = 'AH' AND Odds < 1.50 AND Target = 'ทีมรอง' THEN ห้ามลง"
+       ตัวอย่างที่ผิด:
+       "[WARNING] ถ้าทีมเจ้าบ้านมีสถิติทำประตู 5 นัด..." ❌ (อ้างสถิติ)
+       "[BOOST] ลีกใหญ่ EV > 20% เพิ่ม confidence" ❌ (อ้างลีก)
 
-    3. MARKET ISOLATION (บังคับ)
+    5. MARKET ISOLATION (บังคับ)
        กฎ AH ห้ามพาด O/U logic และในทางกลับกัน
+       กฎที่ category [ALL] ใช้เงื่อนไขที่เป็นกลางได้ทั้งสองตลาด
 
-    4. QUALITY CONTROL
+    6. QUALITY CONTROL
        ห้ามระบุชื่อทีม ลีก นักเตะ
        กฎต้องใช้ได้กว้างในหลายแมตช์
        ห้ามซ้ำกฎที่มีอยู่แล้ว
        สร้างได้สูงสุด 3 กฎต่อ session
 
-    5. SEVERITY DEFINITIONS
+    7. SEVERITY DEFINITIONS
        FATAL   = ห้ามลงเด็ดขาด ไม่ว่า EV จะสูงแค่ไหน
        WARNING = ระวัง ลด impact_score แต่ยังลงได้ถ้า EV แข็งแกร่ง
        BOOST   = เพิ่มความมั่นใจ เพิ่ม confidence_level
        EXCEPTION = ยกเว้นกฎ Defensive เดิมได้ถ้าตรงเงื่อนไขนี้
 
-    6. ถ้าข้อมูลน้อยกว่า 3 บิล หรือเป็น variance → ส่ง new_rules_to_add: []
+    8. SAMPLE SIZE REQUIREMENT (บังคับ)
+       ถ้าข้อมูลน้อยกว่า 10 บิลในกลุ่ม pattern ที่พบ → ส่ง new_rules_to_add: []
+       เพราะอาจเป็น variance ไม่ใช่ pattern จริง
 
     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     📤 ตอบกลับ JSON (ภาษาไทย) เท่านั้น:
@@ -3196,30 +3358,93 @@ with tab2:
                                         st.info(f"**📊 Analysis:** {d.get('analysis_summary','—')}")
                                         nr = d.get("new_rules_to_add", [])
                                         if nr:
-                                            pl  = []
+                                            # [Layer 3 + 4] Validation Pipeline
+                                            # ตรวจกฎทุกตัวก่อน insert
+                                            pl       = []   # ผ่าน validation
+                                            rejected = []   # ถูก reject
                                             bid = datetime.now(timezone(timedelta(hours=7))).strftime("%Y%m%d_%H%M")
-                                            st.markdown(f'<div class="gem-label">◈ NEW RULES — {rule_type}</div>', unsafe_allow_html=True)
+
+                                            st.markdown('<div class="gem-label">◈ RULE VALIDATION PIPELINE</div>',
+                                                        unsafe_allow_html=True)
+
                                             for i, rule in enumerate(nr):
+                                                rule_text = rule.get("rule_text", "")
+                                                category  = rule.get("category", "AI Learning")
                                                 rid = f"{pfx}{bid}_{i+1}"
+
+                                                # Layer 3a: Whitelist validation
+                                                is_valid, reason = validate_rule_against_whitelist(rule_text)
+                                                if not is_valid:
+                                                    rejected.append({
+                                                        'rid': rid,
+                                                        'text': rule_text,
+                                                        'reason': f"❌ Whitelist: {reason}"
+                                                    })
+                                                    continue
+
+                                                # Layer 3b: Duplicate detection
+                                                if check_rule_duplicate(rule_text, rs):
+                                                    rejected.append({
+                                                        'rid': rid,
+                                                        'text': rule_text,
+                                                        'reason': "❌ Duplicate: ซ้ำกับกฎที่มีอยู่ >70%"
+                                                    })
+                                                    continue
+
+                                                # Layer 4: Audit ความถี่ trigger
+                                                trig_count, trig_pct, audit_msg = audit_rule_usage(
+                                                    rule_text, tl, days=30
+                                                )
+
+                                                # Passed all checks
                                                 pl.append({
                                                     "rule_id":   rid,
-                                                    "rule_text": rule.get("rule_text", ""),
-                                                    "category":  rule.get("category", "AI Learning"),
-                                                    "is_active": True   # [Fix 3] บังคับให้ active ทันทีหลัง insert
+                                                    "rule_text": rule_text,
+                                                    "category":  category,
+                                                    "is_active": True
                                                 })
+
                                                 c2 = ("#ff3b5c" if "DEF" in pfx
                                                       else ("#00ff88" if "OFF" in pfx else "#ffd600"))
                                                 st.markdown(
                                                     f'<div class="gem-panel" style="border-top:2px solid {c2};">'
                                                     f'<span style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:{c2};">'
-                                                    f'[{rid}] {rule.get("category","")}</span><br>'
-                                                    f'<span style="color:#c8e6d4;">{rule.get("rule_text","")}</span></div>',
+                                                    f'✅ [{rid}] {category}</span><br>'
+                                                    f'<span style="color:#c8e6d4;">{rule_text}</span><br>'
+                                                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.65rem;color:#4a7a60;">'
+                                                    f'  Audit: trigger ~{trig_count}/{len(tl)} ({trig_pct:.1f}%) · {audit_msg}'
+                                                    f'</span></div>',
                                                     unsafe_allow_html=True
                                                 )
-                                            supabase.table("gem_knowledge").insert(pl).execute()
-                                            load_gem_rules.clear()
-                                            st.balloons()
-                                            st.success(f"✅ {len(pl)} กฎใหม่ sync ขึ้น Cloud แล้ว (is_active=True — พร้อมใช้งานทันที)")
+
+                                            # แสดง rejected rules
+                                            if rejected:
+                                                st.markdown('<div class="gem-label" style="color:#ff3b5c;border-color:#ff3b5c;margin-top:10px;">'
+                                                            '◈ REJECTED RULES (ไม่ถูกบันทึก)</div>',
+                                                            unsafe_allow_html=True)
+                                                for rej in rejected:
+                                                    st.markdown(
+                                                        f'<div class="gem-panel" style="border-top:2px solid #ff3b5c;opacity:0.7;">'
+                                                        f'<span style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:#ff3b5c;">'
+                                                        f'{rej["reason"]}</span><br>'
+                                                        f'<span style="color:#888;font-style:italic;">{rej["text"][:200]}</span></div>',
+                                                        unsafe_allow_html=True
+                                                    )
+
+                                            # Insert ที่ผ่าน validation
+                                            if pl:
+                                                supabase.table("gem_knowledge").insert(pl).execute()
+                                                load_gem_rules.clear()
+                                                st.balloons()
+                                                st.success(
+                                                    f"✅ {len(pl)} กฎใหม่ผ่าน validation และ sync ขึ้น Cloud แล้ว"
+                                                    + (f" · ❌ {len(rejected)} กฎถูก reject" if rejected else "")
+                                                )
+                                            elif rejected:
+                                                st.warning(
+                                                    f"⚠️ ทุกกฎ ({len(rejected)} ตัว) ถูก reject — "
+                                                    f"AI อาจอ้างข้อมูลที่ระบบไม่มี ลองเก็บข้อมูลเพิ่มแล้วลองใหม่"
+                                                )
                                         else:
                                             st.info("◈ Oracle ประเมินว่าเป็น variance ปกติ — ไม่จำเป็นต้องสร้างกฎใหม่")
                                     else:
