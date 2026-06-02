@@ -2152,15 +2152,28 @@ with tab1:
             st.dataframe(scan_df, use_container_width=True, hide_index=True)
 
             if candidates:
-                # เลือกฝั่งที่ ratio สูงสุด
-                best_bet = max(candidates, key=lambda x: x['ratio'])
-                valid_bets = [best_bet]
+                # [Bug Fix - Fallback] เรียง candidates ตาม ratio จากมากไปน้อย
+                # ส่งทั้งหมดให้ AI loop ตัดสินใจ — ถ้าตัวแรกถูก reject → ลองตัวถัดไป
+                candidates_sorted = sorted(candidates, key=lambda x: x['ratio'], reverse=True)
+                best_bet = candidates_sorted[0]
+                valid_bets = candidates_sorted   # ส่งทั้งหมดให้ AI loop พิจารณา
+
+                # แสดง ranking ทั้งหมด
+                ranking_str = " → ".join([
+                    f"#{i+1} {c['side_label']} ({c['n']}) ratio {c['ratio']:.2f}"
+                    for i, c in enumerate(candidates_sorted)
+                ])
                 st.success(
                     f"🎯 **BEST BET:** {best_bet['side_label']} — "
                     f"{best_bet['n']} @ {best_bet['odds']:.2f} "
                     f"(EV {best_bet['ev']*100:.2f}% / threshold {best_bet['threshold']*100:.1f}% "
                     f"= ratio **{best_bet['ratio']:.2f}**)"
                 )
+                if len(candidates_sorted) > 1:
+                    st.info(
+                        f"📋 Fallback Ranking: {ranking_str}\n\n"
+                        f"_ถ้า Oracle reject อันดับ 1 ระบบจะลองอันดับถัดไปอัตโนมัติ_"
+                    )
             else:
                 st.warning("⚠️ ไม่มีฝั่งไหนผ่าน threshold — No signal")
 
@@ -2173,7 +2186,29 @@ with tab1:
 
         if valid_bets:
             with st.spinner("◈ THE ORACLE PROCESSING..."):
-                for tc in valid_bets:
+                # [Bug Fix - Fallback] track ว่า Best Bet Mode ได้ approve แล้วหรือยัง
+                best_bet_locked = False
+
+                for bet_idx, tc in enumerate(valid_bets):
+                    # ใน Best Bet Mode — ถ้าได้บิลที่ approved แล้ว → หยุดทันที
+                    if best_bet_only and best_bet_locked:
+                        break
+
+                    # แสดง fallback banner ถ้านี่ไม่ใช่อันดับ 1 ใน Best Bet Mode
+                    if best_bet_only and bet_idx > 0:
+                        st.markdown(
+                            f'<div style="background:rgba(255,140,0,0.10);'
+                            f'border-left:4px solid #ff8c00;border-radius:4px;'
+                            f'padding:12px 16px;margin:10px 0;">'
+                            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.9rem;'
+                            f'color:#ff8c00;letter-spacing:0.05em;text-transform:uppercase;'
+                            f'margin-bottom:4px;">🔄 FALLBACK — ลองอันดับ #{bet_idx+1}</div>'
+                            f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
+                            f'อันดับก่อนหน้าถูก Oracle reject — กำลังลอง <strong>{tc["side_label"]}: {tc["n"]}</strong> '
+                            f'(ratio {tc["ratio"]:.2f})</div></div>',
+                            unsafe_allow_html=True
+                        )
+
                     tf = None
                     if tc['n'] == "เจ้าบ้าน": tf = fav_h
                     elif tc['n'] == "ทีมเยือน": tf = not fav_h
@@ -2247,8 +2282,17 @@ with tab1:
                     )
 
                     if v.get('final_decision', False) and nev > 0:
-                        # [แก้ไข #8] dutch_factor พร้อม correlation warning
-                        dutch_factor = 0.60 if len(valid_bets) == 2 else 1.00
+                        # [Bug Fix - Fallback] ใน Best Bet Mode → lock ทันทีเมื่อ approve
+                        # ป้องกัน loop ลงบิลซ้อนกัน (เพราะ valid_bets มีหลายตัวใน fallback list)
+                        if best_bet_only:
+                            best_bet_locked = True
+
+                        # [Dutching] dutch_factor ใช้เฉพาะ Default Mode ที่ลงทั้ง 2 ตลาด
+                        # Best Bet Mode ลงแค่ 1 ฝั่ง → ไม่ต้องลด exposure
+                        if best_bet_only:
+                            dutch_factor = 1.00
+                        else:
+                            dutch_factor = 0.60 if len(valid_bets) == 2 else 1.00
 
                         # [Tier-Based Kelly] ปรับ Kelly fraction ตามคุณภาพ bet
                         # คำนวณ ratio และ tier ของ bet นี้
@@ -2277,7 +2321,7 @@ with tab1:
                             unsafe_allow_html=True
                         )
 
-                        if len(valid_bets) == 2:
+                        if not best_bet_only and len(valid_bets) == 2:
                             st.warning(
                                 "⚠️ Dutching 2 markets: AH & O/U อาจ positively correlated "
                                 "— ระบบลด exposure เหลือ 60% ต่อตลาด"
@@ -3731,14 +3775,26 @@ with tab3:
             st.dataframe(scan_df_live, use_container_width=True, hide_index=True)
 
             if candidates_live:
-                best_live = max(candidates_live, key=lambda x: x['ratio'])
-                valid_bets_live = [best_live]
+                # [Bug Fix - Live Fallback] sort by ratio desc → fallback ทำงานเหมือน Pre-match
+                candidates_live_sorted = sorted(candidates_live, key=lambda x: x['ratio'], reverse=True)
+                best_live = candidates_live_sorted[0]
+                valid_bets_live = candidates_live_sorted
+
+                ranking_live_str = " → ".join([
+                    f"#{i+1} {c['side_label']} ratio {c['ratio']:.2f}"
+                    for i, c in enumerate(candidates_live_sorted)
+                ])
                 st.success(
                     f"🎯 **BEST LIVE BET:** {best_live['side_label']} — "
                     f"{best_live['n']} @ {best_live['odds']:.2f} "
                     f"(EV {best_live['ev']*100:.2f}% / threshold {best_live['threshold']*100:.1f}% "
                     f"= ratio **{best_live['ratio']:.2f}**)"
                 )
+                if len(candidates_live_sorted) > 1:
+                    st.info(
+                        f"📋 Fallback: {ranking_live_str}\n\n"
+                        f"_ถ้า Sniper reject อันดับ 1 ระบบจะลองอันดับถัดไป_"
+                    )
             else:
                 st.warning("⚠️ ไม่มีฝั่งไหนผ่าน threshold — No live signal")
 
@@ -3755,7 +3811,28 @@ with tab3:
 
         if valid_bets_live:
             with st.spinner("◈ SNIPER ORACLE PROCESSING..."):
-                for tl2 in valid_bets_live:
+                # [Bug Fix - Live Fallback] lock เมื่อ approve
+                best_live_locked = False
+
+                for live_idx, tl2 in enumerate(valid_bets_live):
+                    if best_bet_only and best_live_locked:
+                        break
+
+                    # Fallback banner
+                    if best_bet_only and live_idx > 0:
+                        st.markdown(
+                            f'<div style="background:rgba(255,140,0,0.10);'
+                            f'border-left:4px solid #ff8c00;border-radius:4px;'
+                            f'padding:12px 16px;margin:10px 0;">'
+                            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.9rem;'
+                            f'color:#ff8c00;letter-spacing:0.05em;text-transform:uppercase;'
+                            f'margin-bottom:4px;">🔄 FALLBACK — ลองอันดับ #{live_idx+1}</div>'
+                            f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
+                            f'อันดับก่อนหน้าถูก Sniper reject — กำลังลอง <strong>{tl2.get("side_label","")}: {tl2["n"]}</strong> '
+                            f'(ratio {tl2.get("ratio", 0):.2f})</div></div>',
+                            unsafe_allow_html=True
+                        )
+
                     tf2 = None
                     if tl2['n'] == "เจ้าบ้าน":  tf2 = fvl
                     elif tl2['n'] == "ทีมเยือน": tf2 = not fvl
@@ -3820,6 +3897,10 @@ with tab3:
                     # [Calibration v3] เช็ค Net EV ผ่าน threshold ฝั่งที่ตรง
                     lim = live_bet_thr
                     if al.get('final_decision', False) and nlev >= lim:
+                        # [Bug Fix - Live Fallback] lock เมื่อ approve ใน Best Bet Mode
+                        if best_bet_only:
+                            best_live_locked = True
+
                         st.balloons()
                         st.markdown(
                             f'<div class="gem-panel" style="border-top:2px solid #ff3b5c;border-left:2px solid #ff3b5c;">'
@@ -3828,7 +3909,11 @@ with tab3:
                             f'<p style="color:#c8e6d4;">{al.get("final_comment","")}</p></div>',
                             unsafe_allow_html=True
                         )
-                        dutch_factor = 0.60 if len(valid_bets_live) == 2 else 1.00
+                        # [Live Dutch Fix] ไม่ลด exposure ใน Best Bet Mode
+                        if best_bet_only:
+                            dutch_factor = 1.00
+                        else:
+                            dutch_factor = 0.60 if len(valid_bets_live) == 2 else 1.00
 
                         # [Tier-Based Kelly - Live] ปรับ Kelly ตามคุณภาพ bet
                         live_thr_pct = live_bet_thr * 100
@@ -3855,7 +3940,7 @@ with tab3:
                             unsafe_allow_html=True
                         )
 
-                        if len(valid_bets_live) == 2:
+                        if not best_bet_only and len(valid_bets_live) == 2:
                             st.warning("⚠️ Dutching 2 markets: exposure ลดเหลือ 60% ต่อตลาด")
                         tz2 = timezone(timedelta(hours=7))
                         # [Calibration v3.1] แยกบันทึก Base EV, AI Impact, Net EV
