@@ -1077,6 +1077,78 @@ def get_composite_score(ev_pct, ratio, max_ev=30.0, max_ratio=3.0):
 
 
 # ==========================================
+# 💰 MARKET QUALITY & ARBITRAGE (จากบทความ)
+# ==========================================
+def calc_overround(*odds_list):
+    """
+    คำนวณ Overround / Vigorish — ผลรวมความน่าจะเป็นแฝง × 100
+    
+    Reference:
+      - Tier 1 (ลีกใหญ่): 102-104%  → ตลาด liquid, vig ต่ำ
+      - Tier 2 (มาตรฐาน): 105-107%  → ตลาดปกติ
+      - Tier 3 (รอง/niche): 108-110% → vig สูง หา value ยาก
+      - > 110% = ตลาดเล็กมาก, vig สูงผิดปกติ
+      - < 100% = Underround / Overbroke Book → Arbitrage opportunity!
+    
+    Returns: (overround_pct, tier_label, color, warning_msg)
+    """
+    valid_odds = [float(o) for o in odds_list if o and float(o) > 1.0]
+    if not valid_odds:
+        return 100.0, "Unknown", "#4a7a60", ""
+    
+    overround_pct = sum(1/o for o in valid_odds) * 100
+    
+    if overround_pct < 100.0:
+        return overround_pct, "🚨 UNDERROUND — Arbitrage!", "#00ff88", (
+            f"ความน่าจะเป็นรวม {overround_pct:.2f}% < 100% — "
+            "บ่อนตั้งราคาผิด สามารถ Dutching ทุกฝั่งล็อกกำไรได้!"
+        )
+    elif overround_pct <= 104.0:
+        return overround_pct, "🟢 Tier 1 (Liquid)", "#00ff88", ""
+    elif overround_pct <= 107.0:
+        return overround_pct, "🟡 Tier 2 (Normal)", "#ffd600", ""
+    elif overround_pct <= 110.0:
+        return overround_pct, "🟠 Tier 3 (Niche)", "#ff8c00", (
+            f"Overround {overround_pct:.2f}% สูงกว่าปกติ — vig หนัก หา value ยากขึ้น"
+        )
+    else:
+        return overround_pct, "🔴 Extreme Vig", "#ff3b5c", (
+            f"Overround {overround_pct:.2f}% สูงผิดปกติ — "
+            "ตลาดเล็กมาก หรือบ่อนกำลังเลี่ยงความเสี่ยง ระมัดระวัง!"
+        )
+
+
+def calc_arbitrage_stakes(odds_list, total_stake=1000):
+    """
+    คำนวณ Dutching stakes สำหรับ arbitrage
+    
+    Returns: list of (odds, stake, payout, profit_pct) สำหรับแต่ละผลลัพธ์
+             หรือ None ถ้าไม่มี arbitrage
+    """
+    valid = [float(o) for o in odds_list if o and float(o) > 1.0]
+    if len(valid) < 2: return None
+    
+    total_implied = sum(1/o for o in valid)
+    if total_implied >= 1.0:
+        return None   # ไม่มี arbitrage
+    
+    # คำนวณ stake แต่ละฝั่งให้ได้ payout เท่ากัน
+    target_payout = total_stake / total_implied
+    results = []
+    for o in valid:
+        stake = target_payout / o
+        payout = stake * o
+        results.append({
+            'odds': o,
+            'stake': round(stake, 2),
+            'payout': round(payout, 2),
+            'profit': round(payout - total_stake, 2),
+            'profit_pct': round((payout - total_stake) / total_stake * 100, 2)
+        })
+    return results
+
+
+# ==========================================
 # 🛡️ LAYER 3 — RULE VALIDATION
 # ==========================================
 # ตรวจกฎใหม่ก่อน insert เพื่อป้องกัน AI สร้างกฎมั่ว
@@ -2050,6 +2122,112 @@ with tab1:
         p1.metric("HOME WIN", f"{ph*100:.1f}%")
         p2.metric("DRAW",     f"{pd_*100:.1f}%")
         p3.metric("AWAY WIN", f"{pa*100:.1f}%")
+
+        # ══════════════════════════════════════════════════════════════════
+        # 💰 MARKET QUALITY INDICATOR — Overround + Arbitrage Detection
+        # ══════════════════════════════════════════════════════════════════
+        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ MARKET QUALITY</div>',
+                    unsafe_allow_html=True)
+        or1, or2, or3 = st.columns(3)
+
+        # 1X2 Overround
+        or_1x2, tier_1x2, color_1x2, warn_1x2 = calc_overround(ho, do_, ao)
+        or1.markdown(
+            f'<div style="background:#0d1e2e;border-left:3px solid {color_1x2};'
+            f'border-radius:0 4px 4px 0;padding:10px 12px;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">1X2 OVERROUND</div>'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:1.2rem;color:{color_1x2};margin-top:2px;">'
+            f'{or_1x2:.2f}%</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;margin-top:4px;">{tier_1x2}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # AH Overround
+        or_ah, tier_ah, color_ah, warn_ah = calc_overround(hwo, awo)
+        or2.markdown(
+            f'<div style="background:#0d1e2e;border-left:3px solid {color_ah};'
+            f'border-radius:0 4px 4px 0;padding:10px 12px;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">AH OVERROUND</div>'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:1.2rem;color:{color_ah};margin-top:2px;">'
+            f'{or_ah:.2f}%</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;margin-top:4px;">{tier_ah}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # OU Overround
+        or_ou, tier_ou, color_ou, warn_ou = calc_overround(owo, uwo)
+        or3.markdown(
+            f'<div style="background:#0d1e2e;border-left:3px solid {color_ou};'
+            f'border-radius:0 4px 4px 0;padding:10px 12px;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">OU OVERROUND</div>'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:1.2rem;color:{color_ou};margin-top:2px;">'
+            f'{or_ou:.2f}%</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;margin-top:4px;">{tier_ou}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # ──── Warning banner ถ้าตลาด vig สูง ────
+        warnings_list = [(w, t) for w, t in [(warn_1x2, '1X2'), (warn_ah, 'AH'), (warn_ou, 'OU')] if w]
+        if warnings_list:
+            for w_msg, w_market in warnings_list:
+                if 'Arbitrage' in w_msg or 'ผิดปกติ' in w_msg or 'หา value ยาก' in w_msg:
+                    bg_color = '#ff8c00' if 'หา value' in w_msg or 'ผิดปกติ' in w_msg else '#00ff88'
+                    st.markdown(
+                        f'<div style="background:rgba(255,140,0,0.08);border-left:3px solid {bg_color};'
+                        f'border-radius:3px;padding:8px 12px;margin-top:6px;'
+                        f'font-family:\'Share Tech Mono\';font-size:0.72rem;color:{bg_color};">'
+                        f'[{w_market}] {w_msg}</div>',
+                        unsafe_allow_html=True
+                    )
+
+        # ──── ARBITRAGE ALERT ────
+        # ตรวจ underround (overround < 100%) ทุกตลาดที่มีโอกาส
+        arb_results_1x2 = calc_arbitrage_stakes([ho, do_, ao], total_stake=1000) if or_1x2 < 100 else None
+        arb_results_ah  = calc_arbitrage_stakes([hwo, awo],   total_stake=1000) if or_ah  < 100 else None
+        arb_results_ou  = calc_arbitrage_stakes([owo, uwo],   total_stake=1000) if or_ou  < 100 else None
+
+        if arb_results_1x2 or arb_results_ah or arb_results_ou:
+            st.markdown(
+                f'<div style="background:rgba(0,255,136,0.12);'
+                f'border:2px solid #00ff88;border-radius:6px;padding:14px 18px;margin-top:10px;">'
+                f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;color:#00ff88;'
+                f'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">'
+                f'🚨 ARBITRAGE OPPORTUNITY — UNDERROUND DETECTED!</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;">'
+                f'บ่อนตั้งราคาผิด — Dutching ทุกฝั่งล็อกกำไรได้</div></div>',
+                unsafe_allow_html=True
+            )
+
+            for arb_label, arb_results, arb_targets in [
+                ("1X2 Market", arb_results_1x2, ["Home", "Draw", "Away"]),
+                ("AH Market",  arb_results_ah,  ["Home", "Away"]),
+                ("OU Market",  arb_results_ou,  ["Over", "Under"]),
+            ]:
+                if not arb_results: continue
+                total_stake_sum = sum(r['stake'] for r in arb_results)
+                guaranteed_profit = arb_results[0]['profit']
+                profit_pct = arb_results[0]['profit_pct']
+
+                st.markdown(
+                    f'<div class="gem-label" style="margin-top:10px;color:#00ff88;border-color:#00ff88;">'
+                    f'◈ {arb_label} — ลงรวม ฿{total_stake_sum:.0f} → กำไรล็อก ฿{guaranteed_profit:+.0f} '
+                    f'({profit_pct:+.2f}%)</div>',
+                    unsafe_allow_html=True
+                )
+                arb_cols = st.columns(len(arb_results))
+                for idx, (col, r, tgt) in enumerate(zip(arb_cols, arb_results, arb_targets)):
+                    col.markdown(
+                        f'<div style="background:#0d1e2e;border-left:3px solid #00ff88;'
+                        f'border-radius:0 4px 4px 0;padding:10px 12px;">'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;">{tgt} @ {r["odds"]:.2f}</div>'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:1.1rem;color:#00ff88;margin-top:2px;">฿{r["stake"]:.0f}</div>'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#c8e6d4;margin-top:2px;">'
+                        f'→ payout ฿{r["payout"]:.0f}</div></div>',
+                        unsafe_allow_html=True
+                    )
 
         # [Calibration v3] ใช้ threshold ตามฝั่ง — Fav/Dog และ Over/Under มี threshold ต่างกัน
         # หาว่า bah ฝั่งไหน (Fav หรือ Dog) แล้วใช้ threshold ของฝั่งนั้น
@@ -3506,6 +3684,28 @@ with tab2:
 with tab3:
     st.markdown('<div class="gem-label">◈ LIVE SNIPER COMMAND CENTER</div>', unsafe_allow_html=True)
 
+    # ══════════════════════════════════════════════════════════════════
+    # ⏱ BET DELAY AWARENESS — User Education
+    # ══════════════════════════════════════════════════════════════════
+    # บ่อนหน่วงรับบิล Live 5-8 วินาที (ป้องกัน latency arbitrage)
+    # ถ้ามีประตู/ใบแดง/จุดโทษในช่วงนั้น → บิลถูก reject
+    st.markdown(
+        '<div style="background:rgba(255,140,0,0.08);'
+        'border-left:3px solid #ff8c00;border-radius:3px;'
+        'padding:10px 14px;margin-bottom:14px;">'
+        '<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#ff8c00;'
+        'letter-spacing:0.08em;margin-bottom:4px;">⏱ BET DELAY NOTICE</div>'
+        '<div style="font-family:\'Rajdhani\';font-size:0.78rem;color:#c8e6d4;line-height:1.5;">'
+        'บ่อนหน่วงรับบิล Live ประมาณ <strong style="color:#ffd600;">5-8 วินาที</strong> '
+        'เพื่อกันการเก็งกำไรจากความหน่วง (Latency Arbitrage) — '
+        'หากมี <strong>ประตู / ใบแดง / จุดโทษ</strong> ในช่วงนี้ บิลจะถูก '
+        '<strong style="color:#ff3b5c;">reject อัตโนมัติ</strong><br>'
+        '<span style="color:#4a7a60;font-size:0.72rem;">'
+        '💡 ลงบิลก่อนจังหวะตื่นเต้น หรือรอประตู settle แล้วค่อยลง '
+        '— อย่าลงตอนลูกกำลังจะเข้า</span></div></div>',
+        unsafe_allow_html=True
+    )
+
     with st.expander("📷 AI LIVE VISION — Multi-image scan"):
         if not api_key:
             st.markdown('<p class="gem-warn">▸ API Key required</p>', unsafe_allow_html=True)
@@ -3694,6 +3894,84 @@ with tab3:
         gg1, gg2 = st.columns(2)
         with gg1: st.plotly_chart(ev_gauge(bav, f"AH: {tah}", live_ah_threshold_pct), use_container_width=True)
         with gg2: st.plotly_chart(ev_gauge(bov, f"O/U: {tou}", live_ou_threshold_pct), use_container_width=True)
+
+        # ══════════════════════════════════════════════════════════════════
+        # 💰 MARKET QUALITY — Live Edition (เฉพาะ AH + OU เพราะ Live ไม่มี 1X2)
+        # ══════════════════════════════════════════════════════════════════
+        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ LIVE MARKET QUALITY</div>',
+                    unsafe_allow_html=True)
+        lor1, lor2 = st.columns(2)
+
+        # AH Overround (Live)
+        lor_ah, ltier_ah, lcolor_ah, lwarn_ah = calc_overround(fix(lhdph), fix(lhdpa))
+        lor1.markdown(
+            f'<div style="background:#0d1e2e;border-left:3px solid {lcolor_ah};'
+            f'border-radius:0 4px 4px 0;padding:10px 12px;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">AH LIVE</div>'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:1.2rem;color:{lcolor_ah};margin-top:2px;">'
+            f'{lor_ah:.2f}%</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;margin-top:4px;">{ltier_ah}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # OU Overround (Live)
+        lor_ou, ltier_ou, lcolor_ou, lwarn_ou = calc_overround(fix(louov), fix(louun))
+        lor2.markdown(
+            f'<div style="background:#0d1e2e;border-left:3px solid {lcolor_ou};'
+            f'border-radius:0 4px 4px 0;padding:10px 12px;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">OU LIVE</div>'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:1.2rem;color:{lcolor_ou};margin-top:2px;">'
+            f'{lor_ou:.2f}%</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;margin-top:4px;">{ltier_ou}</div>'
+            f'</div>',
+            unsafe_allow_html=True
+        )
+
+        # Live arbitrage detection
+        live_arb_ah = calc_arbitrage_stakes([fix(lhdph), fix(lhdpa)], total_stake=1000) if lor_ah < 100 else None
+        live_arb_ou = calc_arbitrage_stakes([fix(louov), fix(louun)], total_stake=1000) if lor_ou < 100 else None
+
+        if live_arb_ah or live_arb_ou:
+            st.markdown(
+                f'<div style="background:rgba(0,255,136,0.12);'
+                f'border:2px solid #00ff88;border-radius:6px;padding:14px 18px;margin-top:10px;">'
+                f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;color:#00ff88;'
+                f'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">'
+                f'🚨 LIVE ARBITRAGE DETECTED — รีบเลย!</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
+                f'ราคา Live ไหลผิด — Dutching 2 ฝั่งล็อกกำไร '
+                f'<strong style="color:#ffd600;">(ระวัง Bet Delay 5-8 วินาที!)</strong>'
+                f'</div></div>',
+                unsafe_allow_html=True
+            )
+
+            for arb_label, arb_results, arb_targets in [
+                ("AH Live",  live_arb_ah,  ["Home", "Away"]),
+                ("OU Live",  live_arb_ou,  ["Over", "Under"]),
+            ]:
+                if not arb_results: continue
+                total_stake_sum = sum(r['stake'] for r in arb_results)
+                guaranteed_profit = arb_results[0]['profit']
+                profit_pct = arb_results[0]['profit_pct']
+
+                st.markdown(
+                    f'<div class="gem-label" style="margin-top:8px;color:#00ff88;border-color:#00ff88;">'
+                    f'◈ {arb_label} — ลงรวม ฿{total_stake_sum:.0f} → กำไรล็อก ฿{guaranteed_profit:+.0f} '
+                    f'({profit_pct:+.2f}%)</div>',
+                    unsafe_allow_html=True
+                )
+                arb_cols = st.columns(len(arb_results))
+                for idx, (col, r, tgt) in enumerate(zip(arb_cols, arb_results, arb_targets)):
+                    col.markdown(
+                        f'<div style="background:#0d1e2e;border-left:3px solid #00ff88;'
+                        f'border-radius:0 4px 4px 0;padding:10px 12px;">'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;">{tgt} @ {r["odds"]:.2f}</div>'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:1.1rem;color:#00ff88;margin-top:2px;">฿{r["stake"]:.0f}</div>'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#c8e6d4;margin-top:2px;">'
+                        f'→ payout ฿{r["payout"]:.0f}</div></div>',
+                        unsafe_allow_html=True
+                    )
 
         valid_bets_live = []
 
