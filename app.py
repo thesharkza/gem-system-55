@@ -2124,28 +2124,18 @@ with tab1:
         p3.metric("AWAY WIN", f"{pa*100:.1f}%")
 
         # ══════════════════════════════════════════════════════════════════
-        # 💰 MARKET QUALITY INDICATOR — Overround + Arbitrage Detection
         # ══════════════════════════════════════════════════════════════════
-        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ MARKET QUALITY</div>',
+        # 💰 MARKET QUALITY INDICATOR — focus เฉพาะ AH + OU
+        # ══════════════════════════════════════════════════════════════════
+        # ในตลาดเอเชีย 1X2 ปกติ vig 110-118% ไม่ใช่สัญญาณเตือน
+        # AH/OU เป็น core market — ใช้ตัวนี้ตัดสินใจ
+        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ MARKET QUALITY (AH + OU)</div>',
                     unsafe_allow_html=True)
-        or1, or2, or3 = st.columns(3)
-
-        # 1X2 Overround
-        or_1x2, tier_1x2, color_1x2, warn_1x2 = calc_overround(ho, do_, ao)
-        or1.markdown(
-            f'<div style="background:#0d1e2e;border-left:3px solid {color_1x2};'
-            f'border-radius:0 4px 4px 0;padding:10px 12px;">'
-            f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">1X2 OVERROUND</div>'
-            f'<div style="font-family:\'Share Tech Mono\';font-size:1.2rem;color:{color_1x2};margin-top:2px;">'
-            f'{or_1x2:.2f}%</div>'
-            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;margin-top:4px;">{tier_1x2}</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+        or_ah_col, or_ou_col = st.columns(2)
 
         # AH Overround
         or_ah, tier_ah, color_ah, warn_ah = calc_overround(hwo, awo)
-        or2.markdown(
+        or_ah_col.markdown(
             f'<div style="background:#0d1e2e;border-left:3px solid {color_ah};'
             f'border-radius:0 4px 4px 0;padding:10px 12px;">'
             f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">AH OVERROUND</div>'
@@ -2158,7 +2148,7 @@ with tab1:
 
         # OU Overround
         or_ou, tier_ou, color_ou, warn_ou = calc_overround(owo, uwo)
-        or3.markdown(
+        or_ou_col.markdown(
             f'<div style="background:#0d1e2e;border-left:3px solid {color_ou};'
             f'border-radius:0 4px 4px 0;padding:10px 12px;">'
             f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">OU OVERROUND</div>'
@@ -2169,8 +2159,9 @@ with tab1:
             unsafe_allow_html=True
         )
 
-        # ──── Warning banner ถ้าตลาด vig สูง ────
-        warnings_list = [(w, t) for w, t in [(warn_1x2, '1X2'), (warn_ah, 'AH'), (warn_ou, 'OU')] if w]
+        # ──── Warning banner ถ้าตลาดที่จะลง vig สูง ────
+        # เฉพาะ AH/OU เท่านั้น เพราะเราไม่ลง 1X2
+        warnings_list = [(w, t) for w, t in [(warn_ah, 'AH'), (warn_ou, 'OU')] if w]
         if warnings_list:
             for w_msg, w_market in warnings_list:
                 if 'Arbitrage' in w_msg or 'ผิดปกติ' in w_msg or 'หา value ยาก' in w_msg:
@@ -2183,13 +2174,11 @@ with tab1:
                         unsafe_allow_html=True
                     )
 
-        # ──── ARBITRAGE ALERT ────
-        # ตรวจ underround (overround < 100%) ทุกตลาดที่มีโอกาส
-        arb_results_1x2 = calc_arbitrage_stakes([ho, do_, ao], total_stake=1000) if or_1x2 < 100 else None
+        # ──── ARBITRAGE ALERT — เฉพาะ AH + OU ────
         arb_results_ah  = calc_arbitrage_stakes([hwo, awo],   total_stake=1000) if or_ah  < 100 else None
         arb_results_ou  = calc_arbitrage_stakes([owo, uwo],   total_stake=1000) if or_ou  < 100 else None
 
-        if arb_results_1x2 or arb_results_ah or arb_results_ou:
+        if arb_results_ah or arb_results_ou:
             st.markdown(
                 f'<div style="background:rgba(0,255,136,0.12);'
                 f'border:2px solid #00ff88;border-radius:6px;padding:14px 18px;margin-top:10px;">'
@@ -2202,7 +2191,6 @@ with tab1:
             )
 
             for arb_label, arb_results, arb_targets in [
-                ("1X2 Market", arb_results_1x2, ["Home", "Draw", "Away"]),
                 ("AH Market",  arb_results_ah,  ["Home", "Away"]),
                 ("OU Market",  arb_results_ou,  ["Over", "Under"]),
             ]:
