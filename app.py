@@ -4487,6 +4487,13 @@ with tab4:
                                 wr      = (wins_n / n * 100) if n > 0 else 0
                                 roi     = (pnl_sum / inv_sum * 100) if inv_sum > 0 else 0
                                 roi_per_bet = pnl_sum / n
+                                # [v3.3] Statistical confidence interval ของ WR
+                                # 95% CI = WR ± 1.96 × SE,  SE = sqrt(p(1-p)/n)
+                                import math as _math
+                                p_wr = wr / 100
+                                se   = _math.sqrt(p_wr * (1 - p_wr) / n) * 100 if n > 0 else 0
+                                ci_low  = max(0,  wr - 1.96 * se)
+                                ci_high = min(100, wr + 1.96 * se)
                                 results.append({
                                     'threshold': t,
                                     'count':     n,
@@ -4494,6 +4501,9 @@ with tab4:
                                     'roi':       roi,
                                     'roi_per_bet': roi_per_bet,
                                     'win_rate':  wr,
+                                    'ci_low':    round(ci_low, 1),
+                                    'ci_high':   round(ci_high, 1),
+                                    'se':        round(se, 2),
                                 })
                             if not results:
                                 return None, []
@@ -4514,6 +4524,70 @@ with tab4:
 
                         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
 
+                        # ══════════════════════════════════════════════════════
+                        # [v3.3 Safety Guard] Statistical assessment helpers
+                        # ══════════════════════════════════════════════════════
+                        def assess_reliability(best_data, side_df):
+                            """
+                            ประเมินความน่าเชื่อถือของผลลัพธ์
+                            Returns: (reliability_label, color, warnings_list)
+                            """
+                            if best_data is None:
+                                return "❓ No Data", "#4a7a60", []
+                            n = int(best_data['count'])
+                            roi = best_data['roi']
+                            warnings_list = []
+
+                            # 1. Sample size check
+                            if n < 10:
+                                reliability = "🔴 ไม่น่าเชื่อถือ"
+                                color = "#ff3b5c"
+                                warnings_list.append(
+                                    f"⚠️ Sample แค่ {n} ไม้ — ต้องการ ≥30 ไม้ขึ้นไปจึงพอใช้ได้ "
+                                    f"(แนะนำ ≥100 สำหรับการตัดสินใจ)"
+                                )
+                            elif n < 30:
+                                reliability = "🟠 Marginal"
+                                color = "#ff8c00"
+                                warnings_list.append(
+                                    f"⚠️ Sample {n} ไม้ — ยังเล็กไป ใช้เป็นไกด์เท่านั้น (ต้องการ ≥50 ขึ้นไปดีกว่า)"
+                                )
+                            elif n < 50:
+                                reliability = "🟡 OK but limited"
+                                color = "#ffd600"
+                            else:
+                                reliability = "🟢 Significant"
+                                color = "#00ff88"
+
+                            # 2. Structural bias check — ทุก threshold ROI ติดลบหมด
+                            if not side_df.empty:
+                                all_negative = (side_df['roi'] < 0).all()
+                                if all_negative and len(side_df) >= 3:
+                                    warnings_list.append(
+                                        f"🚨 STRUCTURAL ISSUE — ทุก threshold ที่ทดสอบ ROI ติดลบหมด "
+                                        f"ปัญหาอาจไม่ใช่ threshold แต่ระบบ predict ฝั่งนี้ผิด bias "
+                                        f"→ แนะนำ **หลีกเลี่ยง bet ฝั่งนี้** หรือเพิ่ม threshold สูงมากๆ"
+                                    )
+
+                            # 3. Optimizer picked lowest threshold = symptom of all-negative
+                            if not side_df.empty:
+                                thresholds_tried = side_df['threshold'].tolist()
+                                if best_data['threshold'] == min(thresholds_tried) and best_data['roi'] < 0:
+                                    warnings_list.append(
+                                        f"⚠️ Optimizer เลือก threshold ต่ำสุด ({best_data['threshold']:.1f}%) "
+                                        f"= 'เสียน้อยที่สุด' ไม่ใช่ 'กำไร' — อย่าตามคำแนะนำตรงๆ"
+                                    )
+
+                            # 4. Confidence Interval width check
+                            ci_width = best_data['ci_high'] - best_data['ci_low']
+                            if ci_width > 30:
+                                warnings_list.append(
+                                    f"📏 95% Confidence Interval = {best_data['ci_low']:.0f}%-{best_data['ci_high']:.0f}% "
+                                    f"(กว้าง {ci_width:.0f}%) → WR จริงไม่แน่ใจ"
+                                )
+
+                            return reliability, color, warnings_list
+
                         # ── helper render single side ─────────────────────
                         def render_side(label, best_data, side_df, side_logs_count, color):
                             st.markdown(
@@ -4522,12 +4596,42 @@ with tab4:
                                 unsafe_allow_html=True
                             )
                             if best_data is not None:
+                                # ──── Reliability Assessment ────
+                                reliability, rel_color, warnings_list = assess_reliability(best_data, side_df)
+
                                 sc1, sc2, sc3, sc4 = st.columns(4)
                                 sc1.metric("Threshold", f"{best_data['threshold']:.1f}%")
                                 sc2.metric("Bets",      f"{int(best_data['count'])}")
                                 sc3.metric("P&L",       f"฿{best_data['pnl']:+,.0f}")
                                 sc4.metric("ROI",       f"{best_data['roi']:+.2f}%",
                                            f"WR {best_data['win_rate']:.1f}%")
+
+                                # ──── Statistical Reliability Badge ────
+                                st.markdown(
+                                    f'<div style="background:#0d1e2e;border-left:3px solid {rel_color};'
+                                    f'border-radius:0 4px 4px 0;padding:8px 12px;margin-top:6px;">'
+                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:{rel_color};'
+                                    f'letter-spacing:0.08em;">RELIABILITY: {reliability}</div>'
+                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.65rem;color:#c8e6d4;margin-top:3px;">'
+                                    f'95% CI of WR: {best_data["ci_low"]:.1f}% – {best_data["ci_high"]:.1f}% '
+                                    f'(SE: ±{best_data["se"]}%)</div>'
+                                    f'</div>',
+                                    unsafe_allow_html=True
+                                )
+
+                                # ──── Warnings ────
+                                for warn in warnings_list:
+                                    is_critical = any(t in warn for t in ['🚨', 'ไม่น่าเชื่อถือ', 'STRUCTURAL'])
+                                    bg_color = '#ff3b5c' if is_critical else '#ff8c00'
+                                    st.markdown(
+                                        f'<div style="background:rgba(255,140,0,0.08);'
+                                        f'border-left:3px solid {bg_color};border-radius:3px;'
+                                        f'padding:8px 12px;margin-top:6px;'
+                                        f'font-family:\'Rajdhani\';font-size:0.78rem;color:{bg_color};">'
+                                        f'{warn}</div>',
+                                        unsafe_allow_html=True
+                                    )
+
                                 with st.expander(f"◈ {label} — ทุก threshold ที่ทดสอบ"):
                                     st.dataframe(side_df.style.highlight_max(
                                         subset=['roi_per_bet','pnl','win_rate'], color='#003322'),
@@ -4570,15 +4674,83 @@ with tab4:
                                         len(ou_under_logs), "#ff8c00")
 
                         # ── Conclusion / Recommendations ──────────────────
-                        def thr_txt(b):
-                            return f"{b['threshold']:.1f}%" if b is not None else "—"
+                        # [v3.3] Smart recommendations — ใช้ ค่าเดิมถ้า data ไม่น่าเชื่อถือ
+                        def smart_recommend(best_data, side_df, current_thr_default):
+                            """
+                            คืนค่า threshold ที่ปลอดภัย:
+                            - ถ้า structural issue → 'AVOID' หรือสูงมาก
+                            - ถ้า sample < 30 → คงค่าเดิม
+                            - ถ้า OK → ใช้ค่า optimizer
+                            """
+                            if best_data is None:
+                                return (f"{current_thr_default}%", "คงค่าเดิม (no data)")
+                            n = int(best_data['count'])
+                            roi = best_data['roi']
+
+                            # Check structural issue
+                            if not side_df.empty and (side_df['roi'] < 0).all() and len(side_df) >= 3:
+                                return (f"AVOID หรือ ≥15%", "🚨 ขาดทุนทุก threshold")
+
+                            # Sample size too small
+                            if n < 10:
+                                return (f"{current_thr_default}% (เดิม)", f"❌ Sample แค่ {n}")
+                            if n < 30:
+                                return (f"{current_thr_default}% (เดิม)", f"⚠️ Sample {n} ยังเล็ก")
+
+                            # Optimizer picked floor with negative ROI
+                            if not side_df.empty:
+                                if best_data['threshold'] == side_df['threshold'].min() and roi < 0:
+                                    return (f"≥15% หรือ AVOID", "⚠️ ทุก threshold ขาดทุน")
+
+                            # Reliable suggestion
+                            return (f"{best_data['threshold']:.1f}%", f"✅ Sample {n} ไม้ ROI {roi:+.2f}%")
+
+                        rec_ah_fav  = smart_recommend(best_ah_fav,  ah_fav_df,  8.0)
+                        rec_ah_dog  = smart_recommend(best_ah_dog,  ah_dog_df,  14.0)
+                        rec_ou_over = smart_recommend(best_ou_over, ou_over_df, 5.0)
+                        rec_ou_under= smart_recommend(best_ou_under,ou_under_df,9.0)
 
                         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-                        st.success(
-                            f"**🎯 แนะนำตั้งค่าใน Sidebar → EV THRESHOLDS:**\n\n"
-                            f"• **AH Fav %:** {thr_txt(best_ah_fav)}  "
-                            f"• **AH Dog %:** {thr_txt(best_ah_dog)}\n\n"
-                            f"• **OU Over %:** {thr_txt(best_ou_over)}  "
-                            f"• **OU Under %:** {thr_txt(best_ou_under)}\n\n"
-                            f"_optimize ตาม: {opt_metric}, min sample = {min_samples} ไม้_"
+
+                        # Count how many sides have warnings
+                        all_warnings = []
+                        for label, best_d, side_df in [
+                            ('AH Fav',   best_ah_fav,  ah_fav_df),
+                            ('AH Dog',   best_ah_dog,  ah_dog_df),
+                            ('OU Over',  best_ou_over, ou_over_df),
+                            ('OU Under', best_ou_under,ou_under_df),
+                        ]:
+                            if best_d is not None:
+                                _, _, w = assess_reliability(best_d, side_df)
+                                all_warnings.extend([f"[{label}] {warn}" for warn in w])
+
+                        if all_warnings:
+                            st.warning(
+                                f"⚠️ **{len(all_warnings)} คำเตือนจาก Statistical Analysis** — "
+                                f"อย่าตัดสินใจจาก optimizer ตรงๆ ก่อนอ่าน warnings ด้านบน"
+                            )
+
+                        st.markdown(
+                            f'<div style="background:rgba(0,255,136,0.06);'
+                            f'border-left:4px solid #00ff88;border-radius:4px;'
+                            f'padding:14px 18px;margin-top:10px;">'
+                            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;'
+                            f'color:#00ff88;letter-spacing:0.05em;margin-bottom:8px;">'
+                            f'🎯 SMART RECOMMENDATIONS (ปลอดภัย)</div>'
+                            f'<div style="font-family:\'Rajdhani\';font-size:0.88rem;color:#c8e6d4;line-height:1.7;">'
+                            f'<strong>AH Fav %:</strong> {rec_ah_fav[0]}  '
+                            f'<span style="color:#4a7a60;font-size:0.78rem;">— {rec_ah_fav[1]}</span><br>'
+                            f'<strong>AH Dog %:</strong> {rec_ah_dog[0]}  '
+                            f'<span style="color:#4a7a60;font-size:0.78rem;">— {rec_ah_dog[1]}</span><br>'
+                            f'<strong>OU Over %:</strong> {rec_ou_over[0]}  '
+                            f'<span style="color:#4a7a60;font-size:0.78rem;">— {rec_ou_over[1]}</span><br>'
+                            f'<strong>OU Under %:</strong> {rec_ou_under[0]}  '
+                            f'<span style="color:#4a7a60;font-size:0.78rem;">— {rec_ou_under[1]}</span>'
+                            f'</div></div>',
+                            unsafe_allow_html=True
+                        )
+
+                        st.caption(
+                            f"_Optimize ตาม: {opt_metric}, min sample = {min_samples} ไม้ • "
+                            f"แนะนำเก็บข้อมูลให้ครบ ≥30 ไม้/category ก่อนเชื่อ optimizer 100%_"
                         )
