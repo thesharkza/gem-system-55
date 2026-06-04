@@ -339,7 +339,6 @@ def init_session_state():
         'raw_text': "", 'live_hdp': 0.0, 'live_hdp_abs': 0.0, 'live_ou': 2.50,
         'lh_s_input': 0, 'la_s_input': 0, 'current_min': 45,
         'rc_h_chk': False, 'rc_a_chk': False,
-        'xg_h_val': 0.0, 'xg_a_val': 0.0,
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
@@ -399,7 +398,6 @@ def clear_form_data():
         'h1x2_val': 1.0, 'd1x2_val': 1.0, 'a1x2_val': 1.0,
         'hdp_line_val': 0.0, 'hdp_h_w_val': 0.0, 'hdp_a_w_val': 0.0,
         'ou_line_val': 2.5, 'ou_over_w_val': 0.0, 'ou_under_w_val': 0.0,
-        'xg_h_val': 0.0, 'xg_a_val': 0.0,
     }.items():
         st.session_state[k] = v
 
@@ -449,31 +447,21 @@ def poisson(k, lam):
 
 def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
                              ch=0, ca=0, ml=90,
-                             rch=False, rca=False,
-                             xg_h=0.0, xg_a=0.0, xg_weight=0.0):
+                             rch=False, rca=False):
     ow  = oow + 1 if oow < 1.1 else oow
     uw  = uuw + 1 if uuw < 1.1 else uuw
     op  = 1/ow; up = 1/uw
     top = op / (op + up)
 
-    # [Calibration v2] ลด baseline bias และ draw multiplier เพื่อให้ et
-    # ใกล้เคียง implied goal ที่ตลาดสะท้อน มากกว่าเดิม
-    # baseline: 0.20 → 0.05  (ลด Under bias จากการดัน et สูงเกิน)
-    # draw_mult: 8.0 → 4.0   (ลดการขยายเกินจริงในเกมที่เต็งชัด)
+    # [Calibration v2] ลด baseline bias และ draw multiplier
     bet = ou + 0.05 + ((top - 0.5) * 2.5)
     et  = max(0.5, bet + (0.25 - pd) * 4.0)
     # [Calibration v3.2 - BIAS FIX] supremacy power: 0.60 → 0.80
-    # เดิมที่ 0.60 ทำให้ supremacy ถูก dampen เกินไป → λ ของ Fav ต่ำเทียม
-    # ทำให้ระบบเห็น "value" ปลอมที่ฝั่ง Dog (P(Fav win) ต่ำกว่าตลาด 5-7%)
-    # ทดสอบกับ devigged market: 0.80 ให้ Δ ใกล้ ±1% (จากเดิม -6%)
-    # ผลข้างเคียง: EV ที่ Fav จะ realistic ขึ้น, EV ปลอมที่ Dog จะหายไป
     sup = (ph - pa) * (et ** 0.80)
 
     lh = max(0.15, (et + sup) / 2) * (ml / 90) ** 0.75
     la = max(0.15, (et - sup) / 2) * (ml / 90) ** 0.75
 
-    # [แก้ไข #6] ใช้ if block แยกบรรทัด ป้องกัน semicolon bug
-    # Python อ่าน `if cond: a; b` ว่า b อยู่นอก if เสมอ
     if rch:
         lh *= 0.50
         la *= 1.30
@@ -481,15 +469,7 @@ def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
         la *= 0.50
         lh *= 1.30
 
-    # xG Blending — จำกัด xG input ก่อนเบลนด์เพื่อป้องกัน Lambda สูงเกินจริง
-    # [แก้ไข ข้อจำกัด #2] ค่า xG ปกติอยู่ที่ 0.5–3.0 ต่อเกม จำกัดที่ 4.0 เป็น hard cap
-    if xg_h > 0.0 or xg_a > 0.0:
-        xg_h_safe = min(xg_h, 4.0)
-        xg_a_safe = min(xg_a, 4.0)
-        lh = lh * (1 - xg_weight) + xg_h_safe * (ml / 90) ** 0.75 * xg_weight
-        la = la * (1 - xg_weight) + xg_a_safe * (ml / 90) ** 0.75 * xg_weight
-
-    # Dynamic Rho — คำนวณอัตโนมัติจากเรตประตูรวม ไม่ต้องใช้ Slider
+    # Dynamic Rho — คำนวณอัตโนมัติจากเรตประตูรวม
     dyn_rho = max(-0.25, min(0.0, -0.15 + (et - 2.5) * 0.05))
 
     mx = [[0.0] * 10 for _ in range(10)]
@@ -506,6 +486,18 @@ def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
     tp = sum(sum(r) for r in mx)
     h2 = h1 = dr = a1 = a2 = 0.0
     pou = {}
+    # [Bug Fix v3.3] เพิ่ม margin_dist สำหรับเส้น AH 1.75-2.5
+    # 5-bucket model (h2=margin≥2 รวม margin=2 และ ≥3) ทำให้คลาดเคลื่อน
+    # ในเส้น 2.0, 2.25, 2.5 — ต้องแยก margin=2, margin=3+, margin=-2, margin=-3-
+    margin_dist = {
+        'h3':  0.0,   # margin ≥ 3
+        'h2':  0.0,   # margin = 2
+        'h1':  0.0,   # margin = 1
+        'd':   0.0,   # margin = 0
+        'a1':  0.0,   # margin = -1
+        'a2':  0.0,   # margin = -2
+        'a3':  0.0,   # margin ≤ -3
+    }
     for i in range(10):
         for j in range(10):
             p  = mx[i][j] / tp
@@ -517,7 +509,15 @@ def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
             elif d <= -2: a2 += p
             tg = fh + fa
             pou[tg] = pou.get(tg, 0) + p
-    return (h2, h1, dr, a1, a2, pou)
+            # Detailed margin distribution
+            if   d >= 3:  margin_dist['h3'] += p
+            elif d == 2:  margin_dist['h2'] += p
+            elif d == 1:  margin_dist['h1'] += p
+            elif d == 0:  margin_dist['d']  += p
+            elif d == -1: margin_dist['a1'] += p
+            elif d == -2: margin_dist['a2'] += p
+            else:         margin_dist['a3'] += p
+    return (h2, h1, dr, a1, a2, pou, margin_dist)
 
 
 # [แก้ไข #4] เปลี่ยน flat penalty เป็น relative (สัดส่วน) และ
@@ -532,7 +532,7 @@ def _quant_penalty(ev, line, odds):
     return ev
 
 
-def ev_ah(hdp, w2, w1, d, l1, l2, odds, fav):
+def ev_ah(hdp, w2, w1, d, l1, l2, odds, fav, margin_dist=None):
     """
     คำนวณ Expected Value สำหรับตลาด Asian Handicap
     ครอบคลุมเส้น 0.0 – 2.5 ทั้ง Fav และ Dog
@@ -544,18 +544,31 @@ def ev_ah(hdp, w2, w1, d, l1, l2, odds, fav):
       l1 = แพ้ 1 ประตู          (margin = -1)
       l2 = แพ้ห่าง ≥ 2 ประตู   (margin ≤ -2)
 
+    [Bug Fix v3.3] margin_dist ละเอียด 7 ช่อง สำหรับเส้น 1.75-2.5
+      h3 = margin ≥ 3,  h2 = margin = 2,  h1 = margin = 1
+      d  = margin = 0
+      a1 = margin = -1, a2 = margin = -2, a3 = margin ≤ -3
+
     Settlement rules (Pinnacle / SBO standard):
       เส้นจำนวนเต็ม (.0): ชนะเต็ม / คืนทุน / แพ้เต็ม
       เส้น .5          : ชนะเต็ม / แพ้เต็ม (ไม่มีคืนทุน)
       เส้น .25 / .75   : ตัดครึ่ง — ครึ่งหนึ่งเล่น .0, ครึ่งหนึ่งเล่น .5
-        → บางกรณีได้ ชนะครึ่ง (+b/2) หรือ แพ้ครึ่ง (-0.5)
-
-    ข้อจำกัดของ 5-bucket model สำหรับเส้น > 1.5:
-      w2 รวม margin=2 และ margin≥3 ไว้ด้วยกัน ทำให้เส้น 2.0+ มีความคลาดเคลื่อน
-      เล็กน้อยเมื่อเทียบกับ full score matrix (แต่ยังดีกว่าคืน EV=0)
     """
     b = odds - 1
     h = abs(hdp)
+
+    # [Bug Fix v3.3] ใช้ margin_dist ละเอียดถ้ามี (สำหรับเส้น ≥ 1.75)
+    if margin_dist is not None:
+        m_h3 = margin_dist['h3']
+        m_h2 = margin_dist['h2']
+        m_h1 = margin_dist['h1']
+        m_d  = margin_dist['d']
+        m_a1 = margin_dist['a1']
+        m_a2 = margin_dist['a2']
+        m_a3 = margin_dist['a3']
+    else:
+        # Fallback: ใช้ 5-bucket (สำหรับ backward compat)
+        m_h3 = w2; m_h2 = 0.0; m_h1 = w1; m_d = d; m_a1 = l1; m_a2 = l2; m_a3 = 0.0
 
     if h == 0:
         # AH 0 (Level Ball): ชนะถ้า margin>0, คืนทุนถ้าเสมอ, แพ้ถ้า margin<0
@@ -564,94 +577,100 @@ def ev_ah(hdp, w2, w1, d, l1, l2, odds, fav):
     elif fav:
         # ======================== FAVOURITE (ทีมต่อ) ========================
         # ต่อ 0.25 (quarter ball: ครึ่งเล่น 0, ครึ่งเล่น 0.5)
-        # margin>0 → ชนะทั้ง 2 ส่วน | margin=0 → ชนะ 0.5, คืนทุน 0.5 → net +b/2
-        # margin<0 → แพ้ทั้ง 2 ส่วน
         if   h == 0.25: res = (w2 + w1) * b - d * 0.5 - (l1 + l2)
 
         # ต่อ 0.5: ไม่มีคืนทุน — margin>0 ชนะ, ≤0 แพ้
         elif h == 0.5:  res = (w2 + w1) * b - (d + l1 + l2)
 
         # ต่อ 0.75 (ครึ่งเล่น 0.5, ครึ่งเล่น 1.0)
-        # margin≥2 → ชนะทั้งคู่ (+b) | margin=1 → ชนะ 0.5 (+b/2), คืนทุน 0.5 → net +b/2
-        # margin≤0 → แพ้ทั้งคู่
         elif h == 0.75: res = w2 * b + w1 * (b / 2) - (d + l1 + l2)
 
         # ต่อ 1.0: margin≥2 ชนะ, margin=1 คืนทุน, ≤0 แพ้
         elif h == 1.0:  res = w2 * b - (d + l1 + l2)
 
         # ต่อ 1.25 (ครึ่งเล่น 1.0, ครึ่งเล่น 1.5)
-        # margin≥2 → ชนะทั้งคู่ (+b) | margin=1 → คืนทุน 0.5, แพ้ 0.5 → net -0.5
-        # margin≤0 → แพ้ทั้งคู่
         elif h == 1.25: res = w2 * b - w1 * 0.5 - (d + l1 + l2)
 
         # ต่อ 1.5: margin≥2 ชนะ, ≤1 แพ้ (ไม่มีคืนทุน)
         elif h == 1.5:  res = w2 * b - (w1 + d + l1 + l2)
 
-        # [แก้ไข ข้อจำกัด #1] เส้น 1.75 – 2.5 สำหรับ Favourite
+        # ════════════════════════════════════════════════════════════════
+        # [Bug Fix v3.3] เส้น 1.75 – 2.5 — ใช้ margin_dist ละเอียด
+        # ════════════════════════════════════════════════════════════════
         # ต่อ 1.75 (ครึ่งเล่น 1.5, ครึ่งเล่น 2.0)
-        # margin≥2 → ชนะทั้งคู่ (+b) | margin=1 → แพ้ 1.5, คืนทุน 2.0 → net -0.5
+        # margin≥3 → ชนะทั้ง 1.5 และ 2.0 (+b)
+        # margin=2 → ชนะ 1.5 (+b/2), คืน 2.0 (0) → net +b/2
+        # margin=1 → แพ้ 1.5 (-0.5), แพ้ 2.0 (-0.5) → net -1
         # margin≤0 → แพ้ทั้งคู่
-        elif h == 1.75: res = w2 * b - w1 * 0.5 - (d + l1 + l2)
-        # หมายเหตุ: สูตรเหมือน 1.25 Fav เพราะ pattern ซ้ำทุก 0.5 step
+        elif h == 1.75:
+            res = (m_h3 + m_h2) * b * 0.5 + m_h3 * b * 0.5 \
+                  - (m_h1 + m_d + m_a1 + m_a2 + m_a3)
+            # ใช้สูตรง่าย: m_h3*(b) + m_h2*(b/2) + others*(-1)
+            res = m_h3 * b + m_h2 * (b / 2) - (m_h1 + m_d + m_a1 + m_a2 + m_a3)
 
-        # ต่อ 2.0: margin≥2 คืนทุน (w2), margin=1 แพ้, ≤0 แพ้
-        # แต่ w2 รวม margin=2 และ ≥3 → ประมาณ: margin≥2 ชนะ, margin=1 แพ้ครึ่ง, ≤0 แพ้
-        # correction ที่ดีที่สุดจาก 5-bucket: w2 ≈ margin≥2 ชนะ, w1=margin1 แพ้ครึ่ง
-        elif h == 2.0:  res = w2 * b - w1 * 0.5 - (d + l1 + l2)
+        # ต่อ 2.0: margin≥3 ชนะ, margin=2 คืนทุน, ≤1 แพ้
+        elif h == 2.0:
+            res = m_h3 * b - (m_h1 + m_d + m_a1 + m_a2 + m_a3)
 
         # ต่อ 2.25 (ครึ่งเล่น 2.0, ครึ่งเล่น 2.5)
-        # margin≥3 ชนะทั้งคู่, margin=2 → คืนทุน 2.0 แพ้ 2.5 → net -0.5
+        # margin≥3 → ชนะทั้งคู่ (+b)
+        # margin=2 → คืน 2.0, แพ้ 2.5 → net -0.5
         # margin≤1 → แพ้ทั้งคู่
-        # 5-bucket: w2≈margin≥2 ซึ่งรวม margin=2 ด้วย
-        # ประมาณ: w2*b - (w1+d+l1+l2) [margin≥2 ชนะ สมมติทั้งหมด]
-        elif h == 2.25: res = w2 * b - (w1 + d + l1 + l2)
+        elif h == 2.25:
+            res = m_h3 * b - m_h2 * 0.5 - (m_h1 + m_d + m_a1 + m_a2 + m_a3)
 
         # ต่อ 2.5: ต้องชนะ ≥3 ประตู เท่านั้น — ไม่มีคืนทุน
-        # w2 ≈ margin≥2 (รวม margin=2 ซึ่งแพ้) → คลาดเคลื่อน แต่ดีกว่า EV=0
-        elif h == 2.5:  res = w2 * b - (w1 + d + l1 + l2)
+        elif h == 2.5:
+            res = m_h3 * b - (m_h2 + m_h1 + m_d + m_a1 + m_a2 + m_a3)
 
         else:
             res = 0.0
 
     else:
         # ======================== UNDERDOG (ทีมรอง) ========================
-        # รอง 0.25: margin<0 แพ้ทั้งคู่, margin=0 แพ้ 0.5 คืนทุน 0.5 → net +b/2
-        # margin>0 (l1,l2 ในมุมทีมรอง) → ชนะ
+        # รอง 0.25
         if   h == 0.25: res = (w2 + w1) * b + d * (b / 2) - (l1 + l2)
 
         # รอง 0.5: margin<0 ทีมรองชนะ, ≥0 แพ้ (ไม่มีคืนทุน)
         elif h == 0.5:  res = (w2 + w1 + d) * b - (l1 + l2)
 
-        # รอง 0.75: margin≤-2 ชนะทั้งคู่, margin=-1 ชนะ 0.5 (+b/2), ≥0 แพ้
-        # ใน bucket: l2=แพ้≥2 = ทีมรองชนะ≥2; l1=แพ้1 = ทีมรองชนะ1
-        # → (w2+w1+d)*b - l1*0.5 - l2  [w2=ทีมเยือนแพ้, wn เป็น prob ฝั่งเจ้าบ้าน]
+        # รอง 0.75
         elif h == 0.75: res = (w2 + w1 + d) * b - l1 * 0.5 - l2
 
         # รอง 1.0: ทีมรองชนะถ้าแพ้ ≥2 ประตู (l2), คืนทุนถ้าแพ้ 1 (l1)
         elif h == 1.0:  res = (w2 + w1 + d) * b - l2
 
-        # รอง 1.25: ชนะทั้งคู่ถ้าแพ้≥2, คืนทุน 1.0 ชนะ 1.5 ถ้าแพ้ 1 → net +b/2
+        # รอง 1.25
         elif h == 1.25: res = (w2 + w1 + d) * b + l1 * (b / 2) - l2
 
         # รอง 1.5: ทีมรองชนะถ้าแพ้≥2 หรือ 1, ≥ 0 แพ้
         elif h == 1.5:  res = (w2 + w1 + d + l1) * b - l2
 
-        # [แก้ไข ข้อจำกัด #1] เส้น 1.75 – 2.5 สำหรับ Underdog
-        # รอง 1.75 (ครึ่งเล่น 1.5, ครึ่งเล่น 2.0)
-        # ทีมรองชนะถ้าแพ้≥2 (l2) ด้วยทั้งคู่, แพ้=1 (l1) → ชนะ 1.5 คืนทุน 2.0 → net +b/2
-        elif h == 1.75: res = (w2 + w1 + d + l1) * b + l2 * (b / 2)
+        # ════════════════════════════════════════════════════════════════
+        # [Bug Fix v3.3] เส้น 1.75 – 2.5 (Dog) — ใช้ margin_dist ละเอียด
+        # ════════════════════════════════════════════════════════════════
+        # หมายเหตุ: ฝั่ง Dog เป็นทีมเยือน — margin บวก = home ชนะ = away แพ้
+        # +1.75 (Dog): ครึ่งเล่น +1.5, ครึ่งเล่น +2.0
+        # margin≤1 → ชนะทั้งคู่ (home ชนะไม่เกิน 1.5)
+        # margin=2 → แพ้ 1.5 (-0.5), คืน 2.0 (0) → net -0.5
+        # margin≥3 → แพ้ทั้งคู่
+        elif h == 1.75:
+            res = (m_h1 + m_d + m_a1 + m_a2 + m_a3) * b - m_h2 * 0.5 - m_h3
 
-        # รอง 2.0: ทีมรองชนะถ้าแพ้≥2 (l2) คืนทุน, แพ้=1 ชนะ, ≤0 ชนะ
-        # correction: (w2+w1+d+l1)*b ≈ ชนะถ้าไม่แพ้≥2
-        elif h == 2.0:  res = (w2 + w1 + d + l1) * b
+        # +2.0 (Dog): margin≤1 ชนะ, margin=2 คืนทุน, ≥3 แพ้
+        elif h == 2.0:
+            res = (m_h1 + m_d + m_a1 + m_a2 + m_a3) * b - m_h3
 
-        # รอง 2.25 (ครึ่งเล่น 2.0, ครึ่งเล่น 2.5)
-        # แพ้≥2 → ชนะ 2.0 (คืนทุน), แพ้ 2.5 → net +b/2
-        elif h == 2.25: res = (w2 + w1 + d + l1) * b + l2 * (b / 2)
+        # +2.25 (Dog): ครึ่งเล่น +2.0, ครึ่งเล่น +2.5
+        # margin≤1 → ชนะทั้งคู่
+        # margin=2 → คืน 2.0, ชนะ 2.5 → net +b/2
+        # margin≥3 → แพ้ทั้งคู่
+        elif h == 2.25:
+            res = (m_h1 + m_d + m_a1 + m_a2 + m_a3) * b + m_h2 * (b / 2) - m_h3
 
-        # รอง 2.5: ชนะถ้าแพ้น้อยกว่า 3 ประตู (แทบทุก bucket ยกเว้น margin≤-3)
-        # 5-bucket: l2 ≈ margin≤-2 → ทีมรองชนะทุก bucket
-        elif h == 2.5:  res = (w2 + w1 + d + l1 + l2) * b
+        # +2.5 (Dog): ชนะถ้า margin ≤ 2, แพ้ถ้า margin ≥ 3
+        elif h == 2.5:
+            res = (m_h2 + m_h1 + m_d + m_a1 + m_a2 + m_a3) * b - m_h3
 
         else:
             res = 0.0
@@ -1062,18 +1081,6 @@ def get_bet_tier(ev_pct, ratio):
             'kelly_mult':  0.0,
             'description': 'Not Enough Edge — ไม่ควรลง'
         }
-
-
-def get_composite_score(ev_pct, ratio, max_ev=30.0, max_ratio=3.0):
-    """
-    Composite Score แบบ normalize — 0 ถึง 100
-    Score = (EV_norm × 50) + (Ratio_norm × 50)
-    """
-    if ev_pct is None or pd.isna(ev_pct): ev_pct = 0.0
-    if ratio is None or pd.isna(ratio):   ratio  = 0.0
-    ev_norm    = min(max(ev_pct / max_ev, 0), 1)
-    ratio_norm = min(max(ratio / max_ratio, 0), 1)
-    return round((ev_norm * 50) + (ratio_norm * 50), 1)
 
 
 # ==========================================
@@ -2032,24 +2039,11 @@ with tab1:
         ou_under_w = st.number_input("UNDER", format="%.2f", key="ou_under_w_val")
         st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="gem-label">◈ EXPECTED GOALS (xG) INTEGRATION</div>', unsafe_allow_html=True)
-    c_xg1, c_xg2, c_xg3 = st.columns(3)
-    xg_h      = c_xg1.number_input("xG Home", min_value=0.0, format="%.2f", step=0.1, key="xg_h_val")
-    xg_a      = c_xg2.number_input("xG Away", min_value=0.0, format="%.2f", step=0.1, key="xg_a_val")
-    xg_weight = c_xg3.slider("xG Weight %", 0.0, 1.0, 0.50, step=0.1,
-                              help="0.5 = ผสม xG กับราคาบ่อนคนละครึ่ง")
-
-    st.markdown('<div class="gem-label">◈ CONTEXT & MARKET FLOW</div>', unsafe_allow_html=True)
-    col_st1, col_st2 = st.columns([2, 1])
-    with col_st1:
-        match_stats = st.text_area("H2H / Stats (Optional)", height=70,
-                                   label_visibility="collapsed",
-                                   placeholder="วางสถิติ H2H, ฟอร์มย้อนหลัง...")
-    with col_st2:
-        line_movement = st.selectbox("กระแสราคา (Line Movement)",
-                                     ["➖ Stable (นิ่ง/ปกติ)",
-                                      "🔥 Steam (ราคาไหลลง/เงินเข้า)",
-                                      "❄️ Drift (ราคาไหลขึ้น/เงินออก)"])
+    # [Cleanup v3.3] ตัด xG / Match Stats / Line Movement ออกหมด
+    # เหตุผล: xG ไม่เคยใช้, match_stats/line_movement ขัด whitelist policy
+    # ai_engine() จะรับเป็น empty string / Stable แทน
+    match_stats = ""
+    line_movement = "➖ Stable (นิ่ง/ปกติ)"
 
     # ── 🛑 Daily Risk Guard Banner ────────────────────────────────────
     if is_risk_blocked:
@@ -2096,18 +2090,17 @@ with tab1:
         ho, do_, ao   = fix(h1x2), fix(d1x2), fix(a1x2)
         hwo, awo, owo, uwo = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
         ph, pd_, pa   = shin_devig(ho, do_, ao)
-        hw2, hw1, dex, aw1, aw2, pt = calc_dixon_coles_matrix(
-            ph, pd_, pa, ou_line, owo, uwo,
-            xg_h=xg_h, xg_a=xg_a, xg_weight=xg_weight
+        # [Bug Fix v3.3] margin_dist สำหรับเส้น AH 1.75-2.5 (Home perspective)
+        # Dog branch ใน ev_ah() ใช้ home perspective อยู่แล้ว → ไม่ต้อง flip
+        hw2, hw1, dex, aw1, aw2, pt, margin_dist = calc_dixon_coles_matrix(
+            ph, pd_, pa, ou_line, owo, uwo
         )
 
         fav_h = ph >= pa
-        evh   = ev_ah(hdp_line, hw2, hw1, dex, aw1, aw2, hwo, fav_h)
+        evh   = ev_ah(hdp_line, hw2, hw1, dex, aw1, aw2, hwo, fav_h, margin_dist=margin_dist)
         # [Calibration v2] Dynamic HDBA = pd_ × dog_odds × hdba_val
-        # hdba_val (slider 0.10–0.50) คือสัดส่วน draw advantage ที่หักออก
-        # ค่า default 0.25 = หัก 25% ของ draw advantage ที่ Dog ได้ฟรี
         hdba_dynamic = pd_ * awo * hdba_val
-        eva   = ev_ah(hdp_line, aw2, aw1, dex, hw1, hw2, awo, not fav_h) - hdba_dynamic
+        eva   = ev_ah(hdp_line, aw2, aw1, dex, hw1, hw2, awo, not fav_h, margin_dist=margin_dist) - hdba_dynamic
         evo   = ev_ou(ou_line, pt, owo, True)
         evu   = ev_ou(ou_line, pt, uwo, False)
 
@@ -2480,8 +2473,7 @@ with tab1:
                             f'{bet_tier_info["emoji"]} {bet_tier_info["tier"]} TIER — Kelly × {tier_mult:.1f}</div>'
                             f'<p style="color:#c8e6d4;font-family:\'Share Tech Mono\';font-size:0.78rem;">'
                             f'Ratio: <strong>{bet_ratio:.2f}</strong> · '
-                            f'EV: <strong>{tc["ev"]*100:.2f}%</strong> · '
-                            f'Composite Score: <strong>{get_composite_score(tc["ev"]*100, bet_ratio)}/100</strong></p>'
+                            f'EV: <strong>{tc["ev"]*100:.2f}%</strong></p>'
                             f'<p style="color:#4a7a60;font-family:\'Share Tech Mono\';font-size:0.72rem;">'
                             f'{bet_tier_info["description"]}</p></div>',
                             unsafe_allow_html=True
@@ -2742,7 +2734,6 @@ with tab2:
 
                     ratio_d = base_ev_d / thr_for_tier if thr_for_tier > 0 else 0
                     tier_info_d = get_bet_tier(base_ev_d, ratio_d)
-                    score_d = get_composite_score(base_ev_d, ratio_d)
 
                     st.markdown(
                         f'<div class="gem-label" style="margin-top:10px;'
@@ -2750,10 +2741,9 @@ with tab2:
                         f'◈ QUALITY METRICS — {tier_info_d["emoji"]} {tier_info_d["tier"]}</div>',
                         unsafe_allow_html=True
                     )
-                    qm1, qm2, qm3 = st.columns(3)
+                    qm1, qm2 = st.columns(2)
                     qm1.metric("Ratio",      f"{ratio_d:.2f}")
-                    qm2.metric("Score",      f"{score_d:.0f}/100")
-                    qm3.metric("Kelly Mult", f"×{tier_info_d['kelly_mult']:.1f}")
+                    qm2.metric("Kelly Mult", f"×{tier_info_d['kelly_mult']:.1f}")
 
                     st.markdown('<div class="gem-label" style="margin-top:8px;">◈ TRADE INFO</div>',
                                 unsafe_allow_html=True)
@@ -3850,19 +3840,17 @@ with tab3:
         lph, lpd, lpa = shin_devig(fix(preh), fix(pred), fix(prea))
         ml = max(90 - cmin, 1)
 
-        hw2l, hw1l, dexl, aw1l, aw2l, ptl = calc_dixon_coles_matrix(
+        # [Bug Fix v3.3] margin_dist (Home perspective) ใช้ทั้ง Fav และ Dog
+        hw2l, hw1l, dexl, aw1l, aw2l, ptl, margin_dist_live = calc_dixon_coles_matrix(
             lph, lpd, lpa, lou, fix(louov), fix(louun),
-            ch=csh, ca=csa, ml=ml, rch=rch, rca=rca,
-            xg_h=st.session_state.get('xg_h_val', 0.0),
-            xg_a=st.session_state.get('xg_a_val', 0.0),
-            xg_weight=0.5
+            ch=csh, ca=csa, ml=ml, rch=rch, rca=rca
         )
 
         fvl   = lph >= lpa
-        evhl  = ev_ah(lhdp, hw2l, hw1l, dexl, aw1l, aw2l, fix(lhdph), fvl)
+        evhl  = ev_ah(lhdp, hw2l, hw1l, dexl, aw1l, aw2l, fix(lhdph), fvl, margin_dist=margin_dist_live)
         # [Calibration v2] Dynamic HDBA สำหรับ Live ใช้ hdba_val เดียวกัน
         hdba_dynamic_live = lpd * fix(lhdpa) * hdba_val
-        eval_ = ev_ah(lhdp, aw2l, aw1l, dexl, hw1l, hw2l, fix(lhdpa), not fvl) - hdba_dynamic_live
+        eval_ = ev_ah(lhdp, aw2l, aw1l, dexl, hw1l, hw2l, fix(lhdpa), not fvl, margin_dist=margin_dist_live) - hdba_dynamic_live
         evol  = ev_ou(lou, ptl, fix(louov), True)
         evul  = ev_ou(lou, ptl, fix(louun), False)
 
@@ -4199,8 +4187,7 @@ with tab3:
                             f'{live_tier_info["emoji"]} {live_tier_info["tier"]} TIER — Kelly × {live_tier_mult:.1f}</div>'
                             f'<p style="color:#c8e6d4;font-family:\'Share Tech Mono\';font-size:0.78rem;">'
                             f'Ratio: <strong>{live_ratio:.2f}</strong> · '
-                            f'EV: <strong>{tl2["ev"]*100:.2f}%</strong> · '
-                            f'Composite Score: <strong>{get_composite_score(tl2["ev"]*100, live_ratio)}/100</strong></p>'
+                            f'EV: <strong>{tl2["ev"]*100:.2f}%</strong></p>'
                             f'<p style="color:#4a7a60;font-family:\'Share Tech Mono\';font-size:0.72rem;">'
                             f'{live_tier_info["description"]}</p></div>',
                             unsafe_allow_html=True
