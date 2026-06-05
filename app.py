@@ -445,9 +445,247 @@ def poisson(k, lam):
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
 
+# ══════════════════════════════════════════════════════════════════════
+# 🎯 FEATURE 1: REVERSE-ENGINEER λ FROM MARKET (Math-only, no API)
+# ══════════════════════════════════════════════════════════════════════
+# แทนที่จะใช้ heuristic formula (top + supremacy^0.80) — ถอดย้อนหา
+# λ_home, λ_away ที่ทำให้ Poisson model fit ตลาดทั้ง 1X2 + OU พร้อมกัน
+# ใช้ Nelder-Mead simplex (pure Python, no scipy)
+# ══════════════════════════════════════════════════════════════════════
+def _poisson_pmf(k, lam):
+    """Poisson probability mass function"""
+    if lam <= 0: return 0.0 if k > 0 else 1.0
+    return (lam**k * math.exp(-lam)) / math.factorial(k)
+
+
+def _build_probs_from_lambda(lh, la, ou_line, rho=-0.10):
+    """คำนวณ P(H), P(D), P(A), P(Over), P(Under) จาก λ (Dixon-Coles tau)"""
+    if lh < 0.1 or la < 0.1: return 0, 0, 0, 0, 0
+    mx = [[0.0]*10 for _ in range(10)]
+    for i in range(10):
+        for j in range(10):
+            bp = _poisson_pmf(i, lh) * _poisson_pmf(j, la)
+            if i==0 and j==0:   tau = 1 - (lh*la*rho)
+            elif i==0 and j==1: tau = 1 + (lh*rho)
+            elif i==1 and j==0: tau = 1 + (la*rho)
+            elif i==1 and j==1: tau = 1 - rho
+            else: tau = 1.0
+            mx[i][j] = max(0, bp*tau)
+    tp = sum(sum(r) for r in mx)
+    if tp <= 0: return 0, 0, 0, 0, 0
+
+    p_h = p_d = p_a = 0.0
+    pou = {}
+    for i in range(10):
+        for j in range(10):
+            p = mx[i][j] / tp
+            d = i - j
+            if d > 0:    p_h += p
+            elif d == 0: p_d += p
+            else:        p_a += p
+            tg = i + j
+            pou[tg] = pou.get(tg, 0) + p
+
+    fl = int(math.floor(ou_line)); rm = ou_line - fl
+    if rm == 0.25:
+        p_over_strict = sum(p for k, p in pou.items() if k > fl)
+        p_eq = pou.get(fl, 0)
+        p_over = p_over_strict + p_eq * 0.5
+        p_under = 1 - p_over
+    elif rm == 0.5:
+        p_over = sum(p for k, p in pou.items() if k > fl)
+        p_under = 1 - p_over
+    elif rm == 0.75:
+        p_over_strict = sum(p for k, p in pou.items() if k > fl+1)
+        p_eq_next = pou.get(fl+1, 0)
+        p_over = p_over_strict + p_eq_next * 0.5
+        p_under = 1 - p_over
+    else:
+        p_over = sum(p for k, p in pou.items() if k > fl)
+        p_under = sum(p for k, p in pou.items() if k < fl)
+    return p_h, p_d, p_a, p_over, p_under
+
+
+def reverse_engineer_lambda(p_h_mkt, p_d_mkt, p_a_mkt, p_over_mkt, p_under_mkt, ou_line):
+    """
+    หา (λ_home, λ_away) ที่ทำให้ Poisson model fit ตลาดทั้ง 1X2 + OU
+    ใช้ Nelder-Mead simplex (pure Python)
+    Returns: (lh, la, final_error, converged)
+    """
+    def loss(params):
+        lh, la = params
+        if lh < 0.1 or la < 0.1: return 1e6
+        if lh > 8.0 or la > 8.0: return 1e6
+        p_h, p_d, p_a, p_o, p_u = _build_probs_from_lambda(lh, la, ou_line)
+        err_1x2 = (p_h - p_h_mkt)**2 + (p_d - p_d_mkt)**2 + (p_a - p_a_mkt)**2
+        err_ou  = (p_o - p_over_mkt)**2 + (p_u - p_under_mkt)**2
+        return err_1x2 + err_ou
+
+    # เดาเริ่มต้นจาก heuristic formula
+    initial_et = ou_line + 0.30
+    initial_sup = (p_h_mkt - p_a_mkt) * (initial_et ** 0.80)
+    lh0 = max(0.3, (initial_et + initial_sup) / 2)
+    la0 = max(0.3, (initial_et - initial_sup) / 2)
+
+    # Nelder-Mead simplex (pure Python)
+    # สร้าง 3 จุดเริ่มต้น
+    simplex = [
+        [lh0,         la0],
+        [lh0 + 0.1,   la0],
+        [lh0,         la0 + 0.1],
+    ]
+    values = [loss(p) for p in simplex]
+
+    # Iterate
+    for iteration in range(150):
+        # Sort by loss value (ascending)
+        order = sorted(range(3), key=lambda i: values[i])
+        simplex = [simplex[i] for i in order]
+        values  = [values[i] for i in order]
+
+        best_loss = values[0]
+        if best_loss < 1e-6: break
+
+        # Centroid of best 2 points (excluding worst)
+        centroid = [(simplex[0][0] + simplex[1][0]) / 2,
+                    (simplex[0][1] + simplex[1][1]) / 2]
+
+        # Reflection
+        reflected = [2*centroid[0] - simplex[2][0],
+                     2*centroid[1] - simplex[2][1]]
+        f_r = loss(reflected)
+
+        if values[0] <= f_r < values[1]:
+            simplex[2] = reflected; values[2] = f_r
+        elif f_r < values[0]:
+            # Expansion
+            expanded = [centroid[0] + 2*(reflected[0] - centroid[0]),
+                        centroid[1] + 2*(reflected[1] - centroid[1])]
+            f_e = loss(expanded)
+            if f_e < f_r:
+                simplex[2] = expanded; values[2] = f_e
+            else:
+                simplex[2] = reflected; values[2] = f_r
+        else:
+            # Contraction
+            contracted = [centroid[0] + 0.5*(simplex[2][0] - centroid[0]),
+                          centroid[1] + 0.5*(simplex[2][1] - centroid[1])]
+            f_c = loss(contracted)
+            if f_c < values[2]:
+                simplex[2] = contracted; values[2] = f_c
+            else:
+                # Shrink
+                simplex[1] = [simplex[0][0] + 0.5*(simplex[1][0] - simplex[0][0]),
+                              simplex[0][1] + 0.5*(simplex[1][1] - simplex[0][1])]
+                simplex[2] = [simplex[0][0] + 0.5*(simplex[2][0] - simplex[0][0]),
+                              simplex[0][1] + 0.5*(simplex[2][1] - simplex[0][1])]
+                values[1] = loss(simplex[1])
+                values[2] = loss(simplex[2])
+
+    final_loss = values[0]
+    converged = final_loss < 0.01  # ตลาด consistent ดี
+    return simplex[0][0], simplex[0][1], final_loss, converged
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 💎 FEATURE 2: VALUE SCANNER (Math P vs Bookie P divergence)
+# ══════════════════════════════════════════════════════════════════════
+def value_scanner(margin_dist, pou, market_data, ou_line, ah_line):
+    """
+    เทียบ Math P vs Bookie P ทุก side
+    Returns: sorted list ของ {side, math_p, book_p, edge, odds, ev}
+    """
+    # Devig 2-way (Shin would be better but simple inverse for AH/OU)
+    def devig_2way(o1, o2):
+        i1, i2 = 1/o1, 1/o2
+        s = i1 + i2
+        return i1/s, i2/s
+
+    # ─── AH probabilities ───
+    h = abs(ah_line)
+    fl = int(math.floor(h)); rm = h - fl
+    md = margin_dist
+
+    if rm == 0.0:    # full line — push at margin == h
+        p_home_cover = sum(p for m, p in md.items() if m > h)
+        p_home_push  = md.get(int(h), 0)
+    elif rm == 0.5:
+        p_home_cover = sum(p for m, p in md.items() if m > h)
+        p_home_push  = 0
+    elif rm == 0.25:
+        p_full_win  = sum(p for m, p in md.items() if m > fl)
+        p_full_push = md.get(fl, 0)
+        p_half_win  = sum(p for m, p in md.items() if m > fl)
+        p_home_cover = (p_full_win + p_half_win) / 2
+        p_home_push  = p_full_push / 2
+    elif rm == 0.75:
+        p_full_win  = sum(p for m, p in md.items() if m > fl+1)
+        p_full_push = md.get(fl+1, 0)
+        p_half_win  = sum(p for m, p in md.items() if m > fl)
+        p_home_cover = (p_full_win + p_half_win) / 2
+        p_home_push  = p_full_push / 2
+    else:
+        p_home_cover = sum(p for m, p in md.items() if m > h)
+        p_home_push  = 0
+    p_away_cover = 1 - p_home_cover - p_home_push
+
+    # ─── OU probabilities ───
+    fl_ou = int(math.floor(ou_line)); rm_ou = ou_line - fl_ou
+    if rm_ou == 0.25:
+        p_over_strict = sum(p for k, p in pou.items() if k > fl_ou)
+        p_eq = pou.get(fl_ou, 0)
+        p_over = p_over_strict + p_eq * 0.5
+        p_under = 1 - p_over
+    elif rm_ou == 0.5:
+        p_over = sum(p for k, p in pou.items() if k > fl_ou)
+        p_under = 1 - p_over
+    elif rm_ou == 0.75:
+        p_over_strict = sum(p for k, p in pou.items() if k > fl_ou+1)
+        p_eq_next = pou.get(fl_ou+1, 0)
+        p_over = p_over_strict + p_eq_next * 0.5
+        p_under = 1 - p_over
+    else:
+        p_over  = sum(p for k, p in pou.items() if k > fl_ou)
+        p_under = sum(p for k, p in pou.items() if k < fl_ou)
+
+    # Bookie probabilities
+    p_h_book, p_a_book = devig_2way(market_data['ah_home_odds'], market_data['ah_away_odds'])
+    p_o_book, p_u_book = devig_2way(market_data['ou_over_odds'], market_data['ou_under_odds'])
+
+    # Edges
+    sides = [
+        ('AH Home (Fav)' if ah_line < 0 else 'AH Home (Dog)',
+         f"-{abs(ah_line)}" if ah_line < 0 else f"+{abs(ah_line)}",
+         p_home_cover, p_h_book, market_data['ah_home_odds'], p_home_push),
+        ('AH Away (Dog)' if ah_line < 0 else 'AH Away (Fav)',
+         f"+{abs(ah_line)}" if ah_line < 0 else f"-{abs(ah_line)}",
+         p_away_cover, p_a_book, market_data['ah_away_odds'], p_home_push),
+        ('OU Over',  f"{ou_line}", p_over,  p_o_book, market_data['ou_over_odds'],  0),
+        ('OU Under', f"{ou_line}", p_under, p_u_book, market_data['ou_under_odds'], 0),
+    ]
+
+    results = []
+    for label, line_str, math_p, book_p, odds, push in sides:
+        edge = math_p - book_p
+        b = odds - 1
+        ev = math_p * b - (1 - math_p - push)
+        results.append({
+            'side': label,
+            'line': line_str,
+            'math_p': math_p,
+            'book_p': book_p,
+            'edge': edge,
+            'odds': odds,
+            'ev': ev,
+        })
+
+    return sorted(results, key=lambda x: x['edge'], reverse=True)
+
+
 def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
                              ch=0, ca=0, ml=90,
-                             rch=False, rca=False):
+                             rch=False, rca=False,
+                             lh_override=None, la_override=None):
     ow  = oow + 1 if oow < 1.1 else oow
     uw  = uuw + 1 if uuw < 1.1 else uuw
     op  = 1/ow; up = 1/uw
@@ -468,6 +706,16 @@ def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
     if rca:
         la *= 0.50
         lh *= 1.30
+
+    # [Feature 1] Override λ ด้วยค่าที่ reverse-engineered จากตลาด
+    # ใช้เมื่อ user เปิด "Auto-Fit λ Mode" — bypass heuristic
+    if lh_override is not None and la_override is not None:
+        lh = lh_override * (ml / 90) ** 0.75
+        la = la_override * (ml / 90) ** 0.75
+        if rch:
+            lh *= 0.50; la *= 1.30
+        if rca:
+            la *= 0.50; lh *= 1.30
 
     # Dynamic Rho — คำนวณอัตโนมัติจากเรตประตูรวม
     dyn_rho = max(-0.25, min(0.0, -0.15 + (et - 2.5) * 0.05))
@@ -1554,6 +1802,18 @@ with st.sidebar:
         value=False,
         help="scan 4 ฝั่ง → เลือก 1 ฝั่งที่มี EV/threshold ratio สูงสุด"
     )
+    # [Feature 1] Auto-Fit λ to Market — Math-only no API
+    auto_fit_lambda = st.checkbox(
+        "🎯 Auto-Fit λ to Market",
+        value=False,
+        help="ใช้ numerical optimization หา λ ที่ fit ราคาตลาดทั้ง 1X2 + OU แทน heuristic"
+    )
+    # [Feature 2] Value Scanner display
+    show_value_scanner = st.checkbox(
+        "💎 Value Scanner Panel",
+        value=False,
+        help="แสดงตาราง Math P vs Bookie P + Edge ทุก side ใต้ Probability Engine"
+    )
 
     # ══════════════════════════════════════════════════════════════════
     # ◈ ADVANCED SETTINGS — Override Profile (collapsed by default)
@@ -2090,10 +2350,26 @@ with tab1:
         ho, do_, ao   = fix(h1x2), fix(d1x2), fix(a1x2)
         hwo, awo, owo, uwo = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
         ph, pd_, pa   = shin_devig(ho, do_, ao)
+
+        # [Feature 1] Auto-Fit λ to Market (toggle จาก sidebar)
+        # คำนวณ devig market probabilities สำหรับ OU ก่อน
+        ou_imp_o = 1/owo; ou_imp_u = 1/uwo
+        po_mkt = ou_imp_o / (ou_imp_o + ou_imp_u)
+        pu_mkt = 1 - po_mkt
+
+        lh_fit = la_fit = None
+        fit_loss = None
+        fit_converged = False
+        if auto_fit_lambda:
+            lh_fit, la_fit, fit_loss, fit_converged = reverse_engineer_lambda(
+                ph, pd_, pa, po_mkt, pu_mkt, ou_line
+            )
+
         # [Bug Fix v3.3] margin_dist สำหรับเส้น AH 1.75-2.5 (Home perspective)
         # Dog branch ใน ev_ah() ใช้ home perspective อยู่แล้ว → ไม่ต้อง flip
         hw2, hw1, dex, aw1, aw2, pt, margin_dist = calc_dixon_coles_matrix(
-            ph, pd_, pa, ou_line, owo, uwo
+            ph, pd_, pa, ou_line, owo, uwo,
+            lh_override=lh_fit, la_override=la_fit
         )
 
         fav_h = ph >= pa
@@ -2117,6 +2393,94 @@ with tab1:
         p3.metric("AWAY WIN", f"{pa*100:.1f}%")
 
         # ══════════════════════════════════════════════════════════════════
+        # 🎯 [Feature 1] AUTO-FIT λ STATUS BADGE
+        # ══════════════════════════════════════════════════════════════════
+        if auto_fit_lambda:
+            fit_color = "#00ff88" if fit_converged else "#ff8c00"
+            fit_status = "✅ CONVERGED — fit ตลาด" if fit_converged else "⚠️ DIVERGED — ตลาด inconsistent"
+
+            # Compare with heuristic for context
+            heur_top = po_mkt
+            heur_bet = ou_line + 0.05 + ((heur_top - 0.5) * 2.5)
+            heur_et = max(0.5, heur_bet + (0.25 - pd_) * 4.0)
+            heur_sup = (ph - pa) * (heur_et ** 0.80)
+            lh_heur = max(0.15, (heur_et + heur_sup) / 2)
+            la_heur = max(0.15, (heur_et - heur_sup) / 2)
+
+            st.markdown(
+                f'<div style="background:#0d1e2e;border-left:3px solid {fit_color};'
+                f'border-radius:0 4px 4px 0;padding:10px 14px;margin-top:8px;">'
+                f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:{fit_color};'
+                f'letter-spacing:0.08em;margin-bottom:4px;">🎯 AUTO-FIT λ MODE — {fit_status}</div>'
+                f'<div style="font-family:\'Share Tech Mono\';font-size:0.72rem;color:#c8e6d4;line-height:1.5;">'
+                f'λ_home = <strong style="color:{fit_color};">{lh_fit:.3f}</strong> '
+                f'(heuristic: {lh_heur:.3f}) · '
+                f'λ_away = <strong style="color:{fit_color};">{la_fit:.3f}</strong> '
+                f'(heuristic: {la_heur:.3f})<br>'
+                f'<span style="color:#4a7a60;font-size:0.65rem;">'
+                f'Loss: {fit_loss:.5f} · '
+                f'{"ตลาดสอดคล้องกัน" if fit_converged else "ตลาด 1X2 กับ OU ขัดแย้งกัน — Math ประนีประนอม"}'
+                f'</span></div></div>',
+                unsafe_allow_html=True
+            )
+
+        # ══════════════════════════════════════════════════════════════════
+        # 💎 [Feature 2] VALUE SCANNER PANEL
+        # ══════════════════════════════════════════════════════════════════
+        if show_value_scanner:
+            # คำนวณ HDP สำหรับ ah_line — ใช้ค่าที่ผู้ใช้กรอก (signed)
+            scanner_market = {
+                'ah_home_odds':  hwo,
+                'ah_away_odds':  awo,
+                'ou_over_odds':  owo,
+                'ou_under_odds': uwo,
+            }
+            scanner_edges = value_scanner(margin_dist, pt, scanner_market,
+                                          ou_line, hdp_line)
+
+            st.markdown('<div class="gem-label" style="margin-top:14px;color:#00b4ff;border-color:#00b4ff;">'
+                        '◈ 💎 VALUE SCANNER — Math P vs Bookie P</div>',
+                        unsafe_allow_html=True)
+
+            for idx, e in enumerate(scanner_edges):
+                # สี: เขียวถ้า edge บวก, แดงถ้าลบ
+                if e['edge'] >= 0.05:    color = "#00ff88"; badge = "💎 TOP VALUE"
+                elif e['edge'] >= 0.02:  color = "#ffd600"; badge = "⚡ VALUE"
+                elif e['edge'] >= 0:     color = "#4a7a60"; badge = "▴"
+                else:                    color = "#ff3b5c"; badge = "✗ NEGATIVE"
+
+                ev_color = "#00ff88" if e['ev'] > 0 else "#ff3b5c"
+
+                st.markdown(
+                    f'<div style="background:#0d1e2e;border-left:3px solid {color};'
+                    f'border-radius:0 4px 4px 0;padding:10px 14px;margin-bottom:6px;">'
+                    f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                    f'<div>'
+                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.72rem;color:{color};'
+                    f'letter-spacing:0.08em;">{badge}</span> '
+                    f'<span style="font-family:\'Rajdhani\';font-weight:600;font-size:0.92rem;color:#c8e6d4;">'
+                    f'{e["side"]} {e["line"]}</span> '
+                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#4a7a60;">'
+                    f'@ {e["odds"]:.2f}</span>'
+                    f'</div>'
+                    f'<div style="text-align:right;">'
+                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.95rem;color:{color};">'
+                    f'Edge {e["edge"]*100:+.2f}%</span><br>'
+                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.65rem;color:{ev_color};">'
+                    f'EV {e["ev"]*100:+.2f}%</span>'
+                    f'</div></div>'
+                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:#4a7a60;margin-top:4px;">'
+                    f'Math: <strong style="color:#c8e6d4;">{e["math_p"]*100:.1f}%</strong> · '
+                    f'Book: <strong style="color:#c8e6d4;">{e["book_p"]*100:.1f}%</strong>'
+                    f'</div></div>',
+                    unsafe_allow_html=True
+                )
+
+            st.caption(
+                "_💡 Edge = Math P − Bookie P · ค่าบวก = Math เชื่อว่าโอกาสสูงกว่าตลาด "
+                "(potential value) · ค่าลบ = ตลาดมั่นใจมากกว่า (avoid)_"
+            )
+
         # ══════════════════════════════════════════════════════════════════
         # 💰 MARKET QUALITY INDICATOR — focus เฉพาะ AH + OU
         # ══════════════════════════════════════════════════════════════════
