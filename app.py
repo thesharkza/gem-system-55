@@ -601,31 +601,57 @@ def value_scanner(margin_dist, pou, market_data, ou_line, ah_line):
         s = i1 + i2
         return i1/s, i2/s
 
+    # margin_dist ใช้ string keys: 'h3', 'h2', 'h1', 'd', 'a1', 'a2', 'a3'
+    # h3 = home margin ≥ 3, h2 = margin 2, h1 = margin 1
+    # d  = draw (margin 0)
+    # a1 = away margin 1, a2 = margin 2, a3 = margin ≥ 3
+    md = margin_dist
+    # Helper สำหรับ "home margin > N" (รวม buckets ที่ใหญ่กว่า N)
+    def p_home_margin_gt(threshold):
+        """P(home margin > threshold). threshold = 0,1,2"""
+        if   threshold == 0: return md['h1'] + md['h2'] + md['h3']
+        elif threshold == 1: return md['h2'] + md['h3']
+        elif threshold == 2: return md['h3']
+        elif threshold >= 3: return 0  # ใน 10x10 matrix, margin ≤ 9 → h3 รวม 3-9
+        return 0
+
+    def p_home_margin_eq(value):
+        """P(home margin == value). value = 0,1,2,-1,-2"""
+        if   value == 0: return md['d']
+        elif value == 1: return md['h1']
+        elif value == 2: return md['h2']
+        elif value == -1: return md['a1']
+        elif value == -2: return md['a2']
+        return 0
+
     # ─── AH probabilities ───
+    # ah_line จาก app.py: บวก = เจ้าบ้านต่อ (Home fav), ลบ = เยือนต่อ
+    # h = |ah_line| คือเลขเส้น
     h = abs(ah_line)
     fl = int(math.floor(h)); rm = h - fl
-    md = margin_dist
 
     if rm == 0.0:    # full line — push at margin == h
-        p_home_cover = sum(p for m, p in md.items() if m > h)
-        p_home_push  = md.get(int(h), 0)
-    elif rm == 0.5:
-        p_home_cover = sum(p for m, p in md.items() if m > h)
+        p_home_cover = p_home_margin_gt(fl)
+        p_home_push  = p_home_margin_eq(fl)
+    elif rm == 0.5:  # half line — no push
+        p_home_cover = p_home_margin_gt(fl)  # margin > fl (= margin ≥ fl+1)
         p_home_push  = 0
-    elif rm == 0.25:
-        p_full_win  = sum(p for m, p in md.items() if m > fl)
-        p_full_push = md.get(fl, 0)
-        p_half_win  = sum(p for m, p in md.items() if m > fl)
+    elif rm == 0.25:  # quarter — half on full line (fl), half on half line (fl+0.5)
+        # Component 1: full line at fl → win if margin>fl, push if margin=fl
+        p_full_win  = p_home_margin_gt(fl)
+        p_full_push = p_home_margin_eq(fl)
+        # Component 2: half line at fl+0.5 → win if margin>fl
+        p_half_win  = p_home_margin_gt(fl)
         p_home_cover = (p_full_win + p_half_win) / 2
         p_home_push  = p_full_push / 2
-    elif rm == 0.75:
-        p_full_win  = sum(p for m, p in md.items() if m > fl+1)
-        p_full_push = md.get(fl+1, 0)
-        p_half_win  = sum(p for m, p in md.items() if m > fl)
-        p_home_cover = (p_full_win + p_half_win) / 2
+    elif rm == 0.75:  # quarter — half on half line (fl+0.5), half on full line (fl+1)
+        p_half_win  = p_home_margin_gt(fl)        # margin > fl
+        p_full_win  = p_home_margin_gt(fl+1)      # margin > fl+1
+        p_full_push = p_home_margin_eq(fl+1)
+        p_home_cover = (p_half_win + p_full_win) / 2
         p_home_push  = p_full_push / 2
     else:
-        p_home_cover = sum(p for m, p in md.items() if m > h)
+        p_home_cover = p_home_margin_gt(fl)
         p_home_push  = 0
     p_away_cover = 1 - p_home_cover - p_home_push
 
@@ -648,18 +674,34 @@ def value_scanner(margin_dist, pou, market_data, ou_line, ah_line):
         p_over  = sum(p for k, p in pou.items() if k > fl_ou)
         p_under = sum(p for k, p in pou.items() if k < fl_ou)
 
-    # Bookie probabilities
+    # Bookie probabilities (devig)
     p_h_book, p_a_book = devig_2way(market_data['ah_home_odds'], market_data['ah_away_odds'])
     p_o_book, p_u_book = devig_2way(market_data['ou_over_odds'], market_data['ou_under_odds'])
 
-    # Edges
+    # ─── AH Side labels (depend on ah_line sign) ───
+    # ah_line > 0: เจ้าบ้านต่อ → Home = Fav, Away = Dog
+    # ah_line < 0: ทีมเยือนต่อ → Home = Dog, Away = Fav
+    if ah_line > 0:
+        ah_home_label = 'AH Home (Fav)'
+        ah_away_label = 'AH Away (Dog)'
+        ah_home_line  = f"-{abs(ah_line)}"
+        ah_away_line  = f"+{abs(ah_line)}"
+    elif ah_line < 0:
+        ah_home_label = 'AH Home (Dog)'
+        ah_away_label = 'AH Away (Fav)'
+        ah_home_line  = f"+{abs(ah_line)}"
+        ah_away_line  = f"-{abs(ah_line)}"
+    else:
+        ah_home_label = 'AH Home (PK)'
+        ah_away_label = 'AH Away (PK)'
+        ah_home_line  = "0"
+        ah_away_line  = "0"
+
     sides = [
-        ('AH Home (Fav)' if ah_line < 0 else 'AH Home (Dog)',
-         f"-{abs(ah_line)}" if ah_line < 0 else f"+{abs(ah_line)}",
-         p_home_cover, p_h_book, market_data['ah_home_odds'], p_home_push),
-        ('AH Away (Dog)' if ah_line < 0 else 'AH Away (Fav)',
-         f"+{abs(ah_line)}" if ah_line < 0 else f"-{abs(ah_line)}",
-         p_away_cover, p_a_book, market_data['ah_away_odds'], p_home_push),
+        (ah_home_label, ah_home_line, p_home_cover, p_h_book,
+         market_data['ah_home_odds'], p_home_push),
+        (ah_away_label, ah_away_line, p_away_cover, p_a_book,
+         market_data['ah_away_odds'], p_home_push),
         ('OU Over',  f"{ou_line}", p_over,  p_o_book, market_data['ou_over_odds'],  0),
         ('OU Under', f"{ou_line}", p_under, p_u_book, market_data['ou_under_odds'], 0),
     ]
@@ -668,7 +710,10 @@ def value_scanner(margin_dist, pou, market_data, ou_line, ah_line):
     for label, line_str, math_p, book_p, odds, push in sides:
         edge = math_p - book_p
         b = odds - 1
-        ev = math_p * b - (1 - math_p - push)
+        # EV settlement: ชนะ +b, push 0, แพ้ -1
+        # P(loss) = 1 - P(cover) - P(push)
+        p_loss = max(0, 1 - math_p - push)
+        ev = math_p * b - p_loss
         results.append({
             'side': label,
             'line': line_str,
