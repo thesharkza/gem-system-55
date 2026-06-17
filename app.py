@@ -2344,6 +2344,88 @@ with tab1:
         ou_under_w = st.number_input("UNDER", format="%.2f", key="ou_under_w_val")
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # ══════════════════════════════════════════════════════════════════
+    # 📋 MARKET CONSISTENCY CHECKER — กรอกสถิติเพื่อเทียบกับราคาตลาด
+    # ══════════════════════════════════════════════════════════════════
+    # หลักการ: ราคาบ่อนสะท้อนสถิติแล้ว เราใส่สถิติเพื่อเช็คว่า
+    # ตลาดตั้งราคา "สอดคล้อง" หรือ "ขัดแย้ง" กับสถิติพื้นฐาน
+    # ⚠️ ไม่เปลี่ยน Math — ใช้เป็น sanity check เท่านั้น
+    with st.expander("📋 MARKET CONSISTENCY CHECKER — สถิติ 5 นัดหลังสุด (Optional)",
+                     expanded=False):
+        st.markdown(
+            '<p style="font-family:\'Rajdhani\';font-size:0.78rem;color:#4a7a60;'
+            'margin:-4px 0 12px 0;">'
+            'ⓘ กรอกสถิติเพื่อเทียบกับราคาตลาด — ระบบจะบอกว่าตลาดเชื่อ stats หรือต่างไป '
+            '<strong>(ไม่กระทบ Math Engine)</strong></p>',
+            unsafe_allow_html=True
+        )
+
+        stats_cols = st.columns(2)
+        with stats_cols[0]:
+            st.markdown(
+                '<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
+                'color:#00ff88;margin-bottom:6px;">🏠 HOME TEAM</div>',
+                unsafe_allow_html=True
+            )
+            home_w = st.number_input("Wins (5)",    min_value=0, max_value=5,
+                                     value=0, step=1, key="stats_home_w")
+            home_d = st.number_input("Draws (5)",   min_value=0, max_value=5,
+                                     value=0, step=1, key="stats_home_d")
+            home_l = st.number_input("Losses (5)",  min_value=0, max_value=5,
+                                     value=0, step=1, key="stats_home_l")
+            home_gf = st.number_input("Goals For (5 games)",   min_value=0,
+                                     value=0, step=1, key="stats_home_gf")
+            home_ga = st.number_input("Goals Against (5 games)", min_value=0,
+                                     value=0, step=1, key="stats_home_ga")
+            home_rank = st.text_input("League Rank (or '-' for cup)",
+                                      value="-", key="stats_home_rank")
+        with stats_cols[1]:
+            st.markdown(
+                '<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
+                'color:#ff8c00;margin-bottom:6px;">✈️ AWAY TEAM</div>',
+                unsafe_allow_html=True
+            )
+            away_w = st.number_input("Wins (5) ",   min_value=0, max_value=5,
+                                     value=0, step=1, key="stats_away_w")
+            away_d = st.number_input("Draws (5) ",  min_value=0, max_value=5,
+                                     value=0, step=1, key="stats_away_d")
+            away_l = st.number_input("Losses (5) ", min_value=0, max_value=5,
+                                     value=0, step=1, key="stats_away_l")
+            away_gf = st.number_input("Goals For (5 games) ",  min_value=0,
+                                     value=0, step=1, key="stats_away_gf")
+            away_ga = st.number_input("Goals Against (5 games) ", min_value=0,
+                                     value=0, step=1, key="stats_away_ga")
+            away_rank = st.text_input("League Rank (or '-' for cup) ",
+                                      value="-", key="stats_away_rank")
+
+        st.markdown('<div class="gem-divider" style="margin:10px 0 6px 0;"></div>',
+                    unsafe_allow_html=True)
+        temp_cols = st.columns([2, 3])
+        with temp_cols[0]:
+            stadium_temp = st.number_input("🌡️ Stadium Temp (°C)",
+                                           min_value=-20, max_value=50,
+                                           value=25, step=1, key="stats_temp")
+        with temp_cols[1]:
+            st.markdown(
+                '<p style="font-family:\'Rajdhani\';font-size:0.72rem;color:#4a7a60;'
+                'margin-top:24px;">'
+                '< 5°C หรือ > 30°C → เกมเล่นช้าลง<br>'
+                '5-25°C → ปกติ</p>',
+                unsafe_allow_html=True
+            )
+
+        # ตรวจว่ามีข้อมูลครบไหม
+        home_total = home_w + home_d + home_l
+        away_total = away_w + away_d + away_l
+        stats_provided = (home_total == 5 and away_total == 5 and
+                          (home_gf + home_ga + away_gf + away_ga) > 0)
+
+        if (home_total > 0 or away_total > 0) and not stats_provided:
+            if home_total != 5 and home_total > 0:
+                st.warning(f"⚠️ Home W+D+L = {home_total} ต้องครบ 5 นัด")
+            if away_total != 5 and away_total > 0:
+                st.warning(f"⚠️ Away W+D+L = {away_total} ต้องครบ 5 นัด")
+
     # [Cleanup v3.3] ตัด xG / Match Stats / Line Movement ออกหมด
     # เหตุผล: xG ไม่เคยใช้, match_stats/line_movement ขัด whitelist policy
     # ai_engine() จะรับเป็น empty string / Stable แทน
@@ -2468,6 +2550,218 @@ with tab1:
                 f'</span></div></div>',
                 unsafe_allow_html=True
             )
+
+        # ══════════════════════════════════════════════════════════════════
+        # 📋 MARKET CONSISTENCY CHECKER — เทียบสถิติ vs ราคาตลาด
+        # ══════════════════════════════════════════════════════════════════
+        if stats_provided:
+            # คำนวณ stat-based predictions
+            home_wr_pct  = (home_w / 5) * 100
+            away_wr_pct  = (away_w / 5) * 100
+            home_gpg     = home_gf / 5    # goals scored per game
+            away_gpg     = away_gf / 5
+            home_gapg    = home_ga / 5    # goals conceded per game
+            away_gapg    = away_ga / 5
+
+            # ─── Stat-based λ (Maher-style baseline) ───
+            # Home attacking vs Away defending
+            stat_lh = (home_gpg + away_gapg) / 2
+            stat_la = (away_gpg + home_gapg) / 2
+            stat_total = stat_lh + stat_la
+
+            # ─── Stat-based Win Probability (form-based proxy) ───
+            # ใช้ wins สัดส่วนกัน + adjust ด้วย goal differential
+            home_form_score = home_w * 3 + home_d
+            away_form_score = away_w * 3 + away_d
+            stat_p_home_raw = home_form_score / (home_form_score + away_form_score) \
+                              if (home_form_score + away_form_score) > 0 else 0.5
+            # Apply goal differential factor
+            home_gd = home_gpg - home_gapg
+            away_gd = away_gpg - away_gapg
+            gd_factor = (home_gd - away_gd) * 0.05  # ±5% per goal diff
+            stat_p_home = max(0.10, min(0.85, stat_p_home_raw + gd_factor))
+
+            # ─── Temperature adjustment ───
+            # < 5°C → -8% goals, > 30°C → -12% goals
+            if stadium_temp < 5:
+                temp_adj_pct = -8.0
+                temp_label = f"❄️ {stadium_temp}°C — เย็นจัด"
+                temp_color = "#00b4ff"
+            elif stadium_temp > 30:
+                temp_adj_pct = -12.0
+                temp_label = f"🔥 {stadium_temp}°C — ร้อนจัด"
+                temp_color = "#ff8c00"
+            else:
+                temp_adj_pct = 0.0
+                temp_label = f"🌤 {stadium_temp}°C — ปกติ"
+                temp_color = "#00ff88"
+            stat_total_adj = stat_total * (1 + temp_adj_pct/100)
+
+            # ─── เทียบกับตลาด ───
+            # 1. Market expects Home win (from devigged 1X2)
+            mkt_p_home_only = ph    # P(home win) from Shin devig
+            stat_vs_mkt_home = stat_p_home - mkt_p_home_only
+
+            # 2. Market expected total goals (from OU line + bias)
+            mkt_total_goals = ou_line
+            stat_vs_mkt_total = stat_total_adj - mkt_total_goals
+
+            # 3. Ranking factor (if both have rank)
+            rank_consistency = None
+            try:
+                if home_rank != "-" and away_rank != "-":
+                    h_rank = int(home_rank)
+                    a_rank = int(away_rank)
+                    # Lower rank number = better team
+                    rank_diff = a_rank - h_rank  # positive = home is higher ranked (better)
+                    # ตลาดบอกใครเก่งกว่า?
+                    mkt_says_home_better = ph > pa
+                    stat_says_home_better = rank_diff > 0
+                    rank_consistency = (mkt_says_home_better == stat_says_home_better)
+            except (ValueError, TypeError):
+                rank_consistency = None
+
+            # ─── Consistency Score ───
+            # 4 checks: form WR direction, goals total, ranking, no extreme divergence
+            checks_passed = 0
+            check_results = []
+
+            # Check 1: Home win probability direction
+            if abs(stat_vs_mkt_home) < 0.10:
+                checks_passed += 1
+                check_results.append(("✅ Win probability", "ตลาดสอดคล้องสถิติ",
+                                      f"Math {mkt_p_home_only*100:.0f}% vs Stat {stat_p_home*100:.0f}%",
+                                      "#00ff88"))
+            elif abs(stat_vs_mkt_home) < 0.20:
+                check_results.append(("⚠️ Win probability", "เริ่มต่างกัน",
+                                      f"Math {mkt_p_home_only*100:.0f}% vs Stat {stat_p_home*100:.0f}% "
+                                      f"(Δ {stat_vs_mkt_home*100:+.0f}%)",
+                                      "#ffd600"))
+            else:
+                check_results.append(("🚨 Win probability", "ขัดแย้งกันมาก!",
+                                      f"Math {mkt_p_home_only*100:.0f}% vs Stat {stat_p_home*100:.0f}% "
+                                      f"(Δ {stat_vs_mkt_home*100:+.0f}%) — sharp money อาจรู้อะไร?",
+                                      "#ff3b5c"))
+
+            # Check 2: Total goals
+            if abs(stat_vs_mkt_total) < 0.5:
+                checks_passed += 1
+                check_results.append(("✅ Total Goals", "ตลาดสอดคล้องสถิติ",
+                                      f"Line {mkt_total_goals} vs Stat {stat_total_adj:.2f}",
+                                      "#00ff88"))
+            elif abs(stat_vs_mkt_total) < 1.0:
+                check_results.append(("⚠️ Total Goals", "เริ่มต่างกัน",
+                                      f"Line {mkt_total_goals} vs Stat {stat_total_adj:.2f} "
+                                      f"(Δ {stat_vs_mkt_total:+.2f})",
+                                      "#ffd600"))
+            else:
+                check_results.append(("🚨 Total Goals", "ขัดแย้งกันมาก!",
+                                      f"Line {mkt_total_goals} vs Stat {stat_total_adj:.2f} "
+                                      f"(Δ {stat_vs_mkt_total:+.2f})",
+                                      "#ff3b5c"))
+
+            # Check 3: Ranking
+            if rank_consistency is True:
+                checks_passed += 1
+                check_results.append(("✅ Ranking", "ตรงกับลำดับลีก",
+                                      f"H:#{home_rank} vs A:#{away_rank}",
+                                      "#00ff88"))
+            elif rank_consistency is False:
+                check_results.append(("🚨 Ranking", "ขัดกับลำดับลีก",
+                                      f"H:#{home_rank} vs A:#{away_rank} — ตลาดเห็นอะไรที่อันดับไม่บอก",
+                                      "#ff8c00"))
+            else:
+                check_results.append(("ℹ️ Ranking", "ไม่มีข้อมูล (Cup)",
+                                      "—", "#4a7a60"))
+
+            # Check 4: Temperature
+            if temp_adj_pct == 0:
+                checks_passed += 1
+                check_results.append(("✅ Temperature", temp_label,
+                                      "ไม่ส่งผลต่อเกม", "#00ff88"))
+            else:
+                # Temp extreme — check if OU line reflects it
+                expected_lower = (temp_adj_pct < 0)
+                ou_seems_low = mkt_total_goals < (stat_total - 0.3)
+                if expected_lower and ou_seems_low:
+                    checks_passed += 1
+                    check_results.append(("✅ Temperature", temp_label,
+                                          "ตลาดสะท้อนอุณหภูมิแล้ว (Under-favored)",
+                                          "#00ff88"))
+                else:
+                    check_results.append(("⚠️ Temperature", temp_label,
+                                          f"เกมอาจเล่นช้าลง {abs(temp_adj_pct):.0f}% — ตลาดอาจยังไม่สะท้อน",
+                                          "#ffd600"))
+
+            # ─── Render Panel ───
+            total_checks = len([c for c in check_results if c[3] != "#4a7a60"])  # exclude N/A
+            consistency_pct = (checks_passed / total_checks * 100) if total_checks > 0 else 0
+
+            if consistency_pct >= 75:
+                overall_color = "#00ff88"
+                overall_label = "🟢 MARKET ALIGNED WITH STATS"
+                overall_msg = "ราคาตลาดสอดคล้องกับสถิติพื้นฐาน — เชื่อ Math Engine ได้"
+            elif consistency_pct >= 50:
+                overall_color = "#ffd600"
+                overall_label = "🟡 PARTIAL CONSISTENCY"
+                overall_msg = "ตลาดและสถิติเห็นด้วยกันบางส่วน — ระวังเพิ่ม"
+            else:
+                overall_color = "#ff3b5c"
+                overall_label = "🔴 MARKET CONTRADICTS STATS"
+                overall_msg = "ตลาดสวนสถิติชัดเจน — sharp money อาจมีข้อมูลที่เราไม่เห็น (บาดเจ็บ, lineup, ฯลฯ)"
+
+            st.markdown('<div class="gem-label" style="margin-top:14px;color:#9b59b6;border-color:#9b59b6;">'
+                        '◈ 📋 MARKET CONSISTENCY CHECKER</div>',
+                        unsafe_allow_html=True)
+
+            # Overall verdict banner
+            st.markdown(
+                f'<div style="background:rgba({"0,255,136" if "#00ff88" in overall_color else ("255,214,0" if "#ffd600" in overall_color else "255,59,92")},0.10);'
+                f'border:2px solid {overall_color};border-radius:6px;'
+                f'padding:14px 18px;margin-bottom:10px;">'
+                f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;color:{overall_color};'
+                f'letter-spacing:0.05em;margin-bottom:6px;">'
+                f'{overall_label}  ({checks_passed}/{total_checks})</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;">{overall_msg}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+            # Individual checks
+            for label, status, detail, color in check_results:
+                st.markdown(
+                    f'<div style="background:#0d1e2e;border-left:3px solid {color};'
+                    f'border-radius:0 4px 4px 0;padding:8px 12px;margin-bottom:5px;">'
+                    f'<div style="display:flex;justify-content:space-between;">'
+                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:{color};">'
+                    f'{label}</span>'
+                    f'<span style="font-family:\'Rajdhani\';font-size:0.8rem;color:#c8e6d4;">'
+                    f'{status}</span></div>'
+                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.65rem;color:#4a7a60;'
+                    f'margin-top:3px;">{detail}</div></div>',
+                    unsafe_allow_html=True
+                )
+
+            # Stat summary
+            with st.expander("📊 Stat Calculations (Details)"):
+                col_h, col_a = st.columns(2)
+                with col_h:
+                    st.markdown(f"**🏠 HOME**")
+                    st.markdown(f"- WR: **{home_wr_pct:.0f}%** ({home_w}W/{home_d}D/{home_l}L)")
+                    st.markdown(f"- Goals: **{home_gpg:.2f}** scored, **{home_gapg:.2f}** conceded/game")
+                    st.markdown(f"- GD: **{home_gd:+.2f}** per game")
+                with col_a:
+                    st.markdown(f"**✈️ AWAY**")
+                    st.markdown(f"- WR: **{away_wr_pct:.0f}%** ({away_w}W/{away_d}D/{away_l}L)")
+                    st.markdown(f"- Goals: **{away_gpg:.2f}** scored, **{away_gapg:.2f}** conceded/game")
+                    st.markdown(f"- GD: **{away_gd:+.2f}** per game")
+                st.markdown(f"---")
+                st.markdown(f"**📊 Derived Predictions:**")
+                st.markdown(f"- Stat-based λ: Home {stat_lh:.2f} / Away {stat_la:.2f}")
+                st.markdown(f"- Stat total goals: **{stat_total:.2f}** "
+                            f"(after temp adj: **{stat_total_adj:.2f}**)")
+                st.markdown(f"- Stat-based P(Home win): **{stat_p_home*100:.0f}%**")
+                st.markdown(f"- Market-implied P(Home win): **{mkt_p_home_only*100:.0f}%**")
 
         # ══════════════════════════════════════════════════════════════════
         # 💎 [Feature 2] VALUE SCANNER PANEL
