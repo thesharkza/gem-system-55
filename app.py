@@ -2500,10 +2500,21 @@ with tab1:
         )
 
         fav_h = ph >= pa
-        evh   = ev_ah(hdp_line, hw2, hw1, dex, aw1, aw2, hwo, fav_h, margin_dist=margin_dist)
+        evh_raw = ev_ah(hdp_line, hw2, hw1, dex, aw1, aw2, hwo, fav_h, margin_dist=margin_dist)
+        eva_raw = ev_ah(hdp_line, aw2, aw1, dex, hw1, hw2, awo, not fav_h, margin_dist=margin_dist)
+        # [Bug Fix v3.4] HDBA หักจากฝั่ง Dog เท่านั้น — ไม่ assume Home=Fav
+        # หาก Home เป็น Dog (ph < pa) ต้องหัก HDBA จาก evh ไม่ใช่ eva
         # [Calibration v2] Dynamic HDBA = pd_ × dog_odds × hdba_val
-        hdba_dynamic = pd_ * awo * hdba_val
-        eva   = ev_ah(hdp_line, aw2, aw1, dex, hw1, hw2, awo, not fav_h, margin_dist=margin_dist) - hdba_dynamic
+        if fav_h:
+            # Home = Fav, Away = Dog → HDBA จาก Away
+            hdba_dynamic = pd_ * awo * hdba_val
+            evh = evh_raw
+            eva = eva_raw - hdba_dynamic
+        else:
+            # Home = Dog, Away = Fav → HDBA จาก Home
+            hdba_dynamic = pd_ * hwo * hdba_val
+            evh = evh_raw - hdba_dynamic
+            eva = eva_raw
         evo   = ev_ou(ou_line, pt, owo, True)
         evu   = ev_ou(ou_line, pt, uwo, False)
 
@@ -4550,10 +4561,19 @@ with tab3:
         )
 
         fvl   = lph >= lpa
-        evhl  = ev_ah(lhdp, hw2l, hw1l, dexl, aw1l, aw2l, fix(lhdph), fvl, margin_dist=margin_dist_live)
-        # [Calibration v2] Dynamic HDBA สำหรับ Live ใช้ hdba_val เดียวกัน
-        hdba_dynamic_live = lpd * fix(lhdpa) * hdba_val
-        eval_ = ev_ah(lhdp, aw2l, aw1l, dexl, hw1l, hw2l, fix(lhdpa), not fvl, margin_dist=margin_dist_live) - hdba_dynamic_live
+        evhl_raw = ev_ah(lhdp, hw2l, hw1l, dexl, aw1l, aw2l, fix(lhdph), fvl, margin_dist=margin_dist_live)
+        eval_raw = ev_ah(lhdp, aw2l, aw1l, dexl, hw1l, hw2l, fix(lhdpa), not fvl, margin_dist=margin_dist_live)
+        # [Bug Fix v3.4] HDBA หักจาก Dog เท่านั้น — ไม่ assume Home=Fav
+        if fvl:
+            # Home = Fav, Away = Dog
+            hdba_dynamic_live = lpd * fix(lhdpa) * hdba_val
+            evhl  = evhl_raw
+            eval_ = eval_raw - hdba_dynamic_live
+        else:
+            # Home = Dog, Away = Fav
+            hdba_dynamic_live = lpd * fix(lhdph) * hdba_val
+            evhl  = evhl_raw - hdba_dynamic_live
+            eval_ = eval_raw
         evol  = ev_ou(lou, ptl, fix(louov), True)
         evul  = ev_ou(lou, ptl, fix(louun), False)
 
