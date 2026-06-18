@@ -3024,6 +3024,146 @@ with tab1:
             ])
             st.dataframe(scan_df, use_container_width=True, hide_index=True)
 
+            # ══════════════════════════════════════════════════════════════
+            # 🏆 GEM CONFIDENCE BADGE (Display Only — ไม่กระทบ Math/Decision)
+            # ══════════════════════════════════════════════════════════════
+            # ประเมินความน่าเชื่อถือของ signal จาก 5 มุมมองอิสระ
+            # (ไม่รวมโหวต — แต่ละ filter ตรวจคนละมุม)
+            conf_checks = []
+
+            # Layer 1: EV Signal Strength
+            best_ev = max(s['ev'] for s in all_sides)
+            best_ratio = max(s['ratio'] for s in all_sides)
+            if best_ratio >= 2.0:
+                conf_checks.append(("⚡ EV Signal", f"Strong (ratio {best_ratio:.2f})", "#00ff88"))
+            elif best_ratio >= 1.0:
+                conf_checks.append(("⚡ EV Signal", f"Moderate (ratio {best_ratio:.2f})", "#ffd600"))
+            else:
+                conf_checks.append(("⚡ EV Signal", f"Weak / No signal (ratio {best_ratio:.2f})", "#ff3b5c"))
+
+            # Layer 2: Market Quality
+            or_mid = (or_ah + or_ou) / 2
+            if or_mid <= 104.0:
+                conf_checks.append(("💧 Market Quality", f"Liquid ({or_mid:.1f}%)", "#00ff88"))
+            elif or_mid <= 107.0:
+                conf_checks.append(("💧 Market Quality", f"Normal ({or_mid:.1f}%)", "#ffd600"))
+            else:
+                conf_checks.append(("💧 Market Quality", f"Niche/Thin ({or_mid:.1f}%)", "#ff3b5c"))
+
+            # Layer 3: Stats Consistency (ถ้ากรอกข้อมูล)
+            if stats_provided:
+                if checks_passed >= 3:
+                    conf_checks.append(("📋 Stats Consistency",
+                                        f"Aligned ({checks_passed}/4)", "#00ff88"))
+                elif checks_passed >= 2:
+                    conf_checks.append(("📋 Stats Consistency",
+                                        f"Partial ({checks_passed}/4)", "#ffd600"))
+                else:
+                    conf_checks.append(("📋 Stats Consistency",
+                                        f"Contradicts ({checks_passed}/4)", "#ff3b5c"))
+            else:
+                conf_checks.append(("📋 Stats Consistency", "ไม่มีข้อมูล (ไม่กรอก)", "#4a7a60"))
+
+            # Layer 4: Auto-Fit λ Market Consistency
+            if auto_fit_lambda and fit_loss is not None:
+                if fit_converged:
+                    conf_checks.append(("🎯 Market Self-Consistency",
+                                        f"Converged (loss {fit_loss:.4f})", "#00ff88"))
+                else:
+                    conf_checks.append(("🎯 Market Self-Consistency",
+                                        f"Diverged (loss {fit_loss:.4f})", "#ff8c00"))
+            else:
+                conf_checks.append(("🎯 Market Self-Consistency",
+                                    "Auto-Fit ปิดอยู่", "#4a7a60"))
+
+            # Layer 5: Value Scanner Edge Confirmation
+            if show_value_scanner and 'scanner_edges' in dir():
+                top_edge = scanner_edges[0]['edge'] if scanner_edges else 0
+                if top_edge >= 0.05:
+                    conf_checks.append(("💎 Value Edge",
+                                        f"Strong +{top_edge*100:.1f}% edge", "#00ff88"))
+                elif top_edge >= 0.02:
+                    conf_checks.append(("💎 Value Edge",
+                                        f"Weak +{top_edge*100:.1f}% edge", "#ffd600"))
+                elif top_edge >= 0:
+                    conf_checks.append(("💎 Value Edge",
+                                        f"Minimal +{top_edge*100:.1f}%", "#4a7a60"))
+                else:
+                    conf_checks.append(("💎 Value Edge",
+                                        f"Negative {top_edge*100:.1f}%", "#ff3b5c"))
+            else:
+                conf_checks.append(("💎 Value Edge", "Value Scanner ปิดอยู่", "#4a7a60"))
+
+            # คำนวณ confidence score (นับแค่ layers ที่มีข้อมูล)
+            active_checks = [c for c in conf_checks if c[2] != "#4a7a60"]
+            green_count  = sum(1 for c in active_checks if c[2] == "#00ff88")
+            yellow_count = sum(1 for c in active_checks if c[2] == "#ffd600")
+            red_count    = sum(1 for c in active_checks if c[2] == "#ff3b5c")
+            total_active = len(active_checks)
+
+            # Score = green×2 + yellow×1 + red×0 / total×2 × 100
+            raw_score = (green_count*2 + yellow_count) / (total_active*2) * 100 if total_active > 0 else 0
+
+            if raw_score >= 70:
+                badge_stars = "⭐⭐⭐⭐⭐" if raw_score >= 90 else "⭐⭐⭐⭐"
+                badge_label = "HIGH CONFIDENCE"
+                badge_color = "#00ff88"
+                badge_kelly = "Kelly ×1.0 — ตามปกติ"
+            elif raw_score >= 45:
+                badge_stars = "⭐⭐⭐"
+                badge_label = "MODERATE CONFIDENCE"
+                badge_color = "#ffd600"
+                badge_kelly = "แนะนำ Kelly ×0.75 — ลดเงินเล็กน้อย"
+            elif raw_score >= 25:
+                badge_stars = "⭐⭐"
+                badge_label = "LOW CONFIDENCE"
+                badge_color = "#ff8c00"
+                badge_kelly = "แนะนำ Kelly ×0.5 — ระวัง"
+            else:
+                badge_stars = "⭐"
+                badge_label = "VERY LOW"
+                badge_color = "#ff3b5c"
+                badge_kelly = "แนะนำ skip หรือ Kelly ×0.25"
+
+            # Render badge
+            st.markdown(
+                f'<div style="background:#0d1e2e;border:2px solid {badge_color};'
+                f'border-radius:8px;padding:14px 18px;margin:10px 0;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                f'margin-bottom:10px;">'
+                f'<div>'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
+                f'color:{badge_color};letter-spacing:0.08em;">🏆 GEM CONFIDENCE</span><br>'
+                f'<span style="font-family:\'Exo 2\';font-weight:700;font-size:1.1rem;'
+                f'color:{badge_color};">{badge_stars} {badge_label}</span>'
+                f'</div>'
+                f'<div style="text-align:right;">'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:1.4rem;'
+                f'color:{badge_color};">{raw_score:.0f}</span>'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
+                f'color:#4a7a60;">/100</span><br>'
+                f'<span style="font-family:\'Rajdhani\';font-size:0.72rem;color:#4a7a60;">'
+                f'{green_count}🟢 {yellow_count}🟡 {red_count}🔴 ({total_active} layers)</span>'
+                f'</div></div>'
+                f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'
+                + "".join([
+                    f'<div style="background:rgba(255,255,255,0.05);border-left:2px solid {c[2]};'
+                    f'border-radius:0 3px 3px 0;padding:4px 8px;min-width:140px;flex:1;">'
+                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:{c[2]};">'
+                    f'{c[0]}</div>'
+                    f'<div style="font-family:\'Rajdhani\';font-size:0.75rem;color:#c8e6d4;">'
+                    f'{c[1]}</div></div>'
+                    for c in conf_checks
+                ]) +
+                f'</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.78rem;color:#4a7a60;'
+                f'border-top:1px solid rgba(255,255,255,0.05);padding-top:6px;">'
+                f'ℹ️ {badge_kelly} · '
+                f'<em>Display only — ไม่กระทบ Math หรือ Best Bet decision</em></div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
             if candidates:
                 # [Bug Fix - Fallback] เรียง candidates ตาม ratio จากมากไปน้อย
                 # ส่งทั้งหมดให้ AI loop ตัดสินใจ — ถ้าตัวแรกถูก reject → ลองตัวถัดไป
