@@ -1,8 +1,3 @@
 streamlit
 pandas
 plotly
-google-generativeai
-pillow
-supabase
-openai
-numpy
