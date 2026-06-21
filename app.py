@@ -78,6 +78,87 @@ def parse_line(s):
         return 0.0
 
 
+def parse_match_text(text):
+    """
+    Parse ข้อความราคาบอลรูปแบบไทย -> dict ของค่าที่ extract ได้
+    รูปแบบที่รองรับ:
+      [ทีมเหย้า] VS [ทีมเยือน]
+      เหย้า X.XX   <- 1X2 home (occurrence ที่ 1)
+      เสมอ X.XX
+      เยือน X.XX   <- 1X2 away (occurrence ที่ 1)
+      เหย้า X.XX   <- AH home odds (occurrence ที่ 2)
+      AH [line]    <- เช่น "-0.5/1" หรือ "0.5"
+      เยือน X.XX   <- AH away odds (occurrence ที่ 2)
+      สูง X.XX     <- OU over odds
+      สูง/ต่ำ X.X  <- OU line
+      ต่ำ X.XX     <- OU under odds
+    คืนค่า dict — key ที่ parse ไม่ได้จะไม่ปรากฏใน dict (เหลือค่าเดิมในฟอร์ม)
+    """
+    result = {}
+    lines = [l.strip() for l in text.strip().split('\n') if l.strip()]
+
+    for line in lines:
+        if re.search(r'\bVS\b', line, re.IGNORECASE):
+            parts = re.split(r'\s+VS\s+', line, flags=re.IGNORECASE)
+            if len(parts) == 2:
+                result['home_team'] = parts[0].strip()
+                result['away_team'] = parts[1].strip()
+            break
+
+    def extract_value(line, keyword):
+        m = re.match(rf'^{re.escape(keyword)}\s+([\d.]+)\s*$', line)
+        return float(m.group(1)) if m else None
+
+    home_count = 0
+    away_count = 0
+
+    for line in lines:
+        ah_match = re.match(r'^AH\s+(.+)$', line, re.IGNORECASE)
+        if ah_match:
+            result['ah_line_raw'] = ah_match.group(1).strip()
+            continue
+
+        ou_line_match = re.match(r'^สูง\s*/\s*ต่ำ\s+([\d.]+)\s*$', line)
+        if ou_line_match:
+            result['ou_line_raw'] = float(ou_line_match.group(1))
+            continue
+
+        v = extract_value(line, 'เหย้า')
+        if v is not None:
+            home_count += 1
+            if home_count == 1:
+                result['h1x2'] = v
+            elif home_count == 2:
+                result['ah_home_odds'] = v
+            continue
+
+        v = extract_value(line, 'เสมอ')
+        if v is not None:
+            result['d1x2'] = v
+            continue
+
+        v = extract_value(line, 'เยือน')
+        if v is not None:
+            away_count += 1
+            if away_count == 1:
+                result['a1x2'] = v
+            elif away_count == 2:
+                result['ah_away_odds'] = v
+            continue
+
+        v = extract_value(line, 'สูง')
+        if v is not None:
+            result['ou_over_odds'] = v
+            continue
+
+        v = extract_value(line, 'ต่ำ')
+        if v is not None:
+            result['ou_under_odds'] = v
+            continue
+
+    return result
+
+
 def fix(o):
     """แปลง malay-style odds (0.xx) เป็น decimal odds (1.xx)"""
     try:
@@ -868,10 +949,88 @@ tab_pre, tab_log, tab_backtest, tab_dash = st.tabs(
 # 📋 TAB 1: PRE-MATCH
 # ════════════════════════════════════════════════════════════════════════
 with tab_pre:
+    # ══════════════════════════════════════════════════════════════════
+    # 📋 TEXT PARSER — วางข้อความราคา แล้ว auto-fill ทุกช่อง
+    # ══════════════════════════════════════════════════════════════════
+    with st.expander("📋 TEXT PARSER — วางข้อความราคาเพื่อ Auto-Fill", expanded=False):
+        st.caption(
+            "ⓘ รูปแบบ: [ทีมเหย้า] VS [ทีมเยือน] ตามด้วย เหย้า/เสมอ/เยือน (1X2), "
+            "เหย้า/AH [line]/เยือน (Asian Handicap), สูง/สูง-ต่ำ [line]/ต่ำ (Over-Under)"
+        )
+        raw_text = st.text_area(
+            "วางข้อความที่นี่",
+            height=180,
+            placeholder=("คาซัวรินา เอฟซี VS ดาร์วิน ฮาร์ทส์\n"
+                        "เหย้า 3.48\nเสมอ 4.43\nเยือน 1.64\n"
+                        "เหย้า 0.99\nAH -0.5/1\nเยือน 0.85\n"
+                        "สูง 0.94\nสูง/ต่ำ 4.5\nต่ำ 0.88"),
+            key="raw_paste_text"
+        )
+        pc1, pc2 = st.columns(2)
+        with pc1:
+            if st.button("⚡ Parse & Auto-Fill", use_container_width=True, type="primary"):
+                if raw_text.strip():
+                    parsed = parse_match_text(raw_text)
+                    filled = []
+                    if 'home_team' in parsed:
+                        st.session_state['_parsed_home_team'] = parsed['home_team']
+                        filled.append('ทีมเหย้า')
+                    if 'away_team' in parsed:
+                        st.session_state['_parsed_away_team'] = parsed['away_team']
+                        filled.append('ทีมเยือน')
+                    if 'h1x2' in parsed:
+                        st.session_state['h1x2_val'] = parsed['h1x2']; filled.append('1X2 Home')
+                    if 'd1x2' in parsed:
+                        st.session_state['d1x2_val'] = parsed['d1x2']; filled.append('1X2 Draw')
+                    if 'a1x2' in parsed:
+                        st.session_state['a1x2_val'] = parsed['a1x2']; filled.append('1X2 Away')
+                    if 'ah_line_raw' in parsed:
+                        st.session_state['_hdp_line_str'] = parsed['ah_line_raw']; filled.append('AH Line')
+                    if 'ah_home_odds' in parsed:
+                        st.session_state['hdp_h_w_val'] = parsed['ah_home_odds']; filled.append('AH Home Odds')
+                    if 'ah_away_odds' in parsed:
+                        st.session_state['hdp_a_w_val'] = parsed['ah_away_odds']; filled.append('AH Away Odds')
+                    if 'ou_line_raw' in parsed:
+                        st.session_state['_ou_line_str'] = str(parsed['ou_line_raw']); filled.append('OU Line')
+                    if 'ou_over_odds' in parsed:
+                        st.session_state['ou_over_w_val'] = parsed['ou_over_odds']; filled.append('OU Over')
+                    if 'ou_under_odds' in parsed:
+                        st.session_state['ou_under_w_val'] = parsed['ou_under_odds']; filled.append('OU Under')
+
+                    if filled:
+                        st.success(f"✅ Auto-fill สำเร็จ {len(filled)} ช่อง: {', '.join(filled)}")
+                    else:
+                        st.warning("⚠️ ไม่พบข้อมูลที่ parse ได้ — ตรวจรูปแบบข้อความอีกครั้ง")
+                    st.rerun()
+                else:
+                    st.warning("⚠️ กรุณาวางข้อความก่อน")
+        with pc2:
+            if st.button("🗑️ ล้างข้อมูลทั้งหมด", use_container_width=True):
+                for k in ['h1x2_val', 'd1x2_val', 'a1x2_val', 'hdp_h_w_val', 'hdp_a_w_val',
+                         'ou_over_w_val', 'ou_under_w_val']:
+                    st.session_state[k] = 0.0
+                st.session_state['_hdp_line_str'] = "0"
+                st.session_state['_ou_line_str'] = "2.5"
+                st.session_state['raw_paste_text'] = ""
+                st.session_state.pop('_parsed_home_team', None)
+                st.session_state.pop('_parsed_away_team', None)
+                for k in ['stats_home_w', 'stats_home_d', 'stats_home_l', 'stats_home_gf', 'stats_home_ga',
+                         'stats_away_w', 'stats_away_d', 'stats_away_l', 'stats_away_gf', 'stats_away_ga']:
+                    st.session_state[k] = 0
+                st.session_state['stats_home_rank'] = "-"
+                st.session_state['stats_away_rank'] = "-"
+                st.session_state['stats_temp'] = 25
+                st.success("✅ ล้างข้อมูลทั้งหมดแล้ว")
+                st.rerun()
+
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+
     st.markdown('<div class="gem-label">◈ MATCH INFO</div>', unsafe_allow_html=True)
     mc_name1, mc_name2 = st.columns(2)
-    home_team = mc_name1.text_input("ทีมเหย้า (Home)", placeholder="เช่น Liverpool")
-    away_team = mc_name2.text_input("ทีมเยือน (Away)", placeholder="เช่น Man City")
+    home_team = mc_name1.text_input("ทีมเหย้า (Home)", placeholder="เช่น Liverpool",
+                                     value=st.session_state.get('_parsed_home_team', ''))
+    away_team = mc_name2.text_input("ทีมเยือน (Away)", placeholder="เช่น Man City",
+                                     value=st.session_state.get('_parsed_away_team', ''))
     league_name = st.text_input("ลีก / รายการแข่งขัน", placeholder="เช่น Premier League, FIFA World Cup")
 
     st.markdown('<div class="gem-label" style="margin-top:10px;">◈ MATCH ODDS</div>', unsafe_allow_html=True)
