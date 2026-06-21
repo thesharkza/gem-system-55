@@ -47,6 +47,7 @@ def init_session_state():
         'stats_away_w': 0, 'stats_away_d': 0, 'stats_away_l': 0,
         'stats_away_gf': 0, 'stats_away_ga': 0, 'stats_away_rank': "-",
         'stats_temp': 25,
+        '_hdp_line_str': "0", '_ou_line_str': "2.5",
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
@@ -952,7 +953,62 @@ with tab_pre:
     # ══════════════════════════════════════════════════════════════════
     # 📋 TEXT PARSER — วางข้อความราคา แล้ว auto-fill ทุกช่อง
     # ══════════════════════════════════════════════════════════════════
+    # ── Pending parse: เช็คก่อนสร้าง widget ใดๆ (เหตุผลเดียวกับ pending clear) ──
+    if st.session_state.get('_pending_parse_data') is not None:
+        parsed = st.session_state['_pending_parse_data']
+        filled = []
+        if 'home_team' in parsed:
+            st.session_state['_parsed_home_team'] = parsed['home_team']; filled.append('ทีมเหย้า')
+        if 'away_team' in parsed:
+            st.session_state['_parsed_away_team'] = parsed['away_team']; filled.append('ทีมเยือน')
+        if 'h1x2' in parsed:
+            st.session_state['h1x2_val'] = parsed['h1x2']; filled.append('1X2 Home')
+        if 'd1x2' in parsed:
+            st.session_state['d1x2_val'] = parsed['d1x2']; filled.append('1X2 Draw')
+        if 'a1x2' in parsed:
+            st.session_state['a1x2_val'] = parsed['a1x2']; filled.append('1X2 Away')
+        if 'ah_line_raw' in parsed:
+            st.session_state['_hdp_line_str'] = parsed['ah_line_raw']; filled.append('AH Line')
+        if 'ah_home_odds' in parsed:
+            st.session_state['hdp_h_w_val'] = parsed['ah_home_odds']; filled.append('AH Home Odds')
+        if 'ah_away_odds' in parsed:
+            st.session_state['hdp_a_w_val'] = parsed['ah_away_odds']; filled.append('AH Away Odds')
+        if 'ou_line_raw' in parsed:
+            st.session_state['_ou_line_str'] = str(parsed['ou_line_raw']); filled.append('OU Line')
+        if 'ou_over_odds' in parsed:
+            st.session_state['ou_over_w_val'] = parsed['ou_over_odds']; filled.append('OU Over')
+        if 'ou_under_odds' in parsed:
+            st.session_state['ou_under_w_val'] = parsed['ou_under_odds']; filled.append('OU Under')
+        st.session_state['_pending_parse_data'] = None
+        st.session_state['_parse_filled_fields'] = filled
+
+    # ── Pending clear: เช็คก่อนสร้าง widget ใดๆ เพื่อหลีกเลี่ยง
+    # StreamlitAPIException (ห้าม set session_state ของ widget ที่ถูกสร้างไปแล้วในรอบนี้) ──
+    if st.session_state.get('_pending_clear', False):
+        for k in ['h1x2_val', 'd1x2_val', 'a1x2_val', 'hdp_h_w_val', 'hdp_a_w_val',
+                 'ou_over_w_val', 'ou_under_w_val']:
+            st.session_state[k] = 0.0
+        st.session_state['_hdp_line_str'] = "0"
+        st.session_state['_ou_line_str'] = "2.5"
+        st.session_state['raw_paste_text'] = ""
+        st.session_state.pop('_parsed_home_team', None)
+        st.session_state.pop('_parsed_away_team', None)
+        for k in ['stats_home_w', 'stats_home_d', 'stats_home_l', 'stats_home_gf', 'stats_home_ga',
+                 'stats_away_w', 'stats_away_d', 'stats_away_l', 'stats_away_gf', 'stats_away_ga']:
+            st.session_state[k] = 0
+        st.session_state['stats_home_rank'] = "-"
+        st.session_state['stats_away_rank'] = "-"
+        st.session_state['stats_temp'] = 25
+        st.session_state['_pending_clear'] = False
+
     with st.expander("📋 TEXT PARSER — วางข้อความราคาเพื่อ Auto-Fill", expanded=False):
+        if st.session_state.get('_parse_filled_fields'):
+            filled = st.session_state.pop('_parse_filled_fields')
+            if filled:
+                st.success(f"✅ Auto-fill สำเร็จ {len(filled)} ช่อง: {', '.join(filled)}")
+            else:
+                st.warning("⚠️ ไม่พบข้อมูลที่ parse ได้ — ตรวจรูปแบบข้อความอีกครั้ง")
+
         st.caption(
             "ⓘ รูปแบบ: [ทีมเหย้า] VS [ทีมเยือน] ตามด้วย เหย้า/เสมอ/เยือน (1X2), "
             "เหย้า/AH [line]/เยือน (Asian Handicap), สูง/สูง-ต่ำ [line]/ต่ำ (Over-Under)"
@@ -970,57 +1026,13 @@ with tab_pre:
         with pc1:
             if st.button("⚡ Parse & Auto-Fill", use_container_width=True, type="primary"):
                 if raw_text.strip():
-                    parsed = parse_match_text(raw_text)
-                    filled = []
-                    if 'home_team' in parsed:
-                        st.session_state['_parsed_home_team'] = parsed['home_team']
-                        filled.append('ทีมเหย้า')
-                    if 'away_team' in parsed:
-                        st.session_state['_parsed_away_team'] = parsed['away_team']
-                        filled.append('ทีมเยือน')
-                    if 'h1x2' in parsed:
-                        st.session_state['h1x2_val'] = parsed['h1x2']; filled.append('1X2 Home')
-                    if 'd1x2' in parsed:
-                        st.session_state['d1x2_val'] = parsed['d1x2']; filled.append('1X2 Draw')
-                    if 'a1x2' in parsed:
-                        st.session_state['a1x2_val'] = parsed['a1x2']; filled.append('1X2 Away')
-                    if 'ah_line_raw' in parsed:
-                        st.session_state['_hdp_line_str'] = parsed['ah_line_raw']; filled.append('AH Line')
-                    if 'ah_home_odds' in parsed:
-                        st.session_state['hdp_h_w_val'] = parsed['ah_home_odds']; filled.append('AH Home Odds')
-                    if 'ah_away_odds' in parsed:
-                        st.session_state['hdp_a_w_val'] = parsed['ah_away_odds']; filled.append('AH Away Odds')
-                    if 'ou_line_raw' in parsed:
-                        st.session_state['_ou_line_str'] = str(parsed['ou_line_raw']); filled.append('OU Line')
-                    if 'ou_over_odds' in parsed:
-                        st.session_state['ou_over_w_val'] = parsed['ou_over_odds']; filled.append('OU Over')
-                    if 'ou_under_odds' in parsed:
-                        st.session_state['ou_under_w_val'] = parsed['ou_under_odds']; filled.append('OU Under')
-
-                    if filled:
-                        st.success(f"✅ Auto-fill สำเร็จ {len(filled)} ช่อง: {', '.join(filled)}")
-                    else:
-                        st.warning("⚠️ ไม่พบข้อมูลที่ parse ได้ — ตรวจรูปแบบข้อความอีกครั้ง")
+                    st.session_state['_pending_parse_data'] = parse_match_text(raw_text)
                     st.rerun()
                 else:
                     st.warning("⚠️ กรุณาวางข้อความก่อน")
         with pc2:
             if st.button("🗑️ ล้างข้อมูลทั้งหมด", use_container_width=True):
-                for k in ['h1x2_val', 'd1x2_val', 'a1x2_val', 'hdp_h_w_val', 'hdp_a_w_val',
-                         'ou_over_w_val', 'ou_under_w_val']:
-                    st.session_state[k] = 0.0
-                st.session_state['_hdp_line_str'] = "0"
-                st.session_state['_ou_line_str'] = "2.5"
-                st.session_state['raw_paste_text'] = ""
-                st.session_state.pop('_parsed_home_team', None)
-                st.session_state.pop('_parsed_away_team', None)
-                for k in ['stats_home_w', 'stats_home_d', 'stats_home_l', 'stats_home_gf', 'stats_home_ga',
-                         'stats_away_w', 'stats_away_d', 'stats_away_l', 'stats_away_gf', 'stats_away_ga']:
-                    st.session_state[k] = 0
-                st.session_state['stats_home_rank'] = "-"
-                st.session_state['stats_away_rank'] = "-"
-                st.session_state['stats_temp'] = 25
-                st.success("✅ ล้างข้อมูลทั้งหมดแล้ว")
+                st.session_state['_pending_clear'] = True
                 st.rerun()
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
@@ -1044,13 +1056,13 @@ with tab_pre:
     with mc2:
         st.markdown('<div class="gem-panel"><div class="gem-label">ASIAN HANDICAP</div>', unsafe_allow_html=True)
         hdp_line_str = st.text_input("LINE (+ เจ้าบ้านต่อ / - ทีมเยือนต่อ)",
-                                      value="0", key="_hdp_line_str")
+                                      key="_hdp_line_str")
         hdp_h_w = st.number_input("HOME ODDS", format="%.2f", key="hdp_h_w_val")
         hdp_a_w = st.number_input("AWAY ODDS", format="%.2f", key="hdp_a_w_val")
         st.markdown('</div>', unsafe_allow_html=True)
     with mc3:
         st.markdown('<div class="gem-panel"><div class="gem-label">TOTAL GOALS (O/U)</div>', unsafe_allow_html=True)
-        ou_line_str = st.text_input("LINE", value="2.5", key="_ou_line_str")
+        ou_line_str = st.text_input("LINE", key="_ou_line_str")
         ou_over_w  = st.number_input("OVER",  format="%.2f", key="ou_over_w_val")
         ou_under_w = st.number_input("UNDER", format="%.2f", key="ou_under_w_val")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -1073,7 +1085,7 @@ with tab_pre:
         home_l = st.number_input("Losses(5)", 0, 5, key="stats_home_l")
         home_gf = st.number_input("Goals For(5g)", 0, key="stats_home_gf")
         home_ga = st.number_input("Goals Against(5g)", 0, key="stats_home_ga")
-        home_rank = st.text_input("Rank ('-' if cup)", value="-", key="stats_home_rank")
+        home_rank = st.text_input("Rank ('-' if cup)", key="stats_home_rank")
     with sc2:
         st.markdown('<div style="color:#ff8c00;font-family:\'Share Tech Mono\';font-size:0.78rem;">✈️ AWAY (5 นัดล่าสุด)</div>',
                    unsafe_allow_html=True)
@@ -1082,8 +1094,8 @@ with tab_pre:
         away_l = st.number_input("Losses(5) ", 0, 5, key="stats_away_l")
         away_gf = st.number_input("Goals For(5g) ", 0, key="stats_away_gf")
         away_ga = st.number_input("Goals Against(5g) ", 0, key="stats_away_ga")
-        away_rank = st.text_input("Rank ('-' if cup) ", value="-", key="stats_away_rank")
-    temp = st.number_input("🌡️ Stadium Temp (°C)", -20, 50, value=25, key="stats_temp")
+        away_rank = st.text_input("Rank ('-' if cup) ", key="stats_away_rank")
+    temp = st.number_input("🌡️ Stadium Temp (°C)", -20, 50, key="stats_temp")
 
     home_total = home_w + home_d + home_l
     away_total = away_w + away_d + away_l
