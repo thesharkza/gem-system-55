@@ -1122,7 +1122,7 @@ with tab_pre:
         else:
             closest = max(sides_data, key=lambda s: s['gates']['gates_passed'])
             failed_gates = [g['label'] for k, g in closest['gates'].items()
-                           if k.startswith('gate') and not g['pass']]
+        if k.startswith('gate') and not g['pass']]
             st.markdown(
                 f'<div class="signal-invalid">'
                 f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.1rem;color:#ff3b5c;">'
