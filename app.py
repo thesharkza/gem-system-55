@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
 from PIL import Image
+from supabase import create_client, Client
 
 # ════════════════════════════════════════════════════════════════════════
 # GEM 4.0 — "WIN RATE EDITION"
@@ -23,11 +24,92 @@ from PIL import Image
 # ════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(
-    page_title="GEM 4.0 — Win Rate Edition",
+    page_title="GEM 5.0 — Stat-vs-Market Edition",
     page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# ──────────────────────────────────────────────────────────────────────
+# 🗄️ DATABASE CONNECTION (Supabase) — pattern verified จากระบบ v3.x เดิม
+# ──────────────────────────────────────────────────────────────────────
+@st.cache_resource
+def init_connection():
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+        return create_client(url, key)
+    except Exception:
+        return None
+
+supabase: Client = init_connection()
+DB_TABLE = "gem5_predictions"
+
+
+def db_save_prediction(record: dict):
+    """บันทึก prediction ใหม่ลง Supabase — คืน id ที่สร้าง หรือ None ถ้าพัง"""
+    if not supabase:
+        st.error("⚠️ ไม่สามารถเชื่อมต่อฐานข้อมูล Supabase ได้ — ตรวจ secrets (SUPABASE_URL, SUPABASE_KEY)")
+        return None
+    try:
+        # ตัด key ภายใน (ขึ้นต้น _) และ field ที่ DB ไม่รู้จักออกก่อนส่ง
+        payload = {k: v for k, v in record.items() if not k.startswith('_')}
+        response = supabase.table(DB_TABLE).insert(payload).execute()
+        if response.data:
+            return response.data[0].get('id')
+        return None
+    except Exception as e:
+        st.error(f"⚠️ บันทึกลงฐานข้อมูลไม่สำเร็จ: {e}")
+        return None
+
+
+def db_load_predictions():
+    """โหลด predictions ทั้งหมดจาก Supabase เรียงล่าสุดก่อน — คืน DataFrame ว่างถ้าพัง"""
+    if not supabase:
+        return pd.DataFrame()
+    try:
+        response = supabase.table(DB_TABLE).select("*").order("created_at", desc=True).execute()
+        if response.data:
+            df = pd.DataFrame(response.data)
+            numeric_cols = [
+                'market_p_home', 'market_p_draw', 'market_p_away', 'stat_p_home', 'divergence_wl',
+                'market_total', 'stat_total', 'divergence_goals', 'home_wr_5g', 'away_wr_5g',
+                'ah_line', 'ah_home_odds', 'ah_away_odds', 'ou_line', 'ou_over_odds', 'ou_under_odds',
+                'gates_passed', 'recommended_bet_size', 'bet_phase', 'actual_total_goals', 'pnl',
+            ]
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            return df
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"⚠️ โหลดข้อมูลจากฐานข้อมูลไม่สำเร็จ: {e}")
+        return pd.DataFrame()
+
+
+def db_update_result(record_id, updates: dict):
+    """อัปเดตผลการแข่งขัน (settle) ของ prediction ที่มีอยู่แล้ว"""
+    if not supabase:
+        st.error("⚠️ ไม่สามารถเชื่อมต่อฐานข้อมูล Supabase ได้")
+        return False
+    try:
+        supabase.table(DB_TABLE).update(updates).eq("id", record_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"⚠️ อัปเดตผลไม่สำเร็จ: {e}")
+        return False
+
+
+def db_delete_all():
+    """ลบ predictions ทั้งหมด (ใช้ระวัง — สำหรับปุ่ม Clear เท่านั้น)"""
+    if not supabase:
+        return False
+    try:
+        supabase.table(DB_TABLE).delete().neq("id", 0).execute()
+        return True
+    except Exception as e:
+        st.error(f"⚠️ ลบข้อมูลไม่สำเร็จ: {e}")
+        return False
 
 # ──────────────────────────────────────────────────────────────────────
 # SESSION STATE INIT
@@ -1308,37 +1390,79 @@ with tab_pre:
             )
 
         # ══════════════════════════════════════════════════════════════
-        # 💾 SAVE PREDICTION — บันทึกทุกครั้ง (ไม่ว่าจะมี signal หรือไม่)
+        # 💾 SAVE PREDICTION — บันทึกทุกครั้งลง Supabase (ไม่ว่าจะมี signal หรือไม่)
         # ══════════════════════════════════════════════════════════════
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        if 'predictions_log' not in st.session_state:
-            st.session_state['predictions_log'] = []
 
         if st.button("💾 บันทึก Prediction นี้ (สำหรับ Backtest)", use_container_width=True):
+            side_win_rates = {s['name']: s['win_rate'] for s in sides_data}
+            side_gates = {s['name']: s['gates']['gates_passed'] for s in sides_data}
+
             pred_record = {
-                'time': datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M"),
-                'match': f"{home_team or 'Home'} vs {away_team or 'Away'}",
+                'match_name': f"{home_team or 'Home'} vs {away_team or 'Away'}",
                 'league': league_name,
                 'league_tier': gate5_result['league_tier'],
+
+                # 1X2 probabilities
                 'market_p_home': ph, 'market_p_draw': pd_, 'market_p_away': pa,
                 'stat_p_home': gate5_result['stat_p_home'],
                 'divergence_wl': gate5_result['divergence_wl'],
+
+                # Goals
                 'market_total': ou_line, 'stat_total': gate5_result['stat_total'],
                 'divergence_goals': gate5_result['divergence_goals'],
+                'stat_lambda_home': gate5_result['stat_lh'],
+                'stat_lambda_away': gate5_result['stat_la'],
+
+                # Math engine internals — เก็บไว้ reproduce/debug ย้อนหลัง
+                'math_lambda_home': lh, 'math_lambda_away': la,
+                'auto_fit_used': auto_fit_lambda,
+                'auto_fit_converged': fit_converged if auto_fit_lambda else None,
+                'auto_fit_loss': fit_loss if auto_fit_lambda else None,
+
+                # Raw 5-game stats (ดิบ — reproduce สูตรใหม่ได้ถ้าปรับทีหลัง)
+                'home_w': home_w, 'home_d': home_d, 'home_l': home_l,
+                'home_gf': home_gf, 'home_ga': home_ga,
+                'away_w': away_w, 'away_d': away_d, 'away_l': away_l,
+                'away_gf': away_gf, 'away_ga': away_ga,
+                'home_rank': home_rank, 'away_rank': away_rank,
+                'stadium_temp': temp,
                 'home_wr_5g': gate5_result['home_wr_5g'], 'away_wr_5g': gate5_result['away_wr_5g'],
                 'extreme_wr_flag': gate5_result['extreme_wr_flag'],
                 'ranking_agrees': gate5_result['ranking_agrees'],
+
+                # Odds ดิบทั้งหมด
                 'ah_line': hdp_line, 'ah_home_odds': hwo, 'ah_away_odds': awo,
                 'ou_line': ou_line, 'ou_over_odds': owo, 'ou_under_odds': uwo,
+                'h1x2_odds': h1x2, 'd1x2_odds': d1x2, 'a1x2_odds': a1x2,
+                'ah_overround': ah_or, 'ou_overround': ou_or,
+
+                # ทุก 4 ฝั่ง — ไม่ใช่แค่ฝั่งที่แนะนำ เพื่อ backtest ทางเลือกอื่นย้อนหลัง
+                'ah_home_win_rate': side_win_rates.get('AH Home'),
+                'ah_home_gates_passed': side_gates.get('AH Home'),
+                'ah_away_win_rate': side_win_rates.get('AH Away'),
+                'ah_away_gates_passed': side_gates.get('AH Away'),
+                'ou_over_win_rate': side_win_rates.get('OU Over'),
+                'ou_over_gates_passed': side_gates.get('OU Over'),
+                'ou_under_win_rate': side_win_rates.get('OU Under'),
+                'ou_under_gates_passed': side_gates.get('OU Under'),
+
+                # Gate 5 signals เก็บเป็น JSON (โครงสร้างยืดหยุ่น ปรับได้ในอนาคตไม่ต้อง migrate schema)
+                'gate5_signals': json.dumps(gate5_result['signals'], ensure_ascii=False),
+
+                # สรุป
                 'gates_passed': max(s['gates']['gates_passed'] for s in sides_data),
                 'all_gates_pass': len(valid_sides) > 0,
                 'recommended_side': best['name'] if best else None,
                 'recommended_bet_size': bet_size if best else 0,
-                'actual_result': None, 'actual_score': None,
-                'wl_winner': None, 'goals_winner': None, 'bet_outcome': None,
+                'bet_phase': bet_phase,
+                'bankroll_at_time': bankroll,
             }
-            st.session_state['predictions_log'].append(pred_record)
-            st.success(f"✅ บันทึก Prediction แล้ว — ดูที่ tab 📝 PREDICTIONS LOG เพื่อกรอกผลภายหลัง")
+            new_id = db_save_prediction(pred_record)
+            if new_id is not None:
+                st.success(f"✅ บันทึก Prediction ลงฐานข้อมูลแล้ว (id={new_id}) — "
+                          f"ดูที่ tab 📝 PREDICTIONS LOG เพื่อกรอกผลภายหลัง")
+                st.cache_data.clear()
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -1379,32 +1503,33 @@ with tab_log:
                unsafe_allow_html=True)
     st.caption("ⓘ บันทึกทุก prediction ไม่ว่าจะลงบิลจริงหรือไม่ — ใช้สำหรับ Backtest Lab")
 
-    if 'predictions_log' not in st.session_state or len(st.session_state['predictions_log']) == 0:
+    log_df = db_load_predictions()
+
+    if log_df.empty:
         st.info("ยังไม่มี prediction ที่บันทึกไว้ — ไปที่ PRE-MATCH tab เพื่อวิเคราะห์และบันทึกคู่แรก")
     else:
-        log = st.session_state['predictions_log']
-        pending = [p for p in log if p['actual_result'] is None]
-        settled = [p for p in log if p['actual_result'] is not None]
+        pending_df = log_df[log_df['actual_result'].isna()]
+        settled_df_raw = log_df[log_df['actual_result'].notna()]
 
-        st.markdown(f'<div class="gem-label">◈ PENDING ({len(pending)})</div>', unsafe_allow_html=True)
-        if len(pending) == 0:
+        st.markdown(f'<div class="gem-label">◈ PENDING ({len(pending_df)})</div>', unsafe_allow_html=True)
+        if len(pending_df) == 0:
             st.caption("ไม่มี prediction ที่รอผล")
-        for idx, p in enumerate(log):
-            if p['actual_result'] is not None:
-                continue
-            with st.expander(f"{p['time']} — {p['match']} ({p['league_tier']})"):
+        for _, p in pending_df.iterrows():
+            rec_id = p['id']
+            created = pd.to_datetime(p['created_at']).strftime("%Y-%m-%d %H:%M") if pd.notna(p['created_at']) else "-"
+            with st.expander(f"{created} — {p['match_name']} ({p['league_tier']})"):
                 st.write(f"Market P(Home): {p['market_p_home']*100:.0f}% · "
                         f"Stat P(Home): {p['stat_p_home']*100:.0f}% · "
                         f"Divergence: {p['divergence_wl']*100:+.0f}%")
                 st.write(f"Market Total: {p['market_total']} · Stat Total: {p['stat_total']:.2f}")
-                st.write(f"Gates passed: {p['gates_passed']}/4 · "
+                st.write(f"Gates passed: {int(p['gates_passed'])}/4 · "
                         f"Recommended: {p['recommended_side'] or 'No Signal'}")
 
                 rc1, rc2 = st.columns(2)
-                home_goals = rc1.number_input("ประตู Home", 0, 20, key=f"hg_{idx}")
-                away_goals = rc2.number_input("ประตู Away", 0, 20, key=f"ag_{idx}")
+                home_goals = rc1.number_input("ประตู Home", 0, 20, key=f"hg_{rec_id}")
+                away_goals = rc2.number_input("ประตู Away", 0, 20, key=f"ag_{rec_id}")
 
-                if st.button("✅ บันทึกผล", key=f"settle_{idx}"):
+                if st.button("✅ บันทึกผล", key=f"settle_{rec_id}"):
                     if home_goals > away_goals:
                         actual_result = 'home_win'
                     elif away_goals > home_goals:
@@ -1416,29 +1541,49 @@ with tab_log:
                     wl_winner = compute_wl_winner(p['market_p_home'], p['stat_p_home'], actual_result)
                     goals_winner = compute_goals_winner(p['market_total'], p['stat_total'], actual_total)
 
-                    st.session_state['predictions_log'][idx]['actual_result'] = actual_result
-                    st.session_state['predictions_log'][idx]['actual_score'] = f"{home_goals}-{away_goals}"
-                    st.session_state['predictions_log'][idx]['actual_total_goals'] = actual_total
-                    st.session_state['predictions_log'][idx]['wl_winner'] = wl_winner
-                    st.session_state['predictions_log'][idx]['goals_winner'] = goals_winner
-                    st.rerun()
+                    ok = db_update_result(rec_id, {
+                        'actual_result': actual_result,
+                        'actual_score': f"{home_goals}-{away_goals}",
+                        'actual_home_goals': home_goals,
+                        'actual_away_goals': away_goals,
+                        'actual_total_goals': actual_total,
+                        'wl_winner': wl_winner,
+                        'goals_winner': goals_winner,
+                    })
+                    if ok:
+                        st.success("✅ บันทึกผลแล้ว")
+                        st.rerun()
 
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="gem-label">◈ SETTLED ({len(settled)})</div>', unsafe_allow_html=True)
-        if len(settled) > 0:
-            settled_df = pd.DataFrame([{
-                'Time': p['time'], 'Match': p['match'], 'Tier': p['league_tier'],
-                'Δ WL%': f"{p['divergence_wl']*100:+.0f}", 'Score': p['actual_score'],
-                'WL Winner': p['wl_winner'], 'Goals Winner': p['goals_winner'],
-            } for p in settled])
-            st.dataframe(settled_df, use_container_width=True, hide_index=True)
+        st.markdown(f'<div class="gem-label">◈ SETTLED ({len(settled_df_raw)})</div>', unsafe_allow_html=True)
+        if len(settled_df_raw) > 0:
+            display_df = pd.DataFrame({
+                'Time': pd.to_datetime(settled_df_raw['created_at']).dt.strftime("%Y-%m-%d %H:%M"),
+                'Match': settled_df_raw['match_name'],
+                'Tier': settled_df_raw['league_tier'],
+                'Δ WL%': settled_df_raw['divergence_wl'].apply(lambda x: f"{x*100:+.0f}" if pd.notna(x) else "-"),
+                'Score': settled_df_raw['actual_score'],
+                'WL Winner': settled_df_raw['wl_winner'],
+                'Goals Winner': settled_df_raw['goals_winner'],
+            })
+            st.dataframe(display_df, use_container_width=True, hide_index=True)
         else:
             st.caption("ยังไม่มี prediction ที่ settle แล้ว")
 
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        if st.button("🗑️ ล้าง Predictions Log ทั้งหมด"):
-            st.session_state['predictions_log'] = []
-            st.rerun()
+        if st.button("🗑️ ล้าง Predictions Log ทั้งหมด (ลบจากฐานข้อมูลถาวร!)"):
+            st.session_state['_confirm_delete_all'] = True
+        if st.session_state.get('_confirm_delete_all'):
+            st.warning("⚠️ การลบนี้จะลบข้อมูลทั้งหมดในฐานข้อมูลถาวร ไม่สามารถกู้คืนได้")
+            cc1, cc2 = st.columns(2)
+            if cc1.button("✅ ยืนยันลบทั้งหมด", type="primary"):
+                if db_delete_all():
+                    st.session_state['_confirm_delete_all'] = False
+                    st.success("ลบข้อมูลทั้งหมดแล้ว")
+                    st.rerun()
+            if cc2.button("❌ ยกเลิก"):
+                st.session_state['_confirm_delete_all'] = False
+                st.rerun()
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -1457,7 +1602,8 @@ with tab_backtest:
     st.caption("ⓘ ทดสอบสมมุติฐานจาก Predictions Log ที่ settle แล้ว — ต้องการอย่างน้อย "
               "10-15 เคส settled ถึงจะเริ่มมีความหมายทางสถิติ")
 
-    log = st.session_state.get('predictions_log', [])
+    log_df_bt = db_load_predictions()
+    log = log_df_bt.to_dict('records') if not log_df_bt.empty else []
     settled = [p for p in log if p.get('actual_result') is not None]
 
     if len(settled) < 3:
@@ -1677,7 +1823,8 @@ with tab_dash:
     st.markdown('<div class="gem-label">◈ BETTING PERFORMANCE</div>', unsafe_allow_html=True)
     st.caption("ⓘ เฉพาะ predictions ที่ผ่าน Gate 1-4 (มี recommended_side) และ settle แล้ว")
 
-    log = st.session_state.get('predictions_log', [])
+    log_df_dash = db_load_predictions()
+    log = log_df_dash.to_dict('records') if not log_df_dash.empty else []
     bet_candidates = [p for p in log if p.get('all_gates_pass') and p.get('recommended_side')]
     bet_settled = [p for p in bet_candidates if p.get('actual_result') is not None]
 
@@ -1692,20 +1839,23 @@ with tab_dash:
                 'OU Over': p['ou_over_odds'], 'OU Under': p['ou_under_odds'],
             }
             odds = odds_map.get(side, 0)
-            bet = p.get('recommended_bet_size', 0)
+            bet = p.get('recommended_bet_size', 0) or 0
             won = (
                 (side == 'AH Home' and p['actual_result'] == 'home_win') or
                 (side == 'AH Away' and p['actual_result'] == 'away_win') or
-                (side == 'OU Over' and p.get('actual_total_goals', 0) > p['ou_line']) or
-                (side == 'OU Under' and p.get('actual_total_goals', 0) < p['ou_line'])
+                (side == 'OU Over' and (p.get('actual_total_goals') or 0) > p['ou_line']) or
+                (side == 'OU Under' and (p.get('actual_total_goals') or 0) < p['ou_line'])
             )
-            if won:
-                return bet * (odds - 1)
-            else:
-                return -bet
+            outcome = 'win' if won else 'loss'
+            pnl_val = bet * (odds - 1) if won else -bet
+            return pnl_val, outcome
 
         for p in bet_settled:
-            p['_pnl'] = calc_bet_pnl(p)
+            pnl_val, outcome = calc_bet_pnl(p)
+            p['_pnl'] = pnl_val
+            # บันทึก pnl/bet_outcome กลับเข้า DB ถ้ายังไม่เคยคำนวณ (เก็บถาวรสำหรับ backtest ภายหลัง)
+            if pd.isna(p.get('pnl')) or p.get('bet_outcome') is None:
+                db_update_result(p['id'], {'pnl': pnl_val, 'bet_outcome': outcome})
 
         total_bets = len(bet_settled)
         total_pnl = sum(p['_pnl'] for p in bet_settled)
