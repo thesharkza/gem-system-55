@@ -7,393 +7,54 @@ import time
 from datetime import datetime, timezone, timedelta
 import plotly.graph_objects as go
 from PIL import Image
-import google.generativeai as genai
-import numpy as np
-from supabase import create_client, Client
 
-# ── must be the very first Streamlit call ──
+# ════════════════════════════════════════════════════════════════════════
+# GEM 4.0 — "WIN RATE EDITION"
+# ════════════════════════════════════════════════════════════════════════
+# หลักการ 3 ข้อ (ห้ามขัด):
+#   1. PROTECT BANKROLL FIRST  — fixed sizing, ไม่มี leverage
+#   2. WIN RATE > EV           — primary signal คือ P(cover) ไม่ใช่ EV
+#   3. LESS IS MORE            — skip มากกว่าลง, gate system เข้มงวด
+#
+# ตัดออกจาก v3.x: AI Oracle (Gemini), GEM Rules Knowledge base,
+#                  Kelly dynamic multiplier, HDBA, Composite Score, xG
+# เก็บไว้: Math Engine, Market Quality, Auto-Fit λ, Value Scanner,
+#          Market Consistency Checker, Bug fixes (v3.3 AH lines, v3.4 HDBA dir N/A เพราะตัด HDBA)
+# ════════════════════════════════════════════════════════════════════════
+
 st.set_page_config(
-    page_title="GEM System 10.0 · The Oracle",
+    page_title="GEM 4.0 — Win Rate Edition",
+    page_icon="🎯",
     layout="wide",
-    initial_sidebar_state="collapsed",   # มือถือเริ่มต้นด้วย sidebar ปิด ดูสะอาดกว่า
-    page_icon="🎯"
+    initial_sidebar_state="expanded"
 )
 
-# ==========================================
-# 📱 PWA META TAGS — ทำให้ Add to Home Screen สวยขึ้น
-# ==========================================
-st.markdown("""
-<head>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="GEM Oracle">
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="theme-color" content="#050a0e">
-  <meta name="application-name" content="GEM Oracle">
-  <meta name="format-detection" content="telephone=no">
-</head>
-<style>
-/* ── Mobile-friendly tweaks ───────────────────────────────── */
-@media (max-width: 768px) {
-  /* ลด padding ของ main container บนมือถือ */
-  .main .block-container {
-    padding-top: 1rem !important;
-    padding-bottom: 4rem !important;
-    padding-left: 0.6rem !important;
-    padding-right: 0.6rem !important;
-  }
-  /* ปุ่มแตะง่ายขึ้น */
-  .stButton > button {
-    min-height: 42px !important;
-    font-size: 0.78rem !important;
-  }
-  /* ปรับ tab ให้แตะง่ายขึ้น */
-  [data-testid="stTabs"] button[role="tab"] {
-    padding: 10px 12px !important;
-    font-size: 0.72rem !important;
-  }
-  /* ปรับ metric ให้พอดีจอเล็ก */
-  [data-testid="stMetricValue"] {
-    font-size: 1.15rem !important;
-  }
-  /* ปุ่ม number input ขยายขึ้น */
-  [data-testid="stNumberInput"] button {
-    min-width: 32px !important;
-    min-height: 32px !important;
-  }
-}
-/* ป้องกัน iOS zoom-in อัตโนมัติเวลาแตะ input */
-input[type="text"], input[type="number"], textarea, select {
-  font-size: 16px !important;
-}
-@media (max-width: 768px) {
-  input[type="text"], input[type="number"], textarea {
-    font-size: 16px !important;
-  }
-}
-/* ป้องกัน pull-to-refresh accidentally ในมือถือ */
-html, body {
-  overscroll-behavior-y: contain;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-# ==========================================
-# 🛡️ HELPER FUNCTIONS
-# ==========================================
-def safe_json_loads(text):
-    if not text: return {}
-    try:
-        start_idx = text.find('{')
-        end_idx   = text.rfind('}')
-        if start_idx != -1 and end_idx != -1:
-            return json.loads(text[start_idx:end_idx+1])
-        return json.loads(text)
-    except Exception:
-        clean = text.replace("```json", "").replace("```", "").strip()
-        try:    return json.loads(clean)
-        except: return {}
-
-# ==========================================
-# 🎨  NEON QUANT THEME
-# ==========================================
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=Exo+2:wght@300;400;600;800&display=swap');
-
-:root {
-    --bg-primary:  #050a0e;
-    --bg-panel:    #0a1520;
-    --bg-card:     #0d1e2e;
-    --bg-card2:    #091520;
-    --neon-green:  #00ff88;
-    --neon-green2: #00cc6a;
-    --neon-dim:    #00ff8820;
-    --neon-glow:   0 0 8px #00ff8870, 0 0 24px #00ff8828;
-    --neon-red:    #ff3b5c;
-    --neon-yellow: #ffd600;
-    --neon-blue:   #00b4ff;
-    --border:      #0f2535;
-    --border-neon: #00ff8835;
-    --text-main:   #c8e6d4;
-    --text-dim:    #4a7a60;
-    --text-label:  #2a5040;
-    --font-mono:   'Share Tech Mono', monospace;
-    --font-ui:     'Rajdhani', sans-serif;
-    --font-head:   'Exo 2', sans-serif;
-}
-
-html, body, [data-testid="stAppViewContainer"] {
-    background-color: var(--bg-primary) !important;
-    color: var(--text-main) !important;
-    font-family: var(--font-ui) !important;
-}
-[data-testid="stAppViewContainer"]::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    background:
-        radial-gradient(ellipse 80% 40% at 50% -10%, #00ff8810 0%, transparent 70%),
-        repeating-linear-gradient(0deg, transparent, transparent 39px, #0f253508 40px),
-        repeating-linear-gradient(90deg, transparent, transparent 39px, #0f253508 40px);
-    pointer-events: none;
-    z-index: 0;
-}
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg,#060d14 0%,#050a0e 100%) !important;
-    border-right: 1px solid var(--border-neon) !important;
-}
-[data-testid="stSidebar"] * { font-family: var(--font-ui) !important; }
-[data-testid="stSidebar"] h1,
-[data-testid="stSidebar"] h2,
-[data-testid="stSidebar"] h3 {
-    color: var(--neon-green) !important;
-    font-family: var(--font-head) !important;
-    font-size: 0.82rem !important;
-    letter-spacing: 0.12em !important;
-    text-transform: uppercase !important;
-}
-[data-testid="stSidebar"] label {
-    color: var(--text-dim) !important;
-    font-size: 0.76rem !important;
-    letter-spacing: 0.05em !important;
-    text-transform: uppercase !important;
-}
-h1 {
-    font-family: var(--font-head) !important;
-    font-weight: 800 !important;
-    font-size: 2rem !important;
-    letter-spacing: 0.04em !important;
-    color: var(--neon-green) !important;
-    text-shadow: var(--neon-glow) !important;
-}
-h2 {
-    font-family: var(--font-head) !important;
-    font-weight: 600 !important;
-    color: #88ffcc !important;
-    font-size: 1.1rem !important;
-    letter-spacing: 0.06em !important;
-    text-transform: uppercase !important;
-}
-h3, h4, h5 { font-family: var(--font-ui) !important; color: var(--text-main) !important; }
-
-[data-testid="stTabs"] [role="tablist"] {
-    background: var(--bg-panel) !important;
-    border-bottom: 1px solid var(--border-neon) !important;
-    gap: 2px !important; padding: 4px 8px 0 !important;
-    border-radius: 6px 6px 0 0 !important;
-}
-[data-testid="stTabs"] button[role="tab"] {
-    font-family: var(--font-ui) !important; font-weight: 600 !important;
-    font-size: 0.8rem !important; letter-spacing: 0.1em !important;
-    text-transform: uppercase !important; color: var(--text-dim) !important;
-    background: transparent !important; border: none !important;
-    border-bottom: 2px solid transparent !important; padding: 8px 16px !important;
-    transition: all 0.2s !important;
-}
-[data-testid="stTabs"] button[role="tab"]:hover {
-    color: var(--neon-green) !important; background: var(--neon-dim) !important;
-}
-[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-    color: var(--neon-green) !important;
-    border-bottom: 2px solid var(--neon-green) !important;
-    text-shadow: 0 0 12px #00ff88 !important;
-}
-[data-testid="stNumberInput"] input,
-[data-testid="stTextInput"] input,
-[data-testid="stTextArea"] textarea {
-    background: var(--bg-card2) !important; color: var(--neon-green) !important;
-    font-family: var(--font-mono) !important; font-size: 1rem !important;
-    border: 1px solid var(--border) !important; border-radius: 4px !important;
-    transition: border-color 0.2s, box-shadow 0.2s !important;
-}
-[data-testid="stNumberInput"] input:focus,
-[data-testid="stTextInput"] input:focus,
-[data-testid="stTextArea"] textarea:focus {
-    border-color: var(--neon-green2) !important;
-    box-shadow: 0 0 0 2px #00ff8818 !important; outline: none !important;
-}
-[data-testid="stSelectbox"] > div {
-    background: var(--bg-card2) !important;
-    border-color: var(--border) !important; color: var(--neon-green) !important;
-}
-label[data-testid="stWidgetLabel"] {
-    color: var(--text-dim) !important; font-size: 0.75rem !important;
-    letter-spacing: 0.07em !important; text-transform: uppercase !important;
-    font-family: var(--font-ui) !important;
-}
-.stButton > button {
-    font-family: var(--font-head) !important; font-weight: 700 !important;
-    font-size: 0.8rem !important; letter-spacing: 0.14em !important;
-    text-transform: uppercase !important; background: transparent !important;
-    color: var(--neon-green) !important; border: 1px solid var(--neon-green2) !important;
-    border-radius: 3px !important; padding: 8px 18px !important;
-    transition: all 0.15s ease !important;
-}
-.stButton > button:hover {
-    background: var(--neon-dim) !important; box-shadow: var(--neon-glow) !important;
-    border-color: var(--neon-green) !important; color: #fff !important;
-}
-.stButton > button[kind="primary"] {
-    background: linear-gradient(135deg,#00ff8815,#00cc6a10) !important;
-    border-color: var(--neon-green) !important; box-shadow: 0 0 10px #00ff8835 !important;
-}
-.stButton > button[kind="primary"]:hover {
-    background: linear-gradient(135deg,#00ff8828,#00cc6a20) !important;
-    box-shadow: var(--neon-glow) !important;
-}
-[data-testid="stMetric"] {
-    background: var(--bg-card) !important; border: 1px solid var(--border) !important;
-    border-top: 2px solid var(--neon-green2) !important; border-radius: 4px !important;
-    padding: 14px 16px !important; position: relative !important;
-}
-[data-testid="stMetric"]::before {
-    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 1px;
-    background: linear-gradient(90deg,transparent,var(--neon-green2),transparent);
-}
-[data-testid="stMetricLabel"] {
-    color: var(--text-dim) !important; font-size: 0.7rem !important;
-    letter-spacing: 0.1em !important; text-transform: uppercase !important;
-    font-family: var(--font-ui) !important;
-}
-[data-testid="stMetricValue"] {
-    color: var(--neon-green) !important; font-family: var(--font-mono) !important;
-    font-size: 1.45rem !important; text-shadow: 0 0 8px #00ff8855 !important;
-}
-[data-testid="stMetricDelta"] { font-family: var(--font-mono) !important; font-size: 0.76rem !important; }
-[data-testid="stExpander"] {
-    border: 1px solid var(--border) !important; border-radius: 4px !important;
-    background: var(--bg-card2) !important;
-}
-[data-testid="stExpander"] summary {
-    color: var(--text-main) !important; font-family: var(--font-ui) !important;
-    font-size: 0.83rem !important; letter-spacing: 0.07em !important; padding: 10px 14px !important;
-}
-[data-testid="stExpander"] summary:hover { color: var(--neon-green) !important; }
-[data-testid="stRadio"] label { color: var(--text-main) !important; font-family: var(--font-ui) !important; font-size: 0.83rem !important; }
-hr { border-color: var(--border-neon) !important; }
-::-webkit-scrollbar { width: 4px; height: 4px; }
-::-webkit-scrollbar-track { background: var(--bg-primary); }
-::-webkit-scrollbar-thumb { background: var(--text-label); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: var(--neon-green2); }
-
-.gem-panel {
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: 6px; padding: 18px 20px; margin-bottom: 14px; position: relative;
-}
-.gem-panel::before {
-    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg,var(--neon-green2),transparent);
-    border-radius: 6px 6px 0 0;
-}
-.gem-label {
-    font-family: var(--font-mono); font-size: 0.65rem; letter-spacing: 0.2em;
-    color: var(--text-label); text-transform: uppercase; margin-bottom: 10px;
-    border-left: 2px solid var(--neon-green2); padding-left: 8px;
-}
-.gem-badge {
-    display: inline-block; background: var(--neon-dim); color: var(--neon-green);
-    font-family: var(--font-mono); font-size: 0.68rem; padding: 2px 10px;
-    border-radius: 2px; border: 1px solid var(--neon-green2); letter-spacing: 0.08em;
-}
-.gem-ok   { color:#00ff88 !important; font-family:'Share Tech Mono',monospace !important; font-size:0.78rem !important; }
-.gem-warn { color:#ffd600 !important; font-family:'Share Tech Mono',monospace !important; font-size:0.78rem !important; }
-.gem-err  { color:#ff3b5c !important; font-family:'Share Tech Mono',monospace !important; font-size:0.78rem !important; }
-.gem-dim  { color:#2a5040 !important; font-family:'Share Tech Mono',monospace !important; font-size:0.68rem !important; }
-.gem-divider {
-    height: 1px;
-    background: linear-gradient(90deg,transparent,#00cc6a25,transparent);
-    margin: 16px 0;
-}
-[data-testid="stNumberInput"] button {
-    background: var(--bg-card) !important; color: var(--neon-green) !important;
-    border-color: var(--border) !important;
-}
-[data-testid="stNumberInput"] button:hover { background: var(--neon-dim) !important; }
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-[data-testid="stHeader"] { background-color: transparent; }
-</style>
-""", unsafe_allow_html=True)
-
-
-@st.cache_resource
-def init_connection():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
-
-supabase: Client = init_connection()
-
-# ==========================================
-# 0. SESSION STATE
-# ==========================================
+# ──────────────────────────────────────────────────────────────────────
+# SESSION STATE INIT
+# ──────────────────────────────────────────────────────────────────────
 def init_session_state():
     defaults = {
-        'match_name': "ชื่อคู่แข่งขัน",
+        'bankroll': 30000.0,
+        'bet_phase': 1,              # 1 = Fixed 2% calibration, 2 = Dynamic
         'h1x2_val': 1.0, 'd1x2_val': 1.0, 'a1x2_val': 1.0,
         'hdp_line_val': 0.0, 'hdp_h_w_val': 0.0, 'hdp_a_w_val': 0.0,
         'ou_line_val': 2.5, 'ou_over_w_val': 0.0, 'ou_under_w_val': 0.0,
-        'raw_text': "", 'live_hdp': 0.0, 'live_hdp_abs': 0.0, 'live_ou': 2.50,
+        'live_hdp': 0.0, 'live_hdp_abs': 0.0, 'live_ou': 2.50,
         'lh_s_input': 0, 'la_s_input': 0, 'current_min': 45,
         'rc_h_chk': False, 'rc_a_chk': False,
+        'stats_home_w': 0, 'stats_home_d': 0, 'stats_home_l': 0,
+        'stats_home_gf': 0, 'stats_home_ga': 0, 'stats_home_rank': "-",
+        'stats_away_w': 0, 'stats_away_d': 0, 'stats_away_l': 0,
+        'stats_away_gf': 0, 'stats_away_ga': 0, 'stats_away_rank': "-",
+        'stats_temp': 25,
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
 
 init_session_state()
 
-def clear_inplay_data():
-    for k, v in {
-        'lh_s_input': 0, 'la_s_input': 0,
-        'rc_h_chk': False, 'rc_a_chk': False, 'current_min': 45,
-        'pre_h': 2.0, 'pre_d': 3.0, 'pre_a': 3.0, 'pre_ou': 2.5,
-        'live_hdp': 0.0, 'live_hdp_abs': 0.0, 'live_hdp_h': 0.9, 'live_hdp_a': 0.9,
-        'live_ou': 2.5, 'live_ou_over': 0.9, 'live_ou_under': 0.9,
-    }.items():
-        st.session_state[k] = v
-    if 'match_name_live' in st.session_state:
-        del st.session_state['match_name_live']
 
-@st.cache_data(ttl=60)
-def load_gem_rules():
-    if not supabase: return "⚠️ ไม่สามารถเชื่อมต่อ Supabase"
-    try:
-        # [แก้ไข #1] เปลี่ยนชื่อตัวแปร response เพื่อไม่ให้ชนกับ loop variable
-        response = supabase.table("gem_knowledge").select(
-            "rule_id,category,rule_text").eq("is_active", True).execute()
-        if response.data:
-            return "\n".join([
-                f"[{item['rule_id']} - หมวด {item['category']}] {item['rule_text']}"
-                for item in response.data
-            ])
-        return "ยังไม่มีข้อมูลกฎ"
-    except Exception as e:
-        return f"Error: {e}"
-
-def get_dynamic_rules(target, is_live, raw_rules):
-    rules = raw_rules.split('\n')
-    out = []
-    is_ah = target in ["เจ้าบ้าน", "ทีมเยือน"]
-    is_ou = target in ["สูง", "ต่ำ"]
-    for rule in rules:
-        if not rule.strip(): continue
-        rl = rule.lower()
-        if is_ou and any(w in rl for w in ['เจ้าบ้าน','ทีมเยือน','ต่อ','รอง','ah']) \
-                and not any(w in rl for w in ['สูง','ต่ำ','สกอร์','o/u']): continue
-        if is_ah and any(w in rl for w in ['สูง','ต่ำ','สกอร์รวม','o/u']) \
-                and not any(w in rl for w in ['เจ้าบ้าน','ทีมเยือน','ต่อ','รอง','ah']): continue
-        if not is_live and any(w in rl for w in ['live','สด','นาที','ใบแดง','สกอร์ปัจจุบัน']): continue
-        if is_live and any(w in rl for w in ['ก่อนเตะ','pre-match','ราคาเปิด']) \
-                and not any(w in rl for w in ['live','สด','ไหล']): continue
-        out.append(rule)
-    return "\n".join(out)
-
-def clear_form_data():
-    st.session_state.raw_text = ""
-    st.session_state.match_name = "ชื่อคู่แข่งขัน"
+def clear_prematch_data():
     for k, v in {
         'h1x2_val': 1.0, 'd1x2_val': 1.0, 'a1x2_val': 1.0,
         'hdp_line_val': 0.0, 'hdp_h_w_val': 0.0, 'hdp_a_w_val': 0.0,
@@ -401,25 +62,43 @@ def clear_form_data():
     }.items():
         st.session_state[k] = v
 
+
 def parse_line(s):
     s = str(s).replace(' ', '').replace('+', '')
     neg = '-' in s
     s = s.replace('-', '')
     try:
-        if '/' in s or ',' in s:
-            sep = '/' if '/' in s else ','
-            return (-1 if neg else 1) * ((float(s.split(sep)[0]) + float(s.split(sep)[1])) / 2)
-        return float(s) * (-1 if neg else 1)
-    except:
+        if '/' in s:
+            a, b = s.split('/')
+            val = (float(a) + float(b)) / 2
+        else:
+            val = float(s)
+        return -val if neg else val
+    except (ValueError, ZeroDivisionError):
         return 0.0
 
-# ==========================================
-# 🧮 MATH ENGINE
-# ==========================================
+
+def fix(o):
+    """แปลง malay-style odds (0.xx) เป็น decimal odds (1.xx)"""
+    try:
+        o = float(o)
+    except (ValueError, TypeError):
+        return 1.0
+    return o + 1.0 if 0 < o < 1.1 else o
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 🧮 MATH CORE — Shin Devig
+# ════════════════════════════════════════════════════════════════════════
 def shin_devig(oh, od, oa):
-    pi = [1/oh, 1/od, 1/oa]
+    """Shin's method — ลบ favorite-longshot bias ออกจากราคา 1X2"""
+    try:
+        pi = [1/oh, 1/od, 1/oa]
+    except ZeroDivisionError:
+        return 1/3, 1/3, 1/3
     sp = sum(pi)
-    if sp <= 1.0: return pi[0]/sp, pi[1]/sp, pi[2]/sp
+    if sp <= 1.0:
+        return pi[0]/sp, pi[1]/sp, pi[2]/sp
     lo, hi = 0.0, 1.0
     z = 0.0
     for _ in range(100):
@@ -428,38 +107,109 @@ def shin_devig(oh, od, oa):
             p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
             if sum(p) > 1: lo = z
             else: hi = z
-        except ZeroDivisionError:
+        except (ValueError, ZeroDivisionError):
             break
-    try:
-        p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
-    except:
-        p = pi
+    p = [(math.sqrt(z**2 + 4*(1-z)*pi_i) - z) / (2*(1-z)) for pi_i in pi]
     sp = sum(p)
-    # [แก้ไข #5] guard หาก sp = 0 เพื่อหลีกเลี่ยง ZeroDivisionError
-    if sp == 0:
-        return 1/3, 1/3, 1/3
     return p[0]/sp, p[1]/sp, p[2]/sp
 
 
-def poisson(k, lam):
-    return (lam**k * math.exp(-lam)) / math.factorial(k)
+def devig_2way(o1, o2):
+    """Simple inverse devig สำหรับตลาด 2 ทาง (AH, OU)"""
+    i1, i2 = 1/o1, 1/o2
+    s = i1 + i2
+    return i1/s, i2/s
 
 
-# ══════════════════════════════════════════════════════════════════════
-# 🎯 FEATURE 1: REVERSE-ENGINEER λ FROM MARKET (Math-only, no API)
-# ══════════════════════════════════════════════════════════════════════
-# แทนที่จะใช้ heuristic formula (top + supremacy^0.80) — ถอดย้อนหา
-# λ_home, λ_away ที่ทำให้ Poisson model fit ตลาดทั้ง 1X2 + OU พร้อมกัน
-# ใช้ Nelder-Mead simplex (pure Python, no scipy)
-# ══════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════════
+# 🧮 MATH CORE — Dixon-Coles Poisson Matrix
+# ════════════════════════════════════════════════════════════════════════
 def _poisson_pmf(k, lam):
-    """Poisson probability mass function"""
     if lam <= 0: return 0.0 if k > 0 else 1.0
     return (lam**k * math.exp(-lam)) / math.factorial(k)
 
 
+def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
+                             ch=0, ca=0, ml=90,
+                             rch=False, rca=False,
+                             lh_override=None, la_override=None):
+    """
+    คำนวณ Poisson scoring matrix จากราคาตลาด (devigged)
+    Returns: (hw2, hw1, dr, aw1, aw2, pou, margin_dist)
+      hw2/hw1/dr/aw1/aw2 = 5-bucket margin probabilities (home perspective)
+      pou = dict {total_goals: prob}
+      margin_dist = 7-bucket {h3,h2,h1,d,a1,a2,a3} (home perspective)
+    """
+    ow = oow + 1 if oow < 1.1 else oow
+    uw = uuw + 1 if uuw < 1.1 else uuw
+    op = 1/ow; up = 1/uw
+    top = op / (op + up)
+
+    bet = ou + 0.05 + ((top - 0.5) * 2.5)
+    et  = max(0.5, bet + (0.25 - pd) * 4.0)
+    sup = (ph - pa) * (et ** 0.80)
+
+    lh = max(0.15, (et + sup) / 2) * (ml / 90) ** 0.75
+    la = max(0.15, (et - sup) / 2) * (ml / 90) ** 0.75
+
+    if rch:
+        lh *= 0.50; la *= 1.30
+    if rca:
+        la *= 0.50; lh *= 1.30
+
+    # Auto-Fit λ override (reverse-engineered จากตลาด)
+    if lh_override is not None and la_override is not None:
+        lh = lh_override * (ml / 90) ** 0.75
+        la = la_override * (ml / 90) ** 0.75
+        if rch:
+            lh *= 0.50; la *= 1.30
+        if rca:
+            la *= 0.50; lh *= 1.30
+
+    dyn_rho = max(-0.25, min(0.0, -0.15 + (et - 2.5) * 0.05))
+
+    mx = [[0.0] * 10 for _ in range(10)]
+    for i in range(10):
+        for j in range(10):
+            bp = _poisson_pmf(i, lh) * _poisson_pmf(j, la)
+            if   i == 0 and j == 0: tau = 1 - (lh * la * dyn_rho)
+            elif i == 0 and j == 1: tau = 1 + (lh * dyn_rho)
+            elif i == 1 and j == 0: tau = 1 + (la * dyn_rho)
+            elif i == 1 and j == 1: tau = 1 - dyn_rho
+            else: tau = 1.0
+            mx[i][j] = max(0, bp * tau)
+    tp = sum(sum(r) for r in mx)
+    if tp <= 0: tp = 1e-9
+
+    h2 = h1 = dr = a1 = a2 = 0.0
+    pou = {}
+    margin_dist = {'h3': 0.0, 'h2': 0.0, 'h1': 0.0, 'd': 0.0,
+                    'a1': 0.0, 'a2': 0.0, 'a3': 0.0}
+    for i in range(10):
+        for j in range(10):
+            p  = mx[i][j] / tp
+            fh = i + ch; fa = j + ca; d = fh - fa
+            if   d >= 2:  h2 += p
+            elif d == 1:  h1 += p
+            elif d == 0:  dr += p
+            elif d == -1: a1 += p
+            elif d <= -2: a2 += p
+            tg = fh + fa
+            pou[tg] = pou.get(tg, 0) + p
+            if   d >= 3:  margin_dist['h3'] += p
+            elif d == 2:  margin_dist['h2'] += p
+            elif d == 1:  margin_dist['h1'] += p
+            elif d == 0:  margin_dist['d']  += p
+            elif d == -1: margin_dist['a1'] += p
+            elif d == -2: margin_dist['a2'] += p
+            else:         margin_dist['a3'] += p
+    return (h2, h1, dr, a1, a2, pou, margin_dist, lh, la)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 🧮 MATH CORE — Reverse-Engineer λ from Market (Auto-Fit, pure Python)
+# ════════════════════════════════════════════════════════════════════════
 def _build_probs_from_lambda(lh, la, ou_line, rho=-0.10):
-    """คำนวณ P(H), P(D), P(A), P(Over), P(Under) จาก λ (Dixon-Coles tau)"""
     if lh < 0.1 or la < 0.1: return 0, 0, 0, 0, 0
     mx = [[0.0]*10 for _ in range(10)]
     for i in range(10):
@@ -473,7 +223,6 @@ def _build_probs_from_lambda(lh, la, ou_line, rho=-0.10):
             mx[i][j] = max(0, bp*tau)
     tp = sum(sum(r) for r in mx)
     if tp <= 0: return 0, 0, 0, 0, 0
-
     p_h = p_d = p_a = 0.0
     pou = {}
     for i in range(10):
@@ -485,2005 +234,725 @@ def _build_probs_from_lambda(lh, la, ou_line, rho=-0.10):
             else:        p_a += p
             tg = i + j
             pou[tg] = pou.get(tg, 0) + p
-
     fl = int(math.floor(ou_line)); rm = ou_line - fl
     if rm == 0.25:
-        p_over_strict = sum(p for k, p in pou.items() if k > fl)
-        p_eq = pou.get(fl, 0)
-        p_over = p_over_strict + p_eq * 0.5
+        p_over = sum(p for k,p in pou.items() if k > fl) + pou.get(fl,0)*0.5
         p_under = 1 - p_over
     elif rm == 0.5:
-        p_over = sum(p for k, p in pou.items() if k > fl)
+        p_over = sum(p for k,p in pou.items() if k > fl)
         p_under = 1 - p_over
     elif rm == 0.75:
-        p_over_strict = sum(p for k, p in pou.items() if k > fl+1)
-        p_eq_next = pou.get(fl+1, 0)
-        p_over = p_over_strict + p_eq_next * 0.5
+        p_over = sum(p for k,p in pou.items() if k > fl+1) + pou.get(fl+1,0)*0.5
         p_under = 1 - p_over
     else:
-        p_over = sum(p for k, p in pou.items() if k > fl)
-        p_under = sum(p for k, p in pou.items() if k < fl)
+        p_over = sum(p for k,p in pou.items() if k > fl)
+        p_under = sum(p for k,p in pou.items() if k < fl)
     return p_h, p_d, p_a, p_over, p_under
 
 
 def reverse_engineer_lambda(p_h_mkt, p_d_mkt, p_a_mkt, p_over_mkt, p_under_mkt, ou_line):
-    """
-    หา (λ_home, λ_away) ที่ทำให้ Poisson model fit ตลาดทั้ง 1X2 + OU
-    ใช้ Nelder-Mead simplex (pure Python)
-    Returns: (lh, la, final_error, converged)
-    """
+    """Nelder-Mead simplex (pure Python) — fit λ ให้ตรงกับตลาดทั้ง 1X2+OU"""
     def loss(params):
         lh, la = params
-        if lh < 0.1 or la < 0.1: return 1e6
-        if lh > 8.0 or la > 8.0: return 1e6
+        if lh < 0.1 or la < 0.1 or lh > 8.0 or la > 8.0: return 1e6
         p_h, p_d, p_a, p_o, p_u = _build_probs_from_lambda(lh, la, ou_line)
-        err_1x2 = (p_h - p_h_mkt)**2 + (p_d - p_d_mkt)**2 + (p_a - p_a_mkt)**2
-        err_ou  = (p_o - p_over_mkt)**2 + (p_u - p_under_mkt)**2
-        return err_1x2 + err_ou
+        return (p_h-p_h_mkt)**2 + (p_d-p_d_mkt)**2 + (p_a-p_a_mkt)**2 + \
+               (p_o-p_over_mkt)**2 + (p_u-p_under_mkt)**2
 
-    # เดาเริ่มต้นจาก heuristic formula
     initial_et = ou_line + 0.30
     initial_sup = (p_h_mkt - p_a_mkt) * (initial_et ** 0.80)
     lh0 = max(0.3, (initial_et + initial_sup) / 2)
     la0 = max(0.3, (initial_et - initial_sup) / 2)
-
-    # Nelder-Mead simplex (pure Python)
-    # สร้าง 3 จุดเริ่มต้น
-    simplex = [
-        [lh0,         la0],
-        [lh0 + 0.1,   la0],
-        [lh0,         la0 + 0.1],
-    ]
+    simplex = [[lh0, la0], [lh0+0.1, la0], [lh0, la0+0.1]]
     values = [loss(p) for p in simplex]
 
-    # Iterate
-    for iteration in range(150):
-        # Sort by loss value (ascending)
+    for _ in range(150):
         order = sorted(range(3), key=lambda i: values[i])
         simplex = [simplex[i] for i in order]
         values  = [values[i] for i in order]
-
-        best_loss = values[0]
-        if best_loss < 1e-6: break
-
-        # Centroid of best 2 points (excluding worst)
-        centroid = [(simplex[0][0] + simplex[1][0]) / 2,
-                    (simplex[0][1] + simplex[1][1]) / 2]
-
-        # Reflection
-        reflected = [2*centroid[0] - simplex[2][0],
-                     2*centroid[1] - simplex[2][1]]
+        if values[0] < 1e-6: break
+        centroid = [(simplex[0][0]+simplex[1][0])/2, (simplex[0][1]+simplex[1][1])/2]
+        reflected = [2*centroid[0]-simplex[2][0], 2*centroid[1]-simplex[2][1]]
         f_r = loss(reflected)
-
         if values[0] <= f_r < values[1]:
             simplex[2] = reflected; values[2] = f_r
         elif f_r < values[0]:
-            # Expansion
-            expanded = [centroid[0] + 2*(reflected[0] - centroid[0]),
-                        centroid[1] + 2*(reflected[1] - centroid[1])]
+            expanded = [centroid[0]+2*(reflected[0]-centroid[0]), centroid[1]+2*(reflected[1]-centroid[1])]
             f_e = loss(expanded)
-            if f_e < f_r:
-                simplex[2] = expanded; values[2] = f_e
-            else:
-                simplex[2] = reflected; values[2] = f_r
+            if f_e < f_r: simplex[2]=expanded; values[2]=f_e
+            else: simplex[2]=reflected; values[2]=f_r
         else:
-            # Contraction
-            contracted = [centroid[0] + 0.5*(simplex[2][0] - centroid[0]),
-                          centroid[1] + 0.5*(simplex[2][1] - centroid[1])]
+            contracted = [centroid[0]+0.5*(simplex[2][0]-centroid[0]), centroid[1]+0.5*(simplex[2][1]-centroid[1])]
             f_c = loss(contracted)
-            if f_c < values[2]:
-                simplex[2] = contracted; values[2] = f_c
+            if f_c < values[2]: simplex[2]=contracted; values[2]=f_c
             else:
-                # Shrink
-                simplex[1] = [simplex[0][0] + 0.5*(simplex[1][0] - simplex[0][0]),
-                              simplex[0][1] + 0.5*(simplex[1][1] - simplex[0][1])]
-                simplex[2] = [simplex[0][0] + 0.5*(simplex[2][0] - simplex[0][0]),
-                              simplex[0][1] + 0.5*(simplex[2][1] - simplex[0][1])]
-                values[1] = loss(simplex[1])
-                values[2] = loss(simplex[2])
+                simplex[1] = [simplex[0][0]+0.5*(simplex[1][0]-simplex[0][0]), simplex[0][1]+0.5*(simplex[1][1]-simplex[0][1])]
+                simplex[2] = [simplex[0][0]+0.5*(simplex[2][0]-simplex[0][0]), simplex[0][1]+0.5*(simplex[2][1]-simplex[0][1])]
+                values[1] = loss(simplex[1]); values[2] = loss(simplex[2])
 
     final_loss = values[0]
-    converged = final_loss < 0.01  # ตลาด consistent ดี
+    converged = final_loss < 0.01
     return simplex[0][0], simplex[0][1], final_loss, converged
 
 
-# ══════════════════════════════════════════════════════════════════════
-# 💎 FEATURE 2: VALUE SCANNER (Math P vs Bookie P divergence)
-# ══════════════════════════════════════════════════════════════════════
-def value_scanner(margin_dist, pou, market_data, ou_line, ah_line):
+# ════════════════════════════════════════════════════════════════════════
+# 🎯 WIN PROBABILITY CORE — P(cover) แทน EV (Primary Signal v4.0)
+# ════════════════════════════════════════════════════════════════════════
+def p_cover_ah_side(ah_line_signed, margin_dist, side):
     """
-    เทียบ Math P vs Bookie P ทุก side
-    Returns: sorted list ของ {side, math_p, book_p, edge, odds, ev}
+    คำนวณ P(cover) แบบไม่กำกวม — ใช้ signed ah_line ตาม convention ของระบบ
+    Convention: ah_line_signed > 0 → เจ้าบ้านต่อ (Home=Fav, Away=Dog)
+                ah_line_signed < 0 → ทีมเยือนต่อ (Home=Dog, Away=Fav)
+                ah_line_signed = 0 → pk (ไม่มี fav/dog)
+
+    side: 'home' หรือ 'away' — ฝั่งที่ต้องการคำนวณ P(cover)
+
+    Returns: (p_win, p_half_win, p_push, p_half_loss, p_loss)
+
+    หลักการ: คำนวณจาก home-margin perspective เสมอเป็นฐาน (gt-based),
+    แล้ว derive ผลของแต่ละ side ตาม sign ของเส้นและ side ที่ขอ
     """
-    # Devig 2-way (Shin would be better but simple inverse for AH/OU)
-    def devig_2way(o1, o2):
-        i1, i2 = 1/o1, 1/o2
-        s = i1 + i2
-        return i1/s, i2/s
+    h = abs(ah_line_signed)
+    home_is_fav = ah_line_signed > 0  # บวก = เจ้าบ้านต่อ = Home คือ Fav
 
-    # margin_dist ใช้ string keys: 'h3', 'h2', 'h1', 'd', 'a1', 'a2', 'a3'
-    # h3 = home margin ≥ 3, h2 = margin 2, h1 = margin 1
-    # d  = draw (margin 0)
-    # a1 = away margin 1, a2 = margin 2, a3 = margin ≥ 3
-    md = margin_dist
-    # Helper สำหรับ "home margin > N" (รวม buckets ที่ใหญ่กว่า N)
-    def p_home_margin_gt(threshold):
-        """P(home margin > threshold). threshold = 0,1,2"""
-        if   threshold == 0: return md['h1'] + md['h2'] + md['h3']
-        elif threshold == 1: return md['h2'] + md['h3']
-        elif threshold == 2: return md['h3']
-        elif threshold >= 3: return 0  # ใน 10x10 matrix, margin ≤ 9 → h3 รวม 3-9
-        return 0
+    # คำนวณ "Home perspective cover" เสมอก่อน:
+    #   ถ้า Home เป็น Fav → ใช้สูตร Fav ตรงๆ (gt-based กับ +h)
+    #   ถ้า Home เป็น Dog → Home "cover" หมายถึงไม่แพ้เกิน h ลูก
+    home_cover_result = _fav_cover_from_home_margin(h, margin_dist) if home_is_fav \
+                         else _dog_cover_from_home_margin(h, margin_dist)
 
-    def p_home_margin_eq(value):
-        """P(home margin == value). value = 0,1,2,-1,-2"""
+    if side == 'home':
+        return home_cover_result
+    else:
+        # Away = mirror ของ Home ที่เส้นเดียวกัน
+        w, hw_, p, hl, l = home_cover_result
+        return l, hl, p, hw_, w
+
+
+def _fav_cover_from_home_margin(h, md):
+    """Home เป็น Fav (ah_line > 0) — ใช้ gt(home_margin) เทียบ h"""
+    fl = int(math.floor(h)); rm = round(h - fl, 2)
+
+    def gt(threshold):
+        if   threshold <= -2: return md['h3']+md['h2']+md['h1']+md['d']+md['a1']+md['a2']+md['a3']
+        elif threshold == -1: return md['h3']+md['h2']+md['h1']+md['d']+md['a1']+md['a2']
+        elif threshold == 0:  return md['h1'] + md['h2'] + md['h3']
+        elif threshold == 1:  return md['h2'] + md['h3']
+        elif threshold == 2:  return md['h3']
+        return 0.0
+
+    def eq(value):
         if   value == 0: return md['d']
         elif value == 1: return md['h1']
         elif value == 2: return md['h2']
         elif value == -1: return md['a1']
         elif value == -2: return md['a2']
-        return 0
+        return 0.0
 
-    # ─── AH probabilities ───
-    # ah_line จาก app.py: บวก = เจ้าบ้านต่อ (Home fav), ลบ = เยือนต่อ
-    # h = |ah_line| คือเลขเส้น
-    h = abs(ah_line)
-    fl = int(math.floor(h)); rm = h - fl
-
-    if rm == 0.0:    # full line — push at margin == h
-        p_home_cover = p_home_margin_gt(fl)
-        p_home_push  = p_home_margin_eq(fl)
-    elif rm == 0.5:  # half line — no push
-        p_home_cover = p_home_margin_gt(fl)  # margin > fl (= margin ≥ fl+1)
-        p_home_push  = 0
-    elif rm == 0.25:  # quarter — half on full line (fl), half on half line (fl+0.5)
-        # Component 1: full line at fl → win if margin>fl, push if margin=fl
-        p_full_win  = p_home_margin_gt(fl)
-        p_full_push = p_home_margin_eq(fl)
-        # Component 2: half line at fl+0.5 → win if margin>fl
-        p_half_win  = p_home_margin_gt(fl)
-        p_home_cover = (p_full_win + p_half_win) / 2
-        p_home_push  = p_full_push / 2
-    elif rm == 0.75:  # quarter — half on half line (fl+0.5), half on full line (fl+1)
-        p_half_win  = p_home_margin_gt(fl)        # margin > fl
-        p_full_win  = p_home_margin_gt(fl+1)      # margin > fl+1
-        p_full_push = p_home_margin_eq(fl+1)
-        p_home_cover = (p_half_win + p_full_win) / 2
-        p_home_push  = p_full_push / 2
-    else:
-        p_home_cover = p_home_margin_gt(fl)
-        p_home_push  = 0
-    p_away_cover = 1 - p_home_cover - p_home_push
-
-    # ─── OU probabilities ───
-    fl_ou = int(math.floor(ou_line)); rm_ou = ou_line - fl_ou
-    if rm_ou == 0.25:
-        p_over_strict = sum(p for k, p in pou.items() if k > fl_ou)
-        p_eq = pou.get(fl_ou, 0)
-        p_over = p_over_strict + p_eq * 0.5
-        p_under = 1 - p_over
-    elif rm_ou == 0.5:
-        p_over = sum(p for k, p in pou.items() if k > fl_ou)
-        p_under = 1 - p_over
-    elif rm_ou == 0.75:
-        p_over_strict = sum(p for k, p in pou.items() if k > fl_ou+1)
-        p_eq_next = pou.get(fl_ou+1, 0)
-        p_over = p_over_strict + p_eq_next * 0.5
-        p_under = 1 - p_over
-    else:
-        p_over  = sum(p for k, p in pou.items() if k > fl_ou)
-        p_under = sum(p for k, p in pou.items() if k < fl_ou)
-
-    # Bookie probabilities (devig)
-    p_h_book, p_a_book = devig_2way(market_data['ah_home_odds'], market_data['ah_away_odds'])
-    p_o_book, p_u_book = devig_2way(market_data['ou_over_odds'], market_data['ou_under_odds'])
-
-    # ─── AH Side labels (depend on ah_line sign) ───
-    # ah_line > 0: เจ้าบ้านต่อ → Home = Fav, Away = Dog
-    # ah_line < 0: ทีมเยือนต่อ → Home = Dog, Away = Fav
-    if ah_line > 0:
-        ah_home_label = 'AH Home (Fav)'
-        ah_away_label = 'AH Away (Dog)'
-        ah_home_line  = f"-{abs(ah_line)}"
-        ah_away_line  = f"+{abs(ah_line)}"
-    elif ah_line < 0:
-        ah_home_label = 'AH Home (Dog)'
-        ah_away_label = 'AH Away (Fav)'
-        ah_home_line  = f"+{abs(ah_line)}"
-        ah_away_line  = f"-{abs(ah_line)}"
-    else:
-        ah_home_label = 'AH Home (PK)'
-        ah_away_label = 'AH Away (PK)'
-        ah_home_line  = "0"
-        ah_away_line  = "0"
-
-    sides = [
-        (ah_home_label, ah_home_line, p_home_cover, p_h_book,
-         market_data['ah_home_odds'], p_home_push),
-        (ah_away_label, ah_away_line, p_away_cover, p_a_book,
-         market_data['ah_away_odds'], p_home_push),
-        ('OU Over',  f"{ou_line}", p_over,  p_o_book, market_data['ou_over_odds'],  0),
-        ('OU Under', f"{ou_line}", p_under, p_u_book, market_data['ou_under_odds'], 0),
-    ]
-
-    results = []
-    for label, line_str, math_p, book_p, odds, push in sides:
-        edge = math_p - book_p
-        b = odds - 1
-        # EV settlement: ชนะ +b, push 0, แพ้ -1
-        # P(loss) = 1 - P(cover) - P(push)
-        p_loss = max(0, 1 - math_p - push)
-        ev = math_p * b - p_loss
-        results.append({
-            'side': label,
-            'line': line_str,
-            'math_p': math_p,
-            'book_p': book_p,
-            'edge': edge,
-            'odds': odds,
-            'ev': ev,
-        })
-
-    return sorted(results, key=lambda x: x['edge'], reverse=True)
+    if rm == 0.0:
+        win = gt(fl); push = eq(fl); loss = 1 - win - push
+        return win, 0.0, push, 0.0, loss
+    elif rm == 0.5:
+        win = gt(fl); loss = 1 - win
+        return win, 0.0, 0.0, 0.0, loss
+    elif rm == 0.25:
+        # h=fl.25 = avg(เส้น fl [push ที่ margin=fl], เส้น fl+0.5 [ไม่มี push])
+        # margin > fl: ชนะทั้ง 2 component → WIN เต็ม
+        # margin == fl: component-fl=push, component-(fl+0.5)=loss → HALF LOSS
+        # margin < fl: แพ้ทั้งคู่ → LOSS เต็ม
+        win = gt(fl)
+        half_loss = eq(fl)
+        loss = 1 - win - half_loss
+        return win, 0.0, 0.0, half_loss, loss
+    elif rm == 0.75:
+        # h=fl.75 = avg(เส้น fl+0.5 [ไม่มี push], เส้น fl+1 [push ที่ margin=fl+1])
+        # margin > fl+1: ชนะทั้งคู่ → WIN เต็ม
+        # margin == fl+1: component-(fl+0.5)=win, component-(fl+1)=push → HALF WIN
+        # margin <= fl: แพ้ทั้งคู่ → LOSS เต็ม
+        win = gt(fl+1)
+        half_win = eq(fl+1)
+        loss = 1 - win - half_win
+        return win, half_win, 0.0, 0.0, loss
+    win = gt(fl); loss = 1 - win
+    return win, 0.0, 0.0, 0.0, loss
 
 
-def calc_dixon_coles_matrix(ph, pd, pa, ou, oow, uuw,
-                             ch=0, ca=0, ml=90,
-                             rch=False, rca=False,
-                             lh_override=None, la_override=None):
-    ow  = oow + 1 if oow < 1.1 else oow
-    uw  = uuw + 1 if uuw < 1.1 else uuw
-    op  = 1/ow; up = 1/uw
-    top = op / (op + up)
+def _dog_cover_from_home_margin(h, md):
+    """Home เป็น Dog (ah_line < 0, Away ต่อ) — Home cover = mirror ของ Away-as-Fav ที่เส้นเดียวกัน"""
+    aw_, ahw, ap, ahl, al = _fav_cover_from_home_margin(h, _flip_margin_dist(md))
+    # ผลที่ได้คือจากมุม "Away เป็น Fav" (เพราะ flip แล้ว) → home_dog = away_fav mirror กลับมาเป็น home view
+    # _fav_cover_from_home_margin(h, flipped) คืนค่า cover ของฝั่งที่ "ใหญ่กว่า" ในมุมที่ flip แล้ว = Away Fav cover
+    # ดังนั้น Home(Dog) cover = mirror ของผลลัพธ์นี้
+    return al, ahl, ap, ahw, aw_
 
-    # [Calibration v2] ลด baseline bias และ draw multiplier
-    bet = ou + 0.05 + ((top - 0.5) * 2.5)
-    et  = max(0.5, bet + (0.25 - pd) * 4.0)
-    # [Calibration v3.2 - BIAS FIX] supremacy power: 0.60 → 0.80
-    sup = (ph - pa) * (et ** 0.80)
 
-    lh = max(0.15, (et + sup) / 2) * (ml / 90) ** 0.75
-    la = max(0.15, (et - sup) / 2) * (ml / 90) ** 0.75
-
-    if rch:
-        lh *= 0.50
-        la *= 1.30
-    if rca:
-        la *= 0.50
-        lh *= 1.30
-
-    # [Feature 1] Override λ ด้วยค่าที่ reverse-engineered จากตลาด
-    # ใช้เมื่อ user เปิด "Auto-Fit λ Mode" — bypass heuristic
-    if lh_override is not None and la_override is not None:
-        lh = lh_override * (ml / 90) ** 0.75
-        la = la_override * (ml / 90) ** 0.75
-        if rch:
-            lh *= 0.50; la *= 1.30
-        if rca:
-            la *= 0.50; lh *= 1.30
-
-    # Dynamic Rho — คำนวณอัตโนมัติจากเรตประตูรวม
-    dyn_rho = max(-0.25, min(0.0, -0.15 + (et - 2.5) * 0.05))
-
-    mx = [[0.0] * 10 for _ in range(10)]
-    for i in range(10):
-        for j in range(10):
-            bp = poisson(i, lh) * poisson(j, la)
-            if   i == 0 and j == 0: tau = 1 - (lh * la * dyn_rho)
-            elif i == 0 and j == 1: tau = 1 + (lh * dyn_rho)
-            elif i == 1 and j == 0: tau = 1 + (la * dyn_rho)
-            elif i == 1 and j == 1: tau = 1 - dyn_rho
-            else: tau = 1.0
-            mx[i][j] = max(0, bp * tau)
-
-    tp = sum(sum(r) for r in mx)
-    h2 = h1 = dr = a1 = a2 = 0.0
-    pou = {}
-    # [Bug Fix v3.3] เพิ่ม margin_dist สำหรับเส้น AH 1.75-2.5
-    # 5-bucket model (h2=margin≥2 รวม margin=2 และ ≥3) ทำให้คลาดเคลื่อน
-    # ในเส้น 2.0, 2.25, 2.5 — ต้องแยก margin=2, margin=3+, margin=-2, margin=-3-
-    margin_dist = {
-        'h3':  0.0,   # margin ≥ 3
-        'h2':  0.0,   # margin = 2
-        'h1':  0.0,   # margin = 1
-        'd':   0.0,   # margin = 0
-        'a1':  0.0,   # margin = -1
-        'a2':  0.0,   # margin = -2
-        'a3':  0.0,   # margin ≤ -3
+def _flip_margin_dist(md):
+    """สลับมุมมอง home<->away ของ margin_dist (h3<->a3, h2<->a2, h1<->a1, d เท่าเดิม)"""
+    return {
+        'h3': md['a3'], 'h2': md['a2'], 'h1': md['a1'],
+        'd':  md['d'],
+        'a1': md['h1'], 'a2': md['h2'], 'a3': md['h3'],
     }
-    for i in range(10):
-        for j in range(10):
-            p  = mx[i][j] / tp
-            fh = i + ch; fa = j + ca; d = fh - fa
-            if   d >= 2:  h2 += p
-            elif d == 1:  h1 += p
-            elif d == 0:  dr += p
-            elif d == -1: a1 += p
-            elif d <= -2: a2 += p
-            tg = fh + fa
-            pou[tg] = pou.get(tg, 0) + p
-            # Detailed margin distribution
-            if   d >= 3:  margin_dist['h3'] += p
-            elif d == 2:  margin_dist['h2'] += p
-            elif d == 1:  margin_dist['h1'] += p
-            elif d == 0:  margin_dist['d']  += p
-            elif d == -1: margin_dist['a1'] += p
-            elif d == -2: margin_dist['a2'] += p
-            else:         margin_dist['a3'] += p
-    return (h2, h1, dr, a1, a2, pou, margin_dist)
 
 
-# [แก้ไข #4] เปลี่ยน flat penalty เป็น relative (สัดส่วน) และ
-# แยกออกจาก ev_ah/ev_ou เป็น utility function ที่สะอาด
-def _quant_penalty(ev, line, odds):
-    """Relative penalty สำหรับ quarter-ball line และ extreme odds."""
-    rm = abs(line) - math.floor(abs(line))
-    if rm in (0.25, 0.75):
-        ev *= 0.985          # หัก 1.5% สัดส่วน แทน flat -0.015
-    if odds < 1.30 or odds > 4.00:
-        ev *= 0.970          # หัก 3.0% สัดส่วน แทน flat -0.030
-    return ev
-
-
-def ev_ah(hdp, w2, w1, d, l1, l2, odds, fav, margin_dist=None):
+def p_cover_ah(hdp, margin_dist, fav):
     """
-    คำนวณ Expected Value สำหรับตลาด Asian Handicap
-    ครอบคลุมเส้น 0.0 – 2.5 ทั้ง Fav และ Dog
-
-    Bucket probability จาก Dixon-Coles (5 ช่อง):
-      w2 = ชนะห่าง ≥ 2 ประตู  (margin ≥ 2)
-      w1 = ชนะ 1 ประตู         (margin = 1)
-      d  = เสมอ                 (margin = 0)
-      l1 = แพ้ 1 ประตู          (margin = -1)
-      l2 = แพ้ห่าง ≥ 2 ประตู   (margin ≤ -2)
-
-    [Bug Fix v3.3] margin_dist ละเอียด 7 ช่อง สำหรับเส้น 1.75-2.5
-      h3 = margin ≥ 3,  h2 = margin = 2,  h1 = margin = 1
-      d  = margin = 0
-      a1 = margin = -1, a2 = margin = -2, a3 = margin ≤ -3
-
-    Settlement rules (Pinnacle / SBO standard):
-      เส้นจำนวนเต็ม (.0): ชนะเต็ม / คืนทุน / แพ้เต็ม
-      เส้น .5          : ชนะเต็ม / แพ้เต็ม (ไม่มีคืนทุน)
-      เส้น .25 / .75   : ตัดครึ่ง — ครึ่งหนึ่งเล่น .0, ครึ่งหนึ่งเล่น .5
+    [LEGACY — ใช้เพื่อ backward compat กับ unit tests]
+    คำนวณ P(cover) โดยตีความว่า hdp คือเส้นของฝั่งที่ขอ (fav=True หมายถึง
+    ฝั่งที่ขอเป็น Fav ไม่ว่าจะเป็น Home หรือ Away — แบบเดียวกับ ev_ah() เดิม)
+    Returns: (p_win, p_half_win, p_push, p_half_loss, p_loss)
     """
-    b = odds - 1
-    h = abs(hdp)
-
-    # [Bug Fix v3.3] ใช้ margin_dist ละเอียดถ้ามี (สำหรับเส้น ≥ 1.75)
-    if margin_dist is not None:
-        m_h3 = margin_dist['h3']
-        m_h2 = margin_dist['h2']
-        m_h1 = margin_dist['h1']
-        m_d  = margin_dist['d']
-        m_a1 = margin_dist['a1']
-        m_a2 = margin_dist['a2']
-        m_a3 = margin_dist['a3']
-    else:
-        # Fallback: ใช้ 5-bucket (สำหรับ backward compat)
-        m_h3 = w2; m_h2 = 0.0; m_h1 = w1; m_d = d; m_a1 = l1; m_a2 = l2; m_a3 = 0.0
-
-    if h == 0:
-        # AH 0 (Level Ball): ชนะถ้า margin>0, คืนทุนถ้าเสมอ, แพ้ถ้า margin<0
-        res = (w2 + w1) * b - (l1 + l2)
-
-    elif fav:
-        # ======================== FAVOURITE (ทีมต่อ) ========================
-        # ต่อ 0.25 (quarter ball: ครึ่งเล่น 0, ครึ่งเล่น 0.5)
-        if   h == 0.25: res = (w2 + w1) * b - d * 0.5 - (l1 + l2)
-
-        # ต่อ 0.5: ไม่มีคืนทุน — margin>0 ชนะ, ≤0 แพ้
-        elif h == 0.5:  res = (w2 + w1) * b - (d + l1 + l2)
-
-        # ต่อ 0.75 (ครึ่งเล่น 0.5, ครึ่งเล่น 1.0)
-        elif h == 0.75: res = w2 * b + w1 * (b / 2) - (d + l1 + l2)
-
-        # ต่อ 1.0: margin≥2 ชนะ, margin=1 คืนทุน, ≤0 แพ้
-        elif h == 1.0:  res = w2 * b - (d + l1 + l2)
-
-        # ต่อ 1.25 (ครึ่งเล่น 1.0, ครึ่งเล่น 1.5)
-        elif h == 1.25: res = w2 * b - w1 * 0.5 - (d + l1 + l2)
-
-        # ต่อ 1.5: margin≥2 ชนะ, ≤1 แพ้ (ไม่มีคืนทุน)
-        elif h == 1.5:  res = w2 * b - (w1 + d + l1 + l2)
-
-        # ════════════════════════════════════════════════════════════════
-        # [Bug Fix v3.3] เส้น 1.75 – 2.5 — ใช้ margin_dist ละเอียด
-        # ════════════════════════════════════════════════════════════════
-        # ต่อ 1.75 (ครึ่งเล่น 1.5, ครึ่งเล่น 2.0)
-        # margin≥3 → ชนะทั้ง 1.5 และ 2.0 (+b)
-        # margin=2 → ชนะ 1.5 (+b/2), คืน 2.0 (0) → net +b/2
-        # margin=1 → แพ้ 1.5 (-0.5), แพ้ 2.0 (-0.5) → net -1
-        # margin≤0 → แพ้ทั้งคู่
-        elif h == 1.75:
-            res = (m_h3 + m_h2) * b * 0.5 + m_h3 * b * 0.5 \
-                  - (m_h1 + m_d + m_a1 + m_a2 + m_a3)
-            # ใช้สูตรง่าย: m_h3*(b) + m_h2*(b/2) + others*(-1)
-            res = m_h3 * b + m_h2 * (b / 2) - (m_h1 + m_d + m_a1 + m_a2 + m_a3)
-
-        # ต่อ 2.0: margin≥3 ชนะ, margin=2 คืนทุน, ≤1 แพ้
-        elif h == 2.0:
-            res = m_h3 * b - (m_h1 + m_d + m_a1 + m_a2 + m_a3)
-
-        # ต่อ 2.25 (ครึ่งเล่น 2.0, ครึ่งเล่น 2.5)
-        # margin≥3 → ชนะทั้งคู่ (+b)
-        # margin=2 → คืน 2.0, แพ้ 2.5 → net -0.5
-        # margin≤1 → แพ้ทั้งคู่
-        elif h == 2.25:
-            res = m_h3 * b - m_h2 * 0.5 - (m_h1 + m_d + m_a1 + m_a2 + m_a3)
-
-        # ต่อ 2.5: ต้องชนะ ≥3 ประตู เท่านั้น — ไม่มีคืนทุน
-        elif h == 2.5:
-            res = m_h3 * b - (m_h2 + m_h1 + m_d + m_a1 + m_a2 + m_a3)
-
-        else:
-            res = 0.0
-
-    else:
-        # ======================== UNDERDOG (ทีมรอง) ========================
-        # รอง 0.25
-        if   h == 0.25: res = (w2 + w1) * b + d * (b / 2) - (l1 + l2)
-
-        # รอง 0.5: margin<0 ทีมรองชนะ, ≥0 แพ้ (ไม่มีคืนทุน)
-        elif h == 0.5:  res = (w2 + w1 + d) * b - (l1 + l2)
-
-        # รอง 0.75
-        elif h == 0.75: res = (w2 + w1 + d) * b - l1 * 0.5 - l2
-
-        # รอง 1.0: ทีมรองชนะถ้าแพ้ ≥2 ประตู (l2), คืนทุนถ้าแพ้ 1 (l1)
-        elif h == 1.0:  res = (w2 + w1 + d) * b - l2
-
-        # รอง 1.25
-        elif h == 1.25: res = (w2 + w1 + d) * b + l1 * (b / 2) - l2
-
-        # รอง 1.5: ทีมรองชนะถ้าแพ้≥2 หรือ 1, ≥ 0 แพ้
-        elif h == 1.5:  res = (w2 + w1 + d + l1) * b - l2
-
-        # ════════════════════════════════════════════════════════════════
-        # [Bug Fix v3.3] เส้น 1.75 – 2.5 (Dog) — ใช้ margin_dist ละเอียด
-        # ════════════════════════════════════════════════════════════════
-        # หมายเหตุ: ฝั่ง Dog เป็นทีมเยือน — margin บวก = home ชนะ = away แพ้
-        # +1.75 (Dog): ครึ่งเล่น +1.5, ครึ่งเล่น +2.0
-        # margin≤1 → ชนะทั้งคู่ (home ชนะไม่เกิน 1.5)
-        # margin=2 → แพ้ 1.5 (-0.5), คืน 2.0 (0) → net -0.5
-        # margin≥3 → แพ้ทั้งคู่
-        elif h == 1.75:
-            res = (m_h1 + m_d + m_a1 + m_a2 + m_a3) * b - m_h2 * 0.5 - m_h3
-
-        # +2.0 (Dog): margin≤1 ชนะ, margin=2 คืนทุน, ≥3 แพ้
-        elif h == 2.0:
-            res = (m_h1 + m_d + m_a1 + m_a2 + m_a3) * b - m_h3
-
-        # +2.25 (Dog): ครึ่งเล่น +2.0, ครึ่งเล่น +2.5
-        # margin≤1 → ชนะทั้งคู่
-        # margin=2 → คืน 2.0, ชนะ 2.5 → net +b/2
-        # margin≥3 → แพ้ทั้งคู่
-        elif h == 2.25:
-            res = (m_h1 + m_d + m_a1 + m_a2 + m_a3) * b + m_h2 * (b / 2) - m_h3
-
-        # +2.5 (Dog): ชนะถ้า margin ≤ 2, แพ้ถ้า margin ≥ 3
-        elif h == 2.5:
-            res = (m_h2 + m_h1 + m_d + m_a1 + m_a2 + m_a3) * b - m_h3
-
-        else:
-            res = 0.0
-
-    return _quant_penalty(res, hdp, odds)
+    return _fav_cover_from_home_margin(abs(hdp), margin_dist) if fav \
+           else _dog_cover_from_home_margin(abs(hdp), margin_dist)
 
 
-# [แก้ไข #3] รวมทุก case เข้า res แล้ว return ครั้งเดียว
-# ป้องกัน early return ที่หนีการ apply penalty
-def ev_ou(line, pt, odds, over):
+def p_cover_ou(ou_line, pou, over):
     """
-    [Calibration v3 - ทาง 2] Poisson Skew Offset
-    Poisson sum distribution มี right-skew ตามธรรมชาติ ทำให้ P(Under) สูงกว่า P(Over)
-    แม้ et = ou_line พอดี — measured: Under bias +8% ถึง +22% บน line 2.0-2.5
-
-    วิธีแก้: เพิ่ม +3% ให้ Over และ -3% ให้ Under เป็นการ offset structural skew
+    คำนวณ P(cover) ของ OU — Over หรือ Under
+    Returns: (p_win, p_half_win, p_push, p_half_loss, p_loss)
     """
-    b  = odds - 1
-    fl = math.floor(line)
-    rm = line - fl
-    g  = lambda cond: sum(pt.get(k, 0) for k in pt if cond(k))
+    fl = int(math.floor(ou_line)); rm = round(ou_line - fl, 2)
+
+    def p_total_gt(t):
+        return sum(p for k, p in pou.items() if k > t)
+    def p_total_eq(t):
+        return pou.get(t, 0.0)
 
     if over:
-        if   rm == 0.0:  res = g(lambda k: k > fl)  * b  - g(lambda k: k < fl)
-        elif rm == 0.25: res = g(lambda k: k >= fl+1)* b  - pt.get(fl, 0)*0.5 - g(lambda k: k < fl)
-        elif rm == 0.5:  res = g(lambda k: k >= fl+1)* b  - g(lambda k: k <= fl)
-        elif rm == 0.75: res = g(lambda k: k >= fl+2)* b  + pt.get(fl+1, 0)*(b/2) - g(lambda k: k <= fl)
-        else: res = 0.0
+        if rm == 0.0:
+            p_win = p_total_gt(fl); p_push = p_total_eq(fl)
+            return p_win, 0.0, p_push, 0.0, 1 - p_win - p_push
+        elif rm == 0.5:
+            p_win = p_total_gt(fl)
+            return p_win, 0.0, 0.0, 0.0, 1 - p_win
+        elif rm == 0.25:
+            # avg(เส้น fl [push@fl], เส้น fl+0.5 [ไม่มี push])
+            # total > fl: win ทั้งคู่ | total == fl: push+loss = HALF LOSS | total < fl: loss ทั้งคู่
+            p_win = p_total_gt(fl)
+            p_half_loss = p_total_eq(fl)
+            p_loss = 1 - p_win - p_half_loss
+            return p_win, 0.0, 0.0, p_half_loss, p_loss
+        elif rm == 0.75:
+            # avg(เส้น fl+0.5 [ไม่มี push], เส้น fl+1 [push@fl+1])
+            # total > fl+1: win ทั้งคู่ | total == fl+1: win+push = HALF WIN | total <= fl: loss ทั้งคู่
+            p_win = p_total_gt(fl+1)
+            p_half_win = p_total_eq(fl+1)
+            p_loss = 1 - p_win - p_half_win
+            return p_win, p_half_win, 0.0, 0.0, p_loss
     else:
-        if   rm == 0.0:  res = g(lambda k: k < fl)  * b  - g(lambda k: k > fl)
-        elif rm == 0.25: res = g(lambda k: k < fl)  * b  + pt.get(fl, 0)*(b/2) - g(lambda k: k >= fl+1)
-        elif rm == 0.5:  res = g(lambda k: k <= fl) * b  - g(lambda k: k >= fl+1)
-        elif rm == 0.75: res = g(lambda k: k <= fl) * b  - pt.get(fl+1, 0)*0.5  - g(lambda k: k >= fl+2)
-        else: res = 0.0
+        if rm == 0.0:
+            p_loss = p_total_gt(fl); p_push = p_total_eq(fl)
+            return 1 - p_loss - p_push, 0.0, p_push, 0.0, p_loss
+        elif rm == 0.5:
+            p_loss = p_total_gt(fl)
+            return 1 - p_loss, 0.0, 0.0, 0.0, p_loss
+        elif rm == 0.25:
+            # Under ที่ total==fl: push(เส้น fl)+win(เส้น fl+0.5, total<fl+0.5) = HALF WIN
+            p_loss = p_total_gt(fl)
+            p_half_win = p_total_eq(fl)
+            p_win = 1 - p_loss - p_half_win
+            return p_win, p_half_win, 0.0, 0.0, p_loss
+        elif rm == 0.75:
+            # Under ที่ total==fl+1: loss(เส้น fl+0.5)+push(เส้น fl+1) = HALF LOSS
+            p_loss = p_total_gt(fl+1)
+            p_half_loss = p_total_eq(fl+1)
+            p_win = 1 - p_loss - p_half_loss
+            return p_win, 0.0, 0.0, p_half_loss, p_loss
+    return 0.0, 0.0, 0.0, 0.0, 1.0
 
-    # [Calibration v3] Poisson skew offset
-    # +3% bonus to Over, -3% penalty to Under เพื่อ neutralize structural skew
-    # ค่านี้มาจาก empirical test: เฉลี่ย Poisson skew อยู่ที่ ~6-9% บน line ปกติ
-    POISSON_SKEW_OFFSET = 0.030
-    if over:
-        res += POISSON_SKEW_OFFSET
+
+def effective_win_rate(p_win, p_half_win, p_push, p_half_loss, p_loss):
+    """
+    แปลงผลลัพธ์ 5 สถานะ → 'effective win rate' เดียว สำหรับ Gate 2
+    นับ half-win เป็น 0.5 ชนะ, push ไม่นับ (ถอดออกจากฐาน), half-loss เป็น 0.5 แพ้
+    """
+    base = p_win + p_half_win + p_half_loss + p_loss  # exclude push
+    if base <= 0: return 0.0
+    effective_wins = p_win + p_half_win * 0.5
+    return effective_wins / base  # normalize ไม่นับ push
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 🚦 GATE SYSTEM — แทน threshold EV เดิม
+# ════════════════════════════════════════════════════════════════════════
+GATE2_MIN_WINRATE = 0.55   # Win Rate ขั้นต่ำ
+ODDS_MIN = 1.72
+ODDS_MAX = 2.20
+GATE4_MAX_DIVERGENCE = 0.15  # Math vs Market สูงสุดที่ยอมรับได้
+
+def overround(*odds):
+    return sum(1/o for o in odds) * 100
+
+
+def check_gate1_market_quality(ah_overround, ou_overround):
+    """Gate 1: ตลาดต้องไม่บางเกินไป"""
+    avg_or = (ah_overround + ou_overround) / 2
+    passed = avg_or <= 106.0
+    if avg_or <= 104.0:
+        tier = "🟢 Liquid"
+    elif avg_or <= 106.0:
+        tier = "🟡 Normal"
     else:
-        res -= POISSON_SKEW_OFFSET
+        tier = "🟠 Thin/Niche"
+    return passed, tier, avg_or
 
-    return _quant_penalty(res, line, odds)
+
+def check_gate2_win_probability(win_rate):
+    """Gate 2: ต้องมี Win Rate ≥ 55%"""
+    passed = win_rate >= GATE2_MIN_WINRATE
+    return passed, win_rate
 
 
-# ==========================================
-# 🧠 AI ORACLE ENGINE  — v2 (Full Coverage Prompt)
-# ==========================================
-def ai_engine(match_name, target, base_ev, hdp, odds,
-              live=False, current_min=0, score="0-0",
-              thr=0.08, stats="", fav=None,
-              line_movement="➖ Stable (นิ่ง/ปกติ)"):
+def check_gate3_odds_range(odds):
+    """Gate 3: Odds ต้องอยู่ในช่วงที่กำหนด"""
+    passed = ODDS_MIN <= odds <= ODDS_MAX
+    return passed, odds
+
+
+def check_gate4_math_market_agreement(p_cover_math, p_cover_market):
+    """Gate 4: Math กับ Market ต้องไม่ขัดแย้งกันเกินไป"""
+    divergence = abs(p_cover_math - p_cover_market)
+    passed = divergence <= GATE4_MAX_DIVERGENCE
+    return passed, divergence
+
+
+def run_all_gates(win_rate, odds, ah_overround, ou_overround,
+                   p_cover_math, p_cover_market):
     """
-    Oracle Decision Engine — ทำหน้าที่เป็น Chief Risk Officer (CRO)
-    รับ Base EV จาก Quant Engine แล้วกรองด้วย GEM RULES + บริบทตลาด
-    คืนค่า impact_score เพื่อปรับ Net EV และ final_decision สำหรับ approval
+    รัน gate ทั้ง 4 (บังคับ) แล้วคืนผลรวม
+    Returns: dict พร้อม per-gate result + overall pass/fail
     """
-    raw = load_gem_rules()
-    try:
-        db = get_dynamic_rules(target, live, raw)
-    except:
-        db = raw
-
-    # ── context blocks ──────────────────────────────────────────
-    is_ah   = target in ["เจ้าบ้าน", "ทีมเยือน"]
-    is_ou   = target in ["สูง", "ต่ำ"]
-    market  = "Asian Handicap (AH)" if is_ah else "Total Goals (O/U)"
-    fav_str = ("" if fav is None
-               else (" [ทีมต่อ / Favourite]" if fav else " [ทีมรอง / Underdog]"))
-    sit_str = (f"IN-PLAY — นาทีที่ {current_min} สกอร์ปัจจุบัน {score}"
-               if live else "PRE-MATCH")
-    mode_weight = ("Math 50% + GEM Rules 50%" if live
-                   else "Math 70% + GEM Rules 30%")
-
-    # ── line movement interpretation ────────────────────────────
-    lm_lower = line_movement.lower()
-    if "steam" in lm_lower or "ไหลลง" in lm_lower:
-        lm_note = "🔥 STEAM — เงิน Smart Money ไหลเข้าฝั่งนี้ → สัญญาณบวกเพิ่มความมั่นใจ"
-    elif "drift" in lm_lower or "ไหลขึ้น" in lm_lower:
-        lm_note = "❄️ DRIFT — ราคาไหลออกจากฝั่งนี้ → ระวัง Trap ของบ่อน พิจารณาลด impact_score"
-    else:
-        lm_note = "➖ STABLE — ราคานิ่ง ไม่มีสัญญาณผิดปกติจาก Smart Money"
-
-    prompt = f"""คุณคือ Chief Risk Officer (CRO) ของกองทุน Quant Sports Betting
-ภารกิจ: ตรวจสอบ Base EV ที่ได้จาก Dixon-Coles + Shin Devigging แล้วปรับด้วย GEM RULES และบริบทตลาด
-เพื่อคืนค่า Net EV ที่แม่นยำและ final_decision สำหรับการลงทุน
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 ข้อมูลการลงทุน
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• แมตช์     : {match_name}
-• สถานการณ์ : {sit_str}
-• ตลาด      : {market}
-• เป้าหมาย  : {target}{fav_str}
-• เรต (line): {abs(hdp)}
-• Odds      : {odds}
-• Base EV   : {base_ev*100:.2f}%
-• EV threshold: {thr*100:.1f}% (ขั้นต่ำที่ระบบยอมรับ)
-
-📈 กระแสราคา (Line Movement)
-• {line_movement}
-• {lm_note}
-
-📊 ข้อมูลสถิติ / บริบทเพิ่มเติม
-{stats if stats.strip() else "ไม่มีข้อมูลสถิติเพิ่มเติม"}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚙️ โหมดการวิเคราะห์: {mode_weight}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{"🔴 IN-PLAY MODE: ตรวจสถานการณ์สนาม Red Card / Score / Momentum แบบ Real-time ร่วมกับ GEM RULES เต็มรูปแบบ หาก Fatal Rule ถูก trigger ให้ Reject ทันที" if live else "🟡 PRE-MATCH MODE: ใช้ Math เป็นหลัก GEM RULES เป็น Risk Filter อย่างเดียว ถ้า Base EV แข็งแกร่ง Warning Rule ไม่ควรทำให้ Reject"}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📖 GEM RULES (จาก Cloud Database)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{db}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📌 คำสั่งบังคับ (ต้องปฏิบัติตามทุกข้อ)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. ROLE INTEGRITY
-   • ตรวจ {fav_str if fav_str else "[ทีมต่อ/ทีมรอง]"} ให้แม่นยำก่อนวิเคราะห์ ห้ามสับสนเด็ดขาด
-   • ทีมต่อ (Favourite) = ทีมที่มี true probability สูงกว่า = ต้องชนะด้วย margin
-   • ทีมรอง (Underdog) = ทีมที่ได้ handicap เพิ่ม = ได้เปรียบจากเสมอและแพ้น้อย
-
-2. MARKET ISOLATION
-   • หากตลาดคือ AH → ห้ามนำกฎ O/U หรือสกอร์รวมมาพิจารณาการ approve/reject เด็ดขาด
-   • หากตลาดคือ O/U → ห้ามนำกฎ AH หรือ supremacy มาพิจารณา เด็ดขาด
-   • กฎที่ label [ALL] ใช้ได้ทั้งสองตลาด
-
-3. RULE CITATION
-   • ทุกครั้งที่อ้างกฎ ต้องระบุ [Rule ID] และ [หมวด] ให้ชัดเจน
-   • ถ้าไม่มีกฎที่ตรง → ระบุ "ไม่มีกฎที่เกี่ยวข้อง" แทนการแต่งกฎขึ้นเอง
-
-4. IMPACT SCORE RULES
-   • ค่าต้องเป็น float อยู่ในช่วง -1.0 ถึง +1.0 เท่านั้น
-   • +0.05 = เพิ่ม EV 5% (สัญญาณบวกชัดเจน เช่น Steam + กฎสนับสนุน)
-   • -0.10 = ลด EV 10% (Risk factor จากกฎหรือ Drift)
-   • 0.00  = ข้อมูลไม่เพียงพอหรือสัญญาณหักล้างกัน
-   • ห้ามส่งค่าเป็น percentage (เช่น 5.0 หรือ -10.0) → ต้องเป็น 0.05 หรือ -0.10
-
-5. DECISION LOGIC
-   PRE-MATCH:
-   • Base EV ≥ threshold + ไม่มี Fatal Rule → final_decision: true
-   • มี Warning Rule → ลด impact_score แต่ยัง approve ถ้า Net EV ≥ threshold
-   • มี Fatal Rule (ระบุชัดใน rule_triggered) → final_decision: false เสมอ
-   IN-PLAY:
-   • Base EV สูงมาก (≥ threshold × 1.5) + Warning Rule → อาจ approve พร้อม impact ลบ
-   • Fatal Rule → Reject ทันทีโดยไม่คำนึง EV
-   • Red card / Score ผิดปกติ → ตรวจสอบ momentum ก่อน approve
-
-6. CONFIDENCE LEVEL
-   • 5 = ข้อมูลครบ, EV สูง, กฎสนับสนุน, Steam
-   • 4 = EV ดี, ไม่มีกฎขัดแย้ง
-   • 3 = กลางๆ มีความไม่แน่นอนบ้าง
-   • 2 = มี Risk factors หลายตัว
-   • 1 = Fallback หรือข้อมูลน้อยมาก
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📤 ตอบกลับเป็น JSON (ภาษาไทย) เท่านั้น ห้ามมีข้อความนอก JSON:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-{{
-  "pros_analysis": "วิเคราะห์ข้อดีทางคณิตศาสตร์ + กฎที่สนับสนุน + สัญญาณตลาด",
-  "cons_analysis": "ความเสี่ยงและกฎที่ขัดแย้ง พร้อมระบุ [Rule ID]",
-  "rule_triggered": "เช่น [GEM_DEF_001 - Risk Management] หรือ ไม่มีกฎที่เกี่ยวข้อง",
-  "impact_score": 0.0,
-  "final_decision": true,
-  "final_comment": "บทสรุปฟันธงจาก CRO ในภาษาที่กระชับและตรงประเด็น",
-  "confidence_level": 3
-}}"""
-
-    for attempt in range(3):
-        try:
-            model = genai.GenerativeModel('models/gemma-4-31b-it')
-            res   = model.generate_content(prompt)
-            data  = safe_json_loads(res.text)
-            if data:
-                imp = float(data.get('impact_score', 0.0))
-                # guard: ถ้า AI ส่งมาเป็น percentage เช่น 5.0 แทน 0.05
-                if abs(imp) >= 1.0:
-                    imp /= 100.0
-                # clamp ไม่ให้เกิน ±0.50 ในทางปฏิบัติ
-                imp = max(-0.50, min(0.50, imp))
-                data['impact_score'] = imp
-                # guard: confidence_level ต้องอยู่ใน 1-5
-                cl = int(data.get('confidence_level', 3))
-                data['confidence_level'] = max(1, min(5, cl))
-                return data
-        except Exception as e:
-            if attempt == 2:
-                # [แก้ไข] เมื่อ AI fail ทั้งหมด → ไม่ approve, ส่ง flag บอกว่าต้อง retry
-                # เพื่อป้องกันการบันทึกบิลโดย AI ไม่ทำงาน
-                err_msg = str(e)
-                err_code = "500" if "500" in err_msg else (
-                          "503" if "503" in err_msg else (
-                          "429" if "429" in err_msg or "quota" in err_msg.lower() else "ERR"))
-                return {
-                    "pros_analysis": "—",
-                    "cons_analysis": f"Oracle AI ไม่ตอบสนอง ({err_code})",
-                    "rule_triggered": "System Error — รอ retry",
-                    "impact_score": 0.0,
-                    "final_decision": False,   # ❌ ไม่ approve เลย เพื่อกัน save
-                    "final_comment": (
-                        f"⚠️ AI Error {err_code}: {err_msg[:100]} — "
-                        "ระบบจะไม่บันทึกบิลจนกว่า AI จะทำงานปกติ "
-                        "กรุณากดปุ่ม '🔄 รีรัน Oracle' เพื่อลองใหม่"
-                    ),
-                    "confidence_level": 0,
-                    "ai_error": True,           # flag บอกว่าเกิด error
-                    "error_code": err_code,
-                    "error_message": err_msg
-                }
-            time.sleep(2)
-
-
-# ==========================================
-# 📊 CHART HELPERS
-# ==========================================
-def ev_gauge(val, title, thr=8.0):
-    pct = val * 100
-    c   = "#00ff88" if pct >= thr else ("#ffd600" if pct > 0 else "#ff3b5c")
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number", value=pct,
-        number={'suffix': "%", 'font': {'color': c, 'size': 30, 'family': 'Share Tech Mono'}},
-        title={'text': title, 'font': {'size': 12, 'color': '#4a7a60', 'family': 'Rajdhani'}},
-        gauge={
-            'axis': {'range': [-20, 20], 'tickwidth': 1, 'tickcolor': "#0f2535",
-                     'tickfont': {'color': '#1a3528', 'size': 8}},
-            'bar': {'color': c, 'thickness': 0.22},
-            'bgcolor': "rgba(0,0,0,0)", 'borderwidth': 0,
-            'steps': [
-                {'range': [-20, 0],  'color': "rgba(255,59,92,0.07)"},
-                {'range': [0, thr],  'color': "rgba(255,214,0,0.05)"},
-                {'range': [thr, 20], 'color': "rgba(0,255,136,0.07)"},
-            ],
-            'threshold': {'line': {'color': c, 'width': 2}, 'thickness': 0.8, 'value': pct}
-        }
-    ))
-    fig.update_layout(height=185, margin=dict(l=12, r=12, t=26, b=6),
-                      paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    return fig
-
-
-def neon_layout(fig, title=""):
-    fig.update_layout(
-        title=dict(text=title, font=dict(family="Rajdhani", size=12, color="#2a5040")),
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(9,21,32,0.55)",
-        font=dict(family="Share Tech Mono", color="#4a7a60"),
-        xaxis=dict(gridcolor="#0f2535", linecolor="#0f2535", tickfont=dict(color="#2a5040")),
-        yaxis=dict(gridcolor="#0f2535", linecolor="#0f2535", tickfont=dict(color="#2a5040")),
-        legend=dict(bgcolor="rgba(0,0,0,0)", font=dict(color="#4a7a60")),
-        margin=dict(l=8, r=8, t=36, b=8)
-    )
-    return fig
-
-
-def adj_hdp(v):
-    # [Fix] ปรับ live_hdp_abs (ค่า absolute) ป้องกันค่าติดลบ
-    cur = st.session_state.get('live_hdp_abs', 0.0)
-    st.session_state['live_hdp_abs'] = max(0.0, cur + v)
-def adj_ou(v):  st.session_state['live_ou']  += v
-def fix(o):     return o + 1.0 if o < 1.1 else o
-
-
-def save_db(rows):
-    if not rows or not supabase: return
-    try:
-        supabase.table("investment_logs").insert(rows).execute()
-        # ล้าง cache ทันทีหลัง insert เพื่อให้ load_logs ดึงข้อมูลใหม่
-        load_logs.clear()
-    except Exception as e:
-        st.error(f"DB Error: {e}")
-
-
-# Cache 15 วินาที — สมดุลระหว่างความสดของข้อมูลกับ performance บนมือถือ
-# เนื่องจาก save_db() จะ trigger st.rerun() อยู่แล้วทำให้ cache invalidate ทันทีหลัง insert
-@st.cache_data(ttl=15)
-def load_logs():
-    if not supabase: return pd.DataFrame()
-    try:
-        r = supabase.table("investment_logs").select("*").order("Time", desc=True).execute()
-        if r.data:
-            df = pd.DataFrame(r.data)
-            df['Time'] = pd.to_datetime(df['Time'], errors='coerce')
-            # numeric columns รวม Base_EV_Pct และ AI_Impact_Pct
-            for c in ['EV_Pct', 'Investment', 'Odds', 'Closing_Odds',
-                      'Base_EV_Pct', 'AI_Impact_Pct']:
-                if c in df.columns:
-                    df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0.0)
-                else:
-                    # Backward compat: ถ้ายังไม่มีคอลัมน์ใหม่ ให้ใช้ EV_Pct เป็น fallback
-                    if c == 'Base_EV_Pct' and 'EV_Pct' in df.columns:
-                        df[c] = df['EV_Pct']
-                    else:
-                        df[c] = 0.0
-            if 'Result' in df.columns: df['Result'] = df['Result'].fillna("")
-            return df.dropna(subset=['Time'])
-        return pd.DataFrame()
-    except:
-        return pd.DataFrame()
-
-
-# [แก้ไข #2] ใช้ margin-based comparison แทน exact float equality
-# เพื่อหลีกเลี่ยง floating-point precision bugs
-def calc_pnl(row):
-    try:
-        if pd.isna(row['Result']) or str(row['Result']).strip() == "" \
-                or float(row['Investment']) <= 0:
-            return 0.0
-        sc = re.findall(r'\d+', str(row['Result']).strip())
-        if len(sc) < 2: return 0.0
-        hs, as_ = int(sc[0]), int(sc[1])
-        hdp  = float(row['HDP'])
-        tgt  = str(row['Target']).strip()
-        odds = float(row['Odds'])
-        inv  = float(row['Investment'])
-
-        # [Bug Fix - Live PnL] หักสกอร์ตอนลงสำหรับ Live bet
-        # Match format: "[LIVE 63'@1-0] ชื่อทีม VS ..."
-        # parse "@H-A" → ใช้คำนวณ "goals หลังลง" แทน "goals ทั้งเกม"
-        match_str = str(row.get('Match', ''))
-        live_score_match = re.search(r"@(\d+)-(\d+)", match_str)
-        if live_score_match:
-            start_hs = int(live_score_match.group(1))
-            start_as = int(live_score_match.group(2))
-            # ตรวจสอบความสมเหตุสมผล: สกอร์จบต้อง >= สกอร์ตอนลง
-            if hs >= start_hs and as_ >= start_as:
-                hs  = hs - start_hs
-                as_ = as_ - start_as
-            # ถ้าสกอร์จบ < สกอร์ตอนลง (ผู้ใช้กรอกผิด) → ใช้สกอร์เต็มเกม
-
-        if tgt == "เจ้าบ้าน":
-            nm = (hs - as_) - hdp
-        elif tgt == "ทีมเยือน":
-            nm = (as_ - hs) + hdp
-        elif tgt == "สูง":
-            nm = (hs + as_) - hdp
-        elif tgt == "ต่ำ":
-            nm = hdp - (hs + as_)
-        else:
-            return 0.0
-
-        # margin ±0.01 ป้องกัน floating-point drift เช่น 0.2499999
-        if nm > 0.26:    return inv * (odds - 1)         # full win
-        elif nm > 0.0:   return inv * (odds - 1) / 2     # half win  (0 < nm ≤ 0.25)
-        elif nm > -0.01: return 0.0                       # push      (nm ≈ 0)
-        elif nm > -0.26: return -(inv / 2)               # half loss
-        else:            return -inv                      # full loss
-    except:
-        return 0.0
-
-
-def calc_clv(row):
-    try:
-        if pd.isna(row['Closing_Odds']) or float(row['Closing_Odds']) <= 1.0: return 0.0
-        return ((float(row['Odds']) / float(row['Closing_Odds'])) - 1.0) * 100.0
-    except:
-        return 0.0
-
-
-# ==========================================
-# 🏆 BET QUALITY TIER SYSTEM — EV + Ratio Hybrid
-# ==========================================
-def get_bet_tier(ev_pct, ratio):
-    """
-    จัด Tier ตามคุณภาพของ bet ใช้ทั้ง EV และ Ratio ร่วมกัน
-
-    🌟 GOLD:    Ratio ≥ 2.0  AND  EV ≥ 15%   — outlier value, high confidence
-    🥈 SILVER:  Ratio ≥ 1.5  AND  EV ≥ 10%   — strong value, normal confidence
-    🥉 BRONZE:  Ratio ≥ 1.0  AND  EV ≥ 5%    — borderline value
-    ❌ REJECT:  Ratio < 1.0   OR   EV < 5%    — not enough edge
-
-    Returns: dict { tier, emoji, color, kelly_mult, description }
-    """
-    if ratio is None or pd.isna(ratio): ratio = 0.0
-    if ev_pct is None or pd.isna(ev_pct): ev_pct = 0.0
-
-    if ratio >= 2.0 and ev_pct >= 15.0:
-        return {
-            'tier':        'GOLD',
-            'emoji':       '🌟',
-            'color':       '#ffd600',
-            'kelly_mult':  1.5,
-            'description': 'Outlier Value — ลงเงินมากขึ้น 50%'
-        }
-    elif ratio >= 1.5 and ev_pct >= 10.0:
-        return {
-            'tier':        'SILVER',
-            'emoji':       '🥈',
-            'color':       '#c0c8d4',
-            'kelly_mult':  1.0,
-            'description': 'Strong Value — ลงตาม Kelly ปกติ'
-        }
-    elif ratio >= 1.0 and ev_pct >= 5.0:
-        return {
-            'tier':        'BRONZE',
-            'emoji':       '🥉',
-            'color':       '#cd7f32',
-            'kelly_mult':  0.5,
-            'description': 'Borderline Value — ลดเงินครึ่ง'
-        }
-    else:
-        return {
-            'tier':        'REJECT',
-            'emoji':       '❌',
-            'color':       '#ff3b5c',
-            'kelly_mult':  0.0,
-            'description': 'Not Enough Edge — ไม่ควรลง'
-        }
-
-
-# ==========================================
-# 💰 MARKET QUALITY & ARBITRAGE (จากบทความ)
-# ==========================================
-def calc_overround(*odds_list):
-    """
-    คำนวณ Overround / Vigorish — ผลรวมความน่าจะเป็นแฝง × 100
-    
-    Reference:
-      - Tier 1 (ลีกใหญ่): 102-104%  → ตลาด liquid, vig ต่ำ
-      - Tier 2 (มาตรฐาน): 105-107%  → ตลาดปกติ
-      - Tier 3 (รอง/niche): 108-110% → vig สูง หา value ยาก
-      - > 110% = ตลาดเล็กมาก, vig สูงผิดปกติ
-      - < 100% = Underround / Overbroke Book → Arbitrage opportunity!
-    
-    Returns: (overround_pct, tier_label, color, warning_msg)
-    """
-    valid_odds = [float(o) for o in odds_list if o and float(o) > 1.0]
-    if not valid_odds:
-        return 100.0, "Unknown", "#4a7a60", ""
-    
-    overround_pct = sum(1/o for o in valid_odds) * 100
-    
-    if overround_pct < 100.0:
-        return overround_pct, "🚨 UNDERROUND — Arbitrage!", "#00ff88", (
-            f"ความน่าจะเป็นรวม {overround_pct:.2f}% < 100% — "
-            "บ่อนตั้งราคาผิด สามารถ Dutching ทุกฝั่งล็อกกำไรได้!"
-        )
-    elif overround_pct <= 104.0:
-        return overround_pct, "🟢 Tier 1 (Liquid)", "#00ff88", ""
-    elif overround_pct <= 107.0:
-        return overround_pct, "🟡 Tier 2 (Normal)", "#ffd600", ""
-    elif overround_pct <= 110.0:
-        return overround_pct, "🟠 Tier 3 (Niche)", "#ff8c00", (
-            f"Overround {overround_pct:.2f}% สูงกว่าปกติ — vig หนัก หา value ยากขึ้น"
-        )
-    else:
-        return overround_pct, "🔴 Extreme Vig", "#ff3b5c", (
-            f"Overround {overround_pct:.2f}% สูงผิดปกติ — "
-            "ตลาดเล็กมาก หรือบ่อนกำลังเลี่ยงความเสี่ยง ระมัดระวัง!"
-        )
-
-
-def calc_arbitrage_stakes(odds_list, total_stake=1000):
-    """
-    คำนวณ Dutching stakes สำหรับ arbitrage
-    
-    Returns: list of (odds, stake, payout, profit_pct) สำหรับแต่ละผลลัพธ์
-             หรือ None ถ้าไม่มี arbitrage
-    """
-    valid = [float(o) for o in odds_list if o and float(o) > 1.0]
-    if len(valid) < 2: return None
-    
-    total_implied = sum(1/o for o in valid)
-    if total_implied >= 1.0:
-        return None   # ไม่มี arbitrage
-    
-    # คำนวณ stake แต่ละฝั่งให้ได้ payout เท่ากัน
-    target_payout = total_stake / total_implied
-    results = []
-    for o in valid:
-        stake = target_payout / o
-        payout = stake * o
-        results.append({
-            'odds': o,
-            'stake': round(stake, 2),
-            'payout': round(payout, 2),
-            'profit': round(payout - total_stake, 2),
-            'profit_pct': round((payout - total_stake) / total_stake * 100, 2)
-        })
-    return results
-
-
-# ==========================================
-# 🛡️ LAYER 3 — RULE VALIDATION
-# ==========================================
-# ตรวจกฎใหม่ก่อน insert เพื่อป้องกัน AI สร้างกฎมั่ว
-# Reject ถ้ากฎอ้างฟิลด์ที่ระบบไม่มี (BLACKLIST)
-BLACKLIST_KEYWORDS = [
-    # สถิติย้อนหลัง — ระบบไม่มี
-    'สถิติ', 'ค่าเฉลี่ย', 'นัดหลัง', 'นัดหลังสุด', 'นัดล่าสุด',
-    'ประวัติ', 'ฟอร์ม', 'h2h', 'past 5', 'last 5', '5 นัด', '3 นัด',
-    # ข้อมูลลีก — ระบบไม่มี
-    'ลีกใหญ่', 'ลีกรอง', 'ลีกใหม่', 'ลีกกึ่งอาชีพ', 'พรีเมียร์',
-    # สถิติผู้เล่น — ระบบไม่มี
-    'การยิงประตู', 'การเสียประตู', 'อัตราการยิง', 'อัตราการทำประตู',
-    'นักเตะ', 'ผู้รักษาประตู', 'กองหน้า', 'กองหลัง',
-    # เหตุการณ์ — Pre-match ไม่มีข้อมูล
-    'ใบเหลือง', 'ใบแดง',   # Live มี rc_h/rc_a แต่ AI ไม่ควรอ้างใน rule string
-    # คำกำกวม
-    'sweet spot', 'momentum range', 'trap line', 'ultra-low', 'super ev',
-    # ปัจจัยภายนอก
-    'สภาพอากาศ', 'สนาม', 'แฟนบอล', 'derby', 'ดาร์บี้', 'ศึกสายเลือด',
-]
-
-
-def validate_rule_against_whitelist(rule_text):
-    """
-    ตรวจกฎใหม่ — return (is_valid, reason)
-    True  = กฎใช้แค่ whitelist field, ผ่าน
-    False = อ้างฟิลด์ blacklist, reject
-    """
-    if not rule_text or not isinstance(rule_text, str):
-        return False, "กฎว่างเปล่า"
-
-    text_lower = rule_text.lower()
-    found_keywords = []
-    for kw in BLACKLIST_KEYWORDS:
-        if kw.lower() in text_lower:
-            found_keywords.append(kw)
-
-    if found_keywords:
-        return False, f"อ้างฟิลด์ที่ระบบไม่มี: {', '.join(found_keywords[:3])}"
-
-    # ตรวจว่ามี syntax ที่ระบบเข้าใจไหม (อย่างน้อย 1 keyword จาก whitelist)
-    whitelist_keywords = ['ev_pct', 'odds', 'line', 'target', 'market', 'base_ev',
-                          'เจ้าบ้าน', 'ทีมเยือน', 'สูง', 'ต่ำ', 'ทีมต่อ', 'ทีมรอง',
-                          'live', 'minute', 'score']
-    has_whitelist = any(kw in text_lower for kw in whitelist_keywords)
-    if not has_whitelist:
-        return False, "ไม่มีฟิลด์ใน whitelist เลย — กฎใช้งานไม่ได้"
-
-    return True, "OK"
-
-
-def check_rule_duplicate(rule_text, existing_rules_text):
-    """
-    ตรวจ similarity กับกฎที่มีอยู่
-    return True ถ้าน่าจะซ้ำ (>70% เหมือนกัน)
-    """
-    if not existing_rules_text:
-        return False
-    new_words = set(rule_text.lower().split())
-    if len(new_words) < 3:
-        return False
-    for existing in existing_rules_text.split('\n'):
-        if not existing.strip():
-            continue
-        existing_words = set(existing.lower().split())
-        if len(existing_words) < 3:
-            continue
-        overlap = len(new_words & existing_words) / max(len(new_words), len(existing_words))
-        if overlap > 0.70:
-            return True
-    return False
-
-
-# ==========================================
-# 🔍 LAYER 4 — AUTO-AUDIT (Trigger Frequency)
-# ==========================================
-def audit_rule_usage(rule_text, recent_bets, days=30):
-    """
-    เช็คว่ากฎนี้น่าจะ trigger บ่อยแค่ไหนใน N ไม้ที่ผ่านมา
-    Returns: (estimated_trigger_count, percentage, recommendation)
-    """
-    if recent_bets.empty:
-        return 0, 0.0, "ไม่มีข้อมูล"
-
-    # แยก keyword สำคัญจาก rule_text
-    text_lower = rule_text.lower()
-    matches = 0
-    total = len(recent_bets)
-
-    # ตรวจ pattern หลัก ๆ
-    for _, row in recent_bets.iterrows():
-        match_score = 0
-        target = str(row.get('Target', '')).lower()
-        try:
-            line = abs(float(row.get('HDP', 0)))
-            odds = float(row.get('Odds', 0))
-            ev_pct = float(row.get('EV_Pct', 0))
-        except:
-            line, odds, ev_pct = 0, 0, 0
-
-        is_live = '[live' in str(row.get('Match', '')).lower()
-
-        # Match target keyword
-        if 'ต่ำ' in text_lower and target == 'ต่ำ':           match_score += 1
-        if 'สูง' in text_lower and target == 'สูง':           match_score += 1
-        if 'เจ้าบ้าน' in text_lower and target == 'เจ้าบ้าน':  match_score += 1
-        if 'ทีมเยือน' in text_lower and target == 'ทีมเยือน':  match_score += 1
-        if 'live' in text_lower and is_live:                   match_score += 1
-
-        # Match line range (rough)
-        if match_score > 0:
-            matches += 1
-
-    pct = (matches / total * 100) if total > 0 else 0
-
-    if pct < 5:
-        rec = "🟡 Low trigger (<5%) — กฎนี้แทบไม่ active"
-    elif pct < 15:
-        rec = "🟢 Moderate trigger — ใช้งานได้"
-    else:
-        rec = "🔵 High trigger — กฎนี้มีผลต่อระบบสูง"
-
-    return matches, pct, rec
-
-
-# ==========================================
-# 🔍 DUPLICATE BET DETECTOR (Hybrid Mode)
-# ==========================================
-def find_duplicate_bets(match_name, target, hours_window=24):
-    """
-    หาบิลซ้ำในฐานข้อมูล:
-    - Match name เหมือนกัน (case-insensitive, strip)
-    - Target เหมือนกัน
-    - ภายใน N ชั่วโมง
-    - Result == "" (ยังไม่ settled)
-    - ไม่เป็น [LIVE] (เพราะคนละตลาด)
-
-    Returns: list of duplicate row dicts หรือ []
-    """
-    if not supabase: return []
-    try:
-        logs = load_logs()
-        if logs is None or logs.empty: return []
-
-        # Normalize match name สำหรับเทียบ
-        clean_target_name = str(match_name).strip().lower()
-
-        # filter conditions
-        df = logs.copy()
-        df['_clean_match'] = df['Match'].astype(str).str.strip().str.lower()
-        df['_is_live']     = df['Match'].astype(str).str.upper().str.contains('LIVE', na=False)
-        df['_result_str']  = df['Result'].astype(str).str.strip()
-
-        # หาเฉพาะที่ตรงเงื่อนไข
-        cutoff = datetime.now(timezone(timedelta(hours=7))) - timedelta(hours=hours_window)
-        df_match = df[
-            (df['_clean_match'] == clean_target_name) &
-            (df['Target'] == target) &
-            (df['_result_str'] == "") &
-            (~df['_is_live']) &
-            (df['Time'] >= pd.Timestamp(cutoff).tz_localize(None) if df['Time'].dt.tz is None else df['Time'] >= cutoff)
-        ].copy()
-
-        return df_match.to_dict('records')
-    except Exception as e:
-        return []
-
-
-def get_recommendation(new_base_ev, old_base_ev, new_odds, old_odds, delta_thr=3.0):
-    """
-    คำนวณคำแนะนำการตัดสินใจ
-    Returns: (color, emoji, message, action_hint)
-    """
-    ev_diff = new_base_ev - old_base_ev      # หน่วยเป็น %
-    odds_diff = new_odds - old_odds
-
-    if ev_diff >= delta_thr:
-        return ("#00ff88", "🟢",
-                f"แนะนำลงทับ — EV ใหม่ดีกว่าเดิม {ev_diff:+.2f}%",
-                "ราคาใหม่ดีขึ้นอย่างมีนัยสำคัญ ตลาดยังไม่ปรับ → จับโอกาสได้")
-    elif ev_diff <= -delta_thr:
-        return ("#ff3b5c", "🔴",
-                f"แนะนำลบบิลเก่าทิ้ง — EV ใหม่แย่กว่าเดิม {ev_diff:+.2f}%",
-                "ราคาแย่ลงมาก ตลาดปรับแล้ว → บิลเก่ามี value ลดลง ควรยกเลิก")
-    else:
-        return ("#ffd600", "🟡",
-                f"ไม่แนะนำลงซ้ำ — EV ใกล้เดิม ({ev_diff:+.2f}%)",
-                "ความแตกต่างไม่มีนัยสำคัญ ไม่จำเป็นต้องซื้อซ้ำ")
-
-
-# ==========================================
-# 🛑 DAILY STOP LOSS / RISK GUARD
-# ==========================================
-def check_daily_risk_status(bankroll, stop_loss_pct, bet_cap):
-    """
-    ตรวจสอบสถานะความเสี่ยงประจำวันจาก investment_logs
-    คืนค่า dict:
-      'blocked'       : True ถ้าโดน lock (ห้ามลงไม้ใหม่)
-      'reason'        : เหตุผลที่ block
-      'today_pnl'     : กำไร/ขาดทุนวันนี้
-      'today_bets'    : จำนวนไม้วันนี้
-      'today_invested': เงินลงทุนรวมวันนี้
-      'stop_loss_thb' : จำนวนเงิน stop loss (THB)
-      'remaining_thb' : เหลือก่อนถึง stop loss
-    """
-    tz_th     = timezone(timedelta(hours=7))
-    today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
-    stop_loss_thb = bankroll * (stop_loss_pct / 100.0)
-
-    logs = load_logs()
-    if logs.empty:
-        return {
-            'blocked': False, 'reason': '',
-            'today_pnl': 0.0, 'today_bets': 0, 'today_invested': 0.0,
-            'stop_loss_thb': stop_loss_thb, 'remaining_thb': stop_loss_thb
-        }
-
-    # filter เฉพาะวันนี้
-    today_logs = logs[logs['Time'].astype(str).str.contains(today_str, na=False)].copy()
-    if today_logs.empty:
-        return {
-            'blocked': False, 'reason': '',
-            'today_pnl': 0.0, 'today_bets': 0, 'today_invested': 0.0,
-            'stop_loss_thb': stop_loss_thb, 'remaining_thb': stop_loss_thb
-        }
-
-    # คำนวณ P&L วันนี้
-    today_logs['Net_Profit'] = today_logs.apply(calc_pnl, axis=1)
-    today_pnl      = float(today_logs['Net_Profit'].sum())
-    today_bets     = int(len(today_logs))
-    today_invested = float(today_logs[today_logs['Investment'] > 0]['Investment'].sum())
-
-    # ตรวจ stop loss
-    blocked = False
-    reason  = ''
-    if today_pnl <= -stop_loss_thb:
-        blocked = True
-        reason  = (f"🛑 ถึงเพดาน Daily Stop Loss แล้ว ({today_pnl:+,.0f} ≤ -{stop_loss_thb:,.0f}) "
-                   f"— ระบบล็อกการลงไม้ใหม่จนถึงเที่ยงคืน เพื่อป้องกัน Tilt")
-    elif today_bets >= bet_cap:
-        blocked = True
-        reason  = (f"🛑 ถึงเพดาน Max Bets / Day ({today_bets} ≥ {bet_cap} ไม้) "
-                   f"— ระบบล็อกการลงไม้ใหม่จนถึงเที่ยงคืน เพื่อป้องกัน Over-trading")
+    g1_pass, g1_tier, g1_val = check_gate1_market_quality(ah_overround, ou_overround)
+    g2_pass, g2_val = check_gate2_win_probability(win_rate)
+    g3_pass, g3_val = check_gate3_odds_range(odds)
+    g4_pass, g4_val = check_gate4_math_market_agreement(p_cover_math, p_cover_market)
+
+    all_pass = g1_pass and g2_pass and g3_pass and g4_pass
 
     return {
-        'blocked':        blocked,
-        'reason':         reason,
-        'today_pnl':      today_pnl,
-        'today_bets':     today_bets,
-        'today_invested': today_invested,
-        'stop_loss_thb':  stop_loss_thb,
-        'remaining_thb':  stop_loss_thb + today_pnl   # เป็นบวก = เหลือ, เป็นลบ = เกิน
+        'gate1': {'pass': g1_pass, 'label': 'Market Quality', 'value': g1_val, 'detail': g1_tier},
+        'gate2': {'pass': g2_pass, 'label': 'Win Probability', 'value': g2_val, 'detail': f"{g2_val*100:.1f}% (need ≥{GATE2_MIN_WINRATE*100:.0f}%)"},
+        'gate3': {'pass': g3_pass, 'label': 'Odds Range', 'value': g3_val, 'detail': f"{g3_val:.2f} (need {ODDS_MIN}-{ODDS_MAX})"},
+        'gate4': {'pass': g4_pass, 'label': 'Math-Market Agreement', 'value': g4_val, 'detail': f"Δ{g4_val*100:.1f}% (max {GATE4_MAX_DIVERGENCE*100:.0f}%)"},
+        'all_pass': all_pass,
+        'gates_passed': sum([g1_pass, g2_pass, g3_pass, g4_pass]),
     }
 
 
-# ==========================================
-# 🖥️ HEADER
-# ==========================================
+def get_bet_tier(win_rate):
+    """กำหนด tier ตาม win_rate สำหรับ Phase 2 (Dynamic sizing)"""
+    if win_rate >= 0.62:
+        return "Strong", 0.05
+    elif win_rate >= 0.58:
+        return "Medium", 0.03
+    else:
+        return "Weak", 0.02
+
+
+def calc_bet_size(bankroll, win_rate, phase=1):
+    """
+    คำนวณขนาดเงินเดิมพัน
+    Phase 1: Fixed 2% เสมอ (calibration — ไม้ที่ 1-50)
+    Phase 2: Dynamic ตาม tier (หลัง 50 ไม้ ถ้า WR≥53%)
+    """
+    if phase == 1:
+        return bankroll * 0.02, "Fixed", 0.02
+    else:
+        tier, pct = get_bet_tier(win_rate)
+        return bankroll * pct, tier, pct
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 🧪 GATE 5 — STAT-DIVERGENCE FILTER (หัวใจของ v5.0)
+# ════════════════════════════════════════════════════════════════════════
+# จากหลักฐาน 12 เคส (เก็บนอกระบบ เป็น reference ไม่ใช่ seed data):
+#   - High divergence (>=40% ใน Win/Lose) -> Market มักถูกกว่า (2/2 เคส)
+#     ตรงข้ามสัญชาตญาณ: divergence ใหญ่ = stat กำลังโดน small-sample noise
+#     หลอก ไม่ใช่ตลาดพลาด
+#   - Low-liquidity market (women's league, lower-tier, cup ไม่มี ranking)
+#     -> Stat total goals อาจมี edge (2/2 เคสแต่ sample เล็กมาก)
+# Gate 5 จึงเป็น "ตัวเตือน" ไม่ใช่ "ตัวบล็อก" -- ไม่เปลี่ยน Win Rate/EV จาก
+# Math Engine แต่ให้ confidence adjustment + warning ที่ผู้ใช้ตัดสินใจเอง
+# ════════════════════════════════════════════════════════════════════════
+
+EXTREME_DIVERGENCE_THRESHOLD = 0.40
+MODERATE_DIVERGENCE_THRESHOLD = 0.15
+
+
+def classify_league_tier(league_name, has_ranking, home_team="", away_team=""):
+    """
+    จำแนกตลาดเป็น tier ตามสัญญาณที่หาได้จากชื่อลีก + ชื่อทีม + การมี ranking
+    Returns: 'women' | 'cup_no_rank' | 'major' | 'niche'
+    หมายเหตุ: ชื่อลีกอย่างเดียวอาจไม่พอ (เช่น "Nadeshiko League" ไม่มีคำว่า
+    "women" ตรงๆ) จึงเช็คชื่อทีมประกอบด้วย เพราะทีมหญิงมักมีคำว่า "Women"/"Ladies"
+    ต่อท้ายชื่อทีมแม้ลีกจะไม่มีคำนั้น
+    """
+    combined = f"{league_name or ''} {home_team or ''} {away_team or ''}".lower()
+    women_keywords = ['women', 'ladies', 'หญิง', 'nadeshiko', 'feminin', 'femenino',
+                      "women's", 'wsl', 'frauen']
+    if any(kw in combined for kw in women_keywords):
+        return 'women'
+    name_lower = (league_name or "").lower()
+    major_keywords = ['world cup', 'champions league', 'premier league', 'la liga',
+                      'serie a', 'bundesliga', 'fifa', 'euro ', 'uefa']
+    if any(kw in name_lower for kw in major_keywords):
+        return 'major'
+    if not has_ranking:
+        return 'cup_no_rank'
+    return 'niche'
+
+
+def stat_p_home_from_inputs(home_w, home_d, home_l, home_gf, home_ga,
+                             away_w, away_d, away_l, away_gf, away_ga):
+    """คำนวณ Stat-based P(Home win) จาก 5 นัดหลังสุด"""
+    home_gpg  = home_gf / 5; away_gpg  = away_gf / 5
+    home_gapg = home_ga / 5; away_gapg = away_ga / 5
+    home_form_score = home_w * 3 + home_d
+    away_form_score = away_w * 3 + away_d
+    denom = home_form_score + away_form_score
+    stat_p_home_raw = home_form_score / denom if denom > 0 else 0.5
+    home_gd = home_gpg - home_gapg
+    away_gd = away_gpg - away_gapg
+    gd_factor = (home_gd - away_gd) * 0.05
+    stat_p_home = max(0.10, min(0.85, stat_p_home_raw + gd_factor))
+    stat_lh = (home_gpg + away_gapg) / 2
+    stat_la = (away_gpg + home_gapg) / 2
+    stat_total = stat_lh + stat_la
+    return stat_p_home, stat_total, stat_lh, stat_la
+
+
+def evaluate_gate5(league_name, home_rank, away_rank, temp,
+                    home_w, home_d, home_l, home_gf, home_ga,
+                    away_w, away_d, away_l, away_gf, away_ga,
+                    market_p_home, ou_line, home_team="", away_team=""):
+    """ประเมิน Gate 5 ทั้งหมด -- คืนค่า dict พร้อม warnings/signals"""
+    has_ranking = (home_rank != "-" and away_rank != "-")
+    league_tier = classify_league_tier(league_name, has_ranking, home_team, away_team)
+
+    stat_p_home, stat_total, stat_lh, stat_la = stat_p_home_from_inputs(
+        home_w, home_d, home_l, home_gf, home_ga,
+        away_w, away_d, away_l, away_gf, away_ga
+    )
+
+    divergence_wl = stat_p_home - market_p_home
+    home_wr_5g = home_w / 5
+    away_wr_5g = away_w / 5
+    extreme_wr = (home_wr_5g in (0.0, 1.0)) or (away_wr_5g in (0.0, 1.0))
+
+    signals = []
+    abs_div = abs(divergence_wl)
+    if abs_div >= EXTREME_DIVERGENCE_THRESHOLD:
+        favored_side = "Home" if divergence_wl > 0 else "Away"
+        signals.append({
+            'type': 'warning', 'level': 'high',
+            'title': f"EXTREME DIVERGENCE (D{divergence_wl*100:+.0f}%)",
+            'detail': (f"Stat บอก {favored_side} ได้เปรียบกว่าตลาดมาก -- จากหลักฐานที่เก็บมา "
+                      f"divergence ระดับนี้มักหมายถึง Stat กำลังโดน small-sample noise หลอก "
+                      f"ไม่ใช่ตลาดพลาด แนะนำเชื่อ Market มากกว่า Stat ในกรณีนี้")
+        })
+    elif abs_div >= MODERATE_DIVERGENCE_THRESHOLD:
+        favored_side = "Home" if divergence_wl > 0 else "Away"
+        signals.append({
+            'type': 'info', 'level': 'medium',
+            'title': f"Moderate Divergence (D{divergence_wl*100:+.0f}%)",
+            'detail': f"Stat กับ Market เริ่มเห็นต่างกัน (เอนเอียงไปทาง {favored_side}) -- ข้อมูลยังไม่พอสรุปทิศทาง"
+        })
+    else:
+        signals.append({
+            'type': 'success', 'level': 'low',
+            'title': f"Low Divergence (D{divergence_wl*100:+.0f}%)",
+            'detail': "Stat กับ Market ใกล้เคียงกัน -- ไม่มีสัญญาณขัดแย้งที่ต้องระวังเป็นพิเศษ"
+        })
+
+    divergence_goals = stat_total - ou_line
+    if league_tier in ('women', 'cup_no_rank') and divergence_goals > 0.3:
+        signals.append({
+            'type': 'opportunity', 'level': 'medium',
+            'title': f"Low-Liquidity Goals Signal ({league_tier})",
+            'detail': (f"ตลาดนี้เป็น {league_tier} (liquidity ต่ำ) และ Stat total goals "
+                      f"({stat_total:.2f}) สูงกว่า Market line ({ou_line}) อยู่ {divergence_goals:+.2f} "
+                      f"-- จากหลักฐานเบื้องต้น ตลาดประเภทนี้อาจ undervalue goals "
+                      f"(sample เล็กมาก ใช้เป็นข้อมูลประกอบเท่านั้น)")
+        })
+
+    if extreme_wr:
+        which = []
+        if home_wr_5g in (0.0, 1.0): which.append(f"Home WR={home_wr_5g*100:.0f}%")
+        if away_wr_5g in (0.0, 1.0): which.append(f"Away WR={away_wr_5g*100:.0f}%")
+        signals.append({
+            'type': 'neutral', 'level': 'info',
+            'title': f"Extreme WR Detected ({', '.join(which)})",
+            'detail': ("จากหลักฐานที่เก็บมา Extreme WR (0%/100% ใน 5 นัด) "
+                      "ไม่ใช่ตัวบ่งชี้ที่เชื่อถือได้ ว่า Stat จะถูกหรือผิด (ผลออกมาแบบผสมกัน) "
+                      "-- เป็นแค่ข้อสังเกต ไม่ใช่ signal")
+        })
+
+    return {
+        'league_tier': league_tier,
+        'stat_p_home': stat_p_home,
+        'stat_total': stat_total,
+        'stat_lh': stat_lh, 'stat_la': stat_la,
+        'divergence_wl': divergence_wl,
+        'divergence_goals': divergence_goals,
+        'home_wr_5g': home_wr_5g, 'away_wr_5g': away_wr_5g,
+        'extreme_wr_flag': extreme_wr,
+        'ranking_agrees': has_ranking,
+        'signals': signals,
+    }
+
+
+def gate5_confidence_adjustment(gate5_result, recommended_side_is_home):
+    """
+    แปลง Gate 5 signals เป็นคำแนะนำปรับ confidence (ไม่บังคับ, ผู้ใช้ตัดสินใจเอง)
+    Returns: (adjustment_label, adjustment_color, suggested_bet_multiplier)
+    """
+    has_extreme_warning = any(
+        s['type'] == 'warning' and s['level'] == 'high' for s in gate5_result['signals']
+    )
+    has_opportunity = any(s['type'] == 'opportunity' for s in gate5_result['signals'])
+
+    if has_extreme_warning:
+        # เช็คว่า recommended side ตรงกับฝั่งที่ stat สนับสนุนผิดปกติไหม
+        stat_favors_home = gate5_result['divergence_wl'] > 0
+        if stat_favors_home == recommended_side_is_home:
+            # ระบบกำลังจะแนะนำฝั่งที่ stat สนับสนุนผิดปกติ (ตรงข้ามกับ market) -- ระวังมากสุด
+            return ("⚠️ ลด Confidence — Best Bet ตรงกับฝั่งที่ Stat Diverge สูง", "#ff3b5c", 0.5)
+        else:
+            return ("ℹ️ Extreme Divergence แต่ Best Bet ฝั่งตรงข้าม Stat — ปกติ", "#4a7a60", 1.0)
+    elif has_opportunity:
+        return ("💡 Low-Liquidity Market — Stat อาจมี Edge ใน Goals", "#00b4ff", 1.0)
+    else:
+        return ("✅ ไม่มี Gate 5 Warning พิเศษ", "#00ff88", 1.0)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# 🎨 CSS THEME
+# ════════════════════════════════════════════════════════════════════════
 st.markdown("""
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;">
-  <div style="flex:1;">
-    <div style="font-family:'Share Tech Mono';font-size:0.62rem;color:#1a3528;letter-spacing:0.22em;margin-bottom:3px;">
-      ◈ QUANTITATIVE SPORTS ANALYTICS PLATFORM ◈
-    </div>
-    <h1 style="margin:0;padding:0;line-height:1.1;">
-      GEM SYSTEM <span style="color:#00cc6a;font-size:1.5rem;">10.0</span>
-      &nbsp;<span style="font-size:0.9rem;color:#2a5040;font-family:'Share Tech Mono';font-weight:400;text-shadow:none;">THE ORACLE</span>
-    </h1>
-  </div>
-  <div style="text-align:right;">
-    <div style="font-family:'Share Tech Mono';font-size:0.6rem;color:#1a3528;letter-spacing:.15em;">BUILD v10.0.15</div>
-    <span class="gem-badge">● SYSTEM ONLINE</span>
-  </div>
-</div>
-<div class="gem-divider"></div>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600;700;800&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
+
+.stApp { background: #060c10; }
+* { font-family: 'Rajdhani', sans-serif; }
+
+.gem-panel {
+    background: #0d1e2e;
+    border: 1px solid rgba(0,255,136,0.15);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 10px;
+}
+.gem-label {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 0.72rem;
+    color: #00ff88;
+    letter-spacing: 0.1em;
+    border-left: 3px solid #00ff88;
+    padding-left: 8px;
+    margin-bottom: 10px;
+}
+.gem-divider {
+    border-top: 1px solid rgba(0,255,136,0.1);
+    margin: 14px 0;
+}
+.gate-pass {
+    background: rgba(0,255,136,0.08);
+    border-left: 3px solid #00ff88;
+    border-radius: 0 4px 4px 0;
+    padding: 10px 14px;
+    margin-bottom: 6px;
+}
+.gate-fail {
+    background: rgba(255,59,92,0.08);
+    border-left: 3px solid #ff3b5c;
+    border-radius: 0 4px 4px 0;
+    padding: 10px 14px;
+    margin-bottom: 6px;
+}
+.signal-card {
+    border-radius: 0 4px 4px 0;
+    padding: 10px 14px;
+    margin-bottom: 6px;
+}
+.signal-valid {
+    background: rgba(0,255,136,0.10);
+    border: 2px solid #00ff88;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 12px 0;
+}
+.signal-invalid {
+    background: rgba(255,59,92,0.08);
+    border: 2px solid #ff3b5c;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 12px 0;
+}
+h1, h2, h3 { font-family: 'Exo 2', sans-serif !important; color: #e8f5ee !important; }
+[data-testid="stSidebar"] { background: #050a0d; border-right: 1px solid rgba(0,255,136,0.1); }
+</style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 🔧 SIDEBAR
-# ==========================================
+
+# ════════════════════════════════════════════════════════════════════════
+# 🧭 SIDEBAR
+# ════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    st.markdown('<div class="gem-label">◈ AI ORACLE</div>', unsafe_allow_html=True)
-    if "GEMINI_API_KEY" in st.secrets:
-        api_key = st.secrets["GEMINI_API_KEY"]
-        genai.configure(api_key=api_key)
-        st.markdown('<p class="gem-ok">▶ AI ENGINE: CONNECTED</p>', unsafe_allow_html=True)
-    else:
-        api_key = st.text_input("Gemini API Key", type="password", placeholder="paste key here...")
-        if api_key:
-            genai.configure(api_key=api_key)
-            st.markdown('<p class="gem-ok">▶ CONNECTED</p>', unsafe_allow_html=True)
-        else:
-            st.markdown('<p class="gem-warn">▶ AWAITING KEY</p>', unsafe_allow_html=True)
-
-    st.markdown('<div class="gem-label" style="margin-top:10px;">◈ DATABASE</div>', unsafe_allow_html=True)
-    if supabase:
-        st.markdown('<p class="gem-ok">▶ SUPABASE: ONLINE</p>', unsafe_allow_html=True)
-        st.markdown('<p class="gem-dim">▸ CLOUD SYNC ACTIVE</p>', unsafe_allow_html=True)
-    else:
-        st.markdown('<p class="gem-err">▶ SUPABASE: OFFLINE</p>', unsafe_allow_html=True)
-
-    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="gem-label">◈ PORTFOLIO</div>', unsafe_allow_html=True)
-    total_bankroll = st.number_input("Bankroll (THB)", min_value=0.0, value=10000.0)
-
-    # ══════════════════════════════════════════════════════════════════
-    # ◈ SIMPLE MODE — Risk Profile-Driven Configuration
-    # ══════════════════════════════════════════════════════════════════
-    # ตั้งค่าด้วย dropdown เดียว → ระบบจัดการ HDBA, Kelly, Cap, Thresholds ให้
-    # ผู้ใช้ขั้นสูงสามารถเปิด Advanced Settings เพื่อ override ได้
-    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="gem-label">◈ RISK PROFILE</div>', unsafe_allow_html=True)
-
-    risk_profile = st.selectbox(
-        "เลือก Profile",
-        ["⚖️ Balanced (แนะนำ)", "🛡️ Conservative", "🔥 Aggressive"],
-        label_visibility="collapsed",
-        help=(
-            "Conservative: กรองเข้ม, Kelly ต่ำ, Stop Loss แคบ — เหมาะกับมือใหม่\n"
-            "Balanced: ค่ามาตรฐานทางวิชาการ — เหมาะกับคนส่วนใหญ่\n"
-            "Aggressive: กรองหลวม, Kelly สูง, Stop Loss กว้าง — สำหรับ bankroll ใหญ่"
-        )
-    )
-
-    # ── Preset Values สำหรับแต่ละ Profile ─────────────────────────
-    if "Conservative" in risk_profile:
-        preset = {
-            'hdba_val':          0.55,    # หัก Dog edge หนัก
-            'kelly_fraction':    0.15,    # Eighth Kelly
-            'max_bet_cap':       3.0,     # ลิมิตเงิน 3%
-            'daily_stop_pct':    7.0,     # Stop loss 7%
-            'daily_bet_cap':     3,       # 3 ไม้/วัน
-            'pre_ah_fav_thr':    12.0,    # threshold สูง
-            'pre_ah_dog_thr':    18.0,
-            'pre_ou_over_thr':   8.0,
-            'pre_ou_under_thr':  15.0,
-            'live_ah_fav_thr':   14.0,
-            'live_ah_dog_thr':   20.0,
-            'live_ou_over_thr':  10.0,
-            'live_ou_under_thr': 16.0,
-            'profile_color':     '#00b4ff',
-            'profile_desc':      'กรองเข้ม Kelly 1/8 — ไม่ค่อยลง แต่ปลอดภัย',
-        }
-    elif "Aggressive" in risk_profile:
-        preset = {
-            'hdba_val':          0.35,    # หัก Dog edge น้อย
-            'kelly_fraction':    0.35,    # > Quarter Kelly
-            'max_bet_cap':       7.0,     # ลิมิตเงิน 7%
-            'daily_stop_pct':    15.0,    # Stop loss กว้าง 15%
-            'daily_bet_cap':     8,       # 8 ไม้/วัน
-            'pre_ah_fav_thr':    5.0,     # threshold ต่ำ
-            'pre_ah_dog_thr':    10.0,
-            'pre_ou_over_thr':   3.0,
-            'pre_ou_under_thr':  8.0,
-            'live_ah_fav_thr':   7.0,
-            'live_ah_dog_thr':   12.0,
-            'live_ou_over_thr':  4.0,
-            'live_ou_under_thr': 10.0,
-            'profile_color':     '#ff8c00',
-            'profile_desc':      'ลงเยอะ Kelly 0.35 — เหมาะกับ bankroll ใหญ่',
-        }
-    else:   # Balanced (default)
-        preset = {
-            'hdba_val':          0.45,    # Calibration v3.1 default
-            'kelly_fraction':    0.25,    # Quarter Kelly (มาตรฐาน)
-            'max_bet_cap':       5.0,     # 5% safety standard
-            'daily_stop_pct':    10.0,    # 10% — anti-tilt
-            'daily_bet_cap':     5,       # 5 ไม้/วัน
-            'pre_ah_fav_thr':    8.0,
-            'pre_ah_dog_thr':    14.0,
-            'pre_ou_over_thr':   5.0,
-            'pre_ou_under_thr':  12.0,
-            'live_ah_fav_thr':   10.0,
-            'live_ah_dog_thr':   15.0,
-            'live_ou_over_thr':  6.0,
-            'live_ou_under_thr': 13.0,
-            'profile_color':     '#00ff88',
-            'profile_desc':      'Quarter Kelly + threshold มาตรฐาน — แนะนำ',
-        }
-
-    # Banner แสดง profile
     st.markdown(
-        f'<div style="background:rgba(0,0,0,0.3);'
-        f'border-left:3px solid {preset["profile_color"]};border-radius:3px;'
-        f'padding:6px 10px;margin-top:4px;'
-        f'font-family:\'Share Tech Mono\';font-size:0.66rem;color:{preset["profile_color"]};">'
-        f'▸ {preset["profile_desc"]}'
-        f'</div>',
+        '<div style="text-align:center;padding:10px 0 16px 0;">'
+        '<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.3rem;color:#00ff88;">'
+        '🎯 GEM 5.0</div>'
+        '<div style="font-family:\'Share Tech Mono\';font-size:0.65rem;color:#4a7a60;'
+        'letter-spacing:0.1em;">STAT-VS-MARKET EDITION</div></div>',
+        unsafe_allow_html=True
+    )
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+
+    st.markdown('<div class="gem-label">◈ BANKROLL MANAGEMENT</div>', unsafe_allow_html=True)
+    bankroll = st.number_input("Bankroll (฿)", min_value=1000.0, step=1000.0,
+                                key='bankroll', format="%.0f")
+    bet_phase = st.radio(
+        "Betting Phase",
+        options=[1, 2],
+        format_func=lambda x: "Phase 1 — Fixed 2% (Calibration)" if x == 1
+                               else "Phase 2 — Dynamic 2/3/5%",
+        key='bet_phase',
+    )
+    if bet_phase == 1:
+        st.caption(f"💰 ทุกบิลลง **{bankroll*0.02:,.0f} ฿** (2%)")
+    else:
+        st.caption(f"💰 Weak 2%={bankroll*0.02:,.0f}฿ · Medium 3%={bankroll*0.03:,.0f}฿ · "
+                   f"Strong 5%={bankroll*0.05:,.0f}฿")
+
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ GATE THRESHOLDS (Fixed)</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#c8e6d4;line-height:1.8;">'
+        f'Gate 1 — Market Quality: ≤106% OR<br>'
+        f'Gate 2 — Win Probability: ≥{GATE2_MIN_WINRATE*100:.0f}%<br>'
+        f'Gate 3 — Odds Range: {ODDS_MIN}–{ODDS_MAX}<br>'
+        f'Gate 4 — Math-Market Agree: ≤{GATE4_MAX_DIVERGENCE*100:.0f}% Δ<br>'
+        f'Gate 5 — Stat-Divergence: warning-only (ไม่บล็อก)</div>',
         unsafe_allow_html=True
     )
 
-    # ── ◈ BET SELECTION MODE — ย้ายขึ้นบนสุด (ใช้บ่อย) ──────────────
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    best_bet_only = st.checkbox(
-        "🎯 Best Bet Only Mode",
-        value=False,
-        help="scan 4 ฝั่ง → เลือก 1 ฝั่งที่มี EV/threshold ratio สูงสุด"
-    )
-    # [Feature 1] Auto-Fit λ to Market — Math-only no API
-    auto_fit_lambda = st.checkbox(
-        "🎯 Auto-Fit λ to Market",
-        value=False,
-        help="ใช้ numerical optimization หา λ ที่ fit ราคาตลาดทั้ง 1X2 + OU แทน heuristic"
-    )
-    # [Feature 2] Value Scanner display
-    show_value_scanner = st.checkbox(
-        "💎 Value Scanner Panel",
-        value=False,
-        help="แสดงตาราง Math P vs Bookie P + Edge ทุก side ใต้ Probability Engine"
-    )
-
-    # ══════════════════════════════════════════════════════════════════
-    # ◈ ADVANCED SETTINGS — Override Profile (collapsed by default)
-    # ══════════════════════════════════════════════════════════════════
-    with st.expander("⚙️ ADVANCED SETTINGS — Override Profile", expanded=False):
-        st.markdown(
-            '<p style="font-family:\'Rajdhani\';font-size:0.74rem;color:#4a7a60;'
-            'margin:-4px 0 8px 0;">'
-            'ⓘ เปิดเฉพาะเมื่อต้องการปรับค่าจาก profile แนะนำ '
-            'ค่า default = ตาม Risk Profile ที่เลือก</p>',
-            unsafe_allow_html=True
-        )
-
-        override_advanced = st.checkbox(
-            "🔧 เปิด Override (ปลดล็อกการปรับค่า)",
-            value=False,
-            help="เปิดเมื่อต้องการปรับ Kelly, HDBA, Cap, Thresholds เอง"
-        )
-
-        if override_advanced:
-            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ MONEY MANAGEMENT</div>',
-                        unsafe_allow_html=True)
-            adv_c1, adv_c2 = st.columns(2)
-            hdba_val       = adv_c1.slider("HDBA Factor",     0.10, 0.80,
-                                            preset['hdba_val'],       step=0.05)
-            kelly_fraction = adv_c2.slider("Kelly Fraction",  0.05, 0.50,
-                                            preset['kelly_fraction'], step=0.05)
-            max_bet_cap    = st.slider("Max Bet Cap %",       1.0, 10.0,
-                                        preset['max_bet_cap'],    step=0.5)
-
-            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ DAILY RISK GUARD</div>',
-                        unsafe_allow_html=True)
-            adv_d1, adv_d2 = st.columns(2)
-            daily_stop_pct = adv_d1.slider("Stop Loss %",  1.0, 30.0,
-                                            preset['daily_stop_pct'], step=1.0)
-            daily_bet_cap  = adv_d2.slider("Max Bets/Day", 1, 20,
-                                            preset['daily_bet_cap'])
-
-            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ EV THRESHOLDS — PRE-MATCH</div>',
-                        unsafe_allow_html=True)
-            adv_p1, adv_p2 = st.columns(2)
-            pre_ah_fav_thr   = adv_p1.slider("AH Fav %",   1.0, 50.0, preset['pre_ah_fav_thr'],   step=0.5)
-            pre_ah_dog_thr   = adv_p2.slider("AH Dog %",   1.0, 50.0, preset['pre_ah_dog_thr'],   step=0.5)
-            adv_p3, adv_p4 = st.columns(2)
-            pre_ou_over_thr  = adv_p3.slider("OU Over %",  1.0, 50.0, preset['pre_ou_over_thr'],  step=0.5)
-            pre_ou_under_thr = adv_p4.slider("OU Under %", 1.0, 50.0, preset['pre_ou_under_thr'], step=0.5)
-
-            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ EV THRESHOLDS — IN-PLAY</div>',
-                        unsafe_allow_html=True)
-            adv_l1, adv_l2 = st.columns(2)
-            live_ah_fav_thr  = adv_l1.slider("AH Live Fav %",  1.0, 50.0, preset['live_ah_fav_thr'],   step=1.0)
-            live_ah_dog_thr  = adv_l2.slider("AH Live Dog %",  1.0, 50.0, preset['live_ah_dog_thr'],   step=1.0)
-            adv_l3, adv_l4 = st.columns(2)
-            live_ou_over_thr  = adv_l3.slider("OU Live Over %",  1.0, 50.0, preset['live_ou_over_thr'],  step=1.0)
-            live_ou_under_thr = adv_l4.slider("OU Live Under %", 1.0, 50.0, preset['live_ou_under_thr'], step=1.0)
-        else:
-            # ใช้ค่า preset ทั้งหมด
-            hdba_val          = preset['hdba_val']
-            kelly_fraction    = preset['kelly_fraction']
-            max_bet_cap       = preset['max_bet_cap']
-            daily_stop_pct    = preset['daily_stop_pct']
-            daily_bet_cap     = preset['daily_bet_cap']
-            pre_ah_fav_thr    = preset['pre_ah_fav_thr']
-            pre_ah_dog_thr    = preset['pre_ah_dog_thr']
-            pre_ou_over_thr   = preset['pre_ou_over_thr']
-            pre_ou_under_thr  = preset['pre_ou_under_thr']
-            live_ah_fav_thr   = preset['live_ah_fav_thr']
-            live_ah_dog_thr   = preset['live_ah_dog_thr']
-            live_ou_over_thr  = preset['live_ou_over_thr']
-            live_ou_under_thr = preset['live_ou_under_thr']
-
-            # แสดง summary ของ profile (สรุปย่อ)
-            st.markdown(
-                f'<div style="font-family:\'Share Tech Mono\';font-size:0.64rem;'
-                f'color:#4a7a60;line-height:1.6;margin-top:6px;">'
-                f'Kelly: <span style="color:#c8e6d4;">{kelly_fraction:.2f}</span> · '
-                f'Cap: <span style="color:#c8e6d4;">{max_bet_cap:.0f}%</span> · '
-                f'HDBA: <span style="color:#c8e6d4;">{hdba_val:.2f}</span><br>'
-                f'Stop: <span style="color:#ffd600;">{daily_stop_pct:.0f}%</span> · '
-                f'Max: <span style="color:#c8e6d4;">{daily_bet_cap} ไม้/วัน</span><br>'
-                f'Pre AH: <span style="color:#c8e6d4;">{pre_ah_fav_thr:.0f}/{pre_ah_dog_thr:.0f}%</span> · '
-                f'OU: <span style="color:#c8e6d4;">{pre_ou_over_thr:.0f}/{pre_ou_under_thr:.0f}%</span>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-
-    # Daily Stop Loss always enabled (จากเดิมเป็น checkbox)
-    # เพราะถูกพิสูจน์แล้วว่าจำเป็น ไม่ควรปิด
-    enable_stop_loss = True
-
-    # ── 🛑 DAILY RISK STATUS DISPLAY ─────────────────────────────────
-    if enable_stop_loss:
-        risk_status = check_daily_risk_status(total_bankroll, daily_stop_pct, daily_bet_cap)
-        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="gem-label">◈ TODAY\'S RISK STATUS</div>', unsafe_allow_html=True)
-
-        # PnL วันนี้
-        pnl_color = ("#00ff88" if risk_status['today_pnl'] > 0
-                     else ("#ff3b5c" if risk_status['today_pnl'] < 0 else "#4a7a60"))
-        st.markdown(
-            f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#4a7a60;line-height:1.7;">'
-            f'P&L วันนี้: <span style="color:{pnl_color};">฿{risk_status["today_pnl"]:+,.0f}</span><br>'
-            f'จำนวนไม้: <span style="color:#c8e6d4;">{risk_status["today_bets"]} / {daily_bet_cap}</span><br>'
-            f'Stop Loss: <span style="color:#ffd600;">-฿{risk_status["stop_loss_thb"]:,.0f}</span><br>'
-            f'เหลือ buffer: <span style="color:#c8e6d4;">฿{risk_status["remaining_thb"]:+,.0f}</span>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
-
-        # warning หรือ blocked banner
-        if risk_status['blocked']:
-            # ── Manual Override Toggle ─────────────────────────────────
-            # ผู้ใช้สามารถปลดล็อกเองได้ (responsibility อยู่ที่ user)
-            # session_state เก็บ "วันที่ปลดล็อก" — รีเซ็ตอัตโนมัติเมื่อข้ามวัน
-            tz_th = timezone(timedelta(hours=7))
-            today_date = datetime.now(tz_th).strftime("%Y-%m-%d")
-            override_key = 'risk_override_date'
-
-            # ถ้าเป็นวันใหม่ → reset override
-            if (override_key in st.session_state and
-                st.session_state[override_key] != today_date):
-                st.session_state[override_key] = None
-
-            is_overridden = st.session_state.get(override_key) == today_date
-
-            if is_overridden:
-                # โหมด unlock — แสดง banner สีเหลืองและปุ่ม lock กลับ
-                st.markdown(
-                    f'<div style="margin-top:8px;padding:8px;background:rgba(255,214,0,0.15);'
-                    f'border-left:3px solid #ffd600;border-radius:3px;'
-                    f'font-family:\'Share Tech Mono\';font-size:0.68rem;color:#ffd600;">'
-                    f'⚠️ UNLOCKED — ลงไม้ได้แต่เสี่ยง</div>',
-                    unsafe_allow_html=True
-                )
-                if st.button("🔒  Lock System อีกครั้ง",
-                              use_container_width=True,
-                              key="btn_lock_again"):
-                    st.session_state[override_key] = None
-                    st.rerun()
-            else:
-                # โหมด locked — แสดง banner แดงและปุ่ม unlock
-                st.markdown(
-                    f'<div style="margin-top:8px;padding:8px;background:rgba(255,59,92,0.15);'
-                    f'border-left:3px solid #ff3b5c;border-radius:3px;'
-                    f'font-family:\'Share Tech Mono\';font-size:0.68rem;color:#ff3b5c;">'
-                    f'🛑 SYSTEM LOCKED</div>',
-                    unsafe_allow_html=True
-                )
-                if st.button("🔓  Unlock (รับผิดชอบเอง)",
-                              use_container_width=True,
-                              key="btn_unlock",
-                              help="ปลดล็อกระบบเพื่อลงไม้ต่อ — รีเซ็ตอัตโนมัติเที่ยงคืน"):
-                    st.session_state[override_key] = today_date
-                    st.toast("🔓 ระบบปลดล็อกแล้ว — โปรดลงทุนอย่างมีสติ", icon="⚠️")
-                    time.sleep(0.5)
-                    st.rerun()
-        elif risk_status['today_pnl'] <= -risk_status['stop_loss_thb'] * 0.7:
-            # เตือนเมื่อใกล้ stop loss (70%)
-            st.markdown(
-                f'<div style="margin-top:8px;padding:8px;background:rgba(255,214,0,0.12);'
-                f'border-left:3px solid #ffd600;border-radius:3px;'
-                f'font-family:\'Share Tech Mono\';font-size:0.68rem;color:#ffd600;">'
-                f'⚠️ ใกล้ Stop Loss — ระวัง</div>',
-                unsafe_allow_html=True
-            )
-
-# [Calibration v3] แปลง threshold เป็นทศนิยม — แยก 8 ตัวตามฝั่ง
-pre_ah_fav_lim   = pre_ah_fav_thr   / 100
-pre_ah_dog_lim   = pre_ah_dog_thr   / 100
-pre_ou_over_lim  = pre_ou_over_thr  / 100
-pre_ou_under_lim = pre_ou_under_thr / 100
-live_ah_fav_lim  = live_ah_fav_thr  / 100
-live_ah_dog_lim  = live_ah_dog_thr  / 100
-live_ou_over_lim = live_ou_over_thr / 100
-live_ou_under_lim= live_ou_under_thr/ 100
-
-# [Backward compat] ใช้ค่าต่ำสุดของแต่ละตลาดสำหรับ gauge display
-pre_ah_thr   = min(pre_ah_fav_thr,   pre_ah_dog_thr)
-pre_ou_thr   = min(pre_ou_over_thr,  pre_ou_under_thr)
-live_ah_thr  = min(live_ah_fav_thr,  live_ah_dog_thr)
-live_ou_thr  = min(live_ou_over_thr, live_ou_under_thr)
-
-# ตัวแปร global สำหรับใช้ใน tab1 และ tab3
-# [Manual Override] ถ้าผู้ใช้กด unlock วันนี้ → ปลดล็อก
-if enable_stop_loss:
-    tz_check = timezone(timedelta(hours=7))
-    today_check = datetime.now(tz_check).strftime("%Y-%m-%d")
-    user_override_today = (st.session_state.get('risk_override_date') == today_check)
-
-    if user_override_today and risk_status['blocked']:
-        # User ปลดล็อกเอง → ไม่ block แต่ยังเตือนใน reason
-        is_risk_blocked   = False
-        risk_block_reason = ''
-    else:
-        is_risk_blocked   = risk_status['blocked']
-        risk_block_reason = risk_status['reason']
-else:
-    is_risk_blocked    = False
-    risk_block_reason  = ''
-
-# ==========================================
-# 🔍 PENDING SAVE STATE — สำหรับ Duplicate Detection Hybrid
-# ==========================================
-# เก็บข้อมูลบิลที่กำลังจะ save แต่ตรวจพบซ้ำ → รอผู้ใช้ตัดสินใจ
-if 'pending_save_queue' not in st.session_state:
-    st.session_state['pending_save_queue'] = []   # list of {new_row, duplicates}
-
-
-@st.dialog("⚠️ DUPLICATE MATCH DETECTED", width="large")
-def show_duplicate_dialog(new_row, duplicates):
-    """
-    Popup เปรียบเทียบบิลใหม่ vs บิลเก่า + 3 ตัวเลือก
-    """
-    st.markdown(
-        f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;'
-        f'color:#ffd600;margin-bottom:10px;">'
-        f'พบบิลซ้ำของแมตช์: {new_row["Match"]} ({new_row["Target"]})</div>',
-        unsafe_allow_html=True
-    )
-
-    # ── คำแนะนำอัตโนมัติ ──────────────────────────────────────
-    # ใช้บิลเก่าตัวล่าสุดเป็น reference
-    old_bet = max(duplicates, key=lambda x: pd.to_datetime(x['Time']))
-    old_base_ev = float(old_bet.get('Base_EV_Pct', old_bet.get('EV_Pct', 0)))
-    old_odds    = float(old_bet.get('Odds', 0))
-    new_base_ev = float(new_row['Base_EV_Pct'])
-    new_odds    = float(new_row['Odds'])
-
-    rec_color, rec_emoji, rec_msg, rec_hint = get_recommendation(
-        new_base_ev, old_base_ev, new_odds, old_odds
-    )
-
-    st.markdown(
-        f'<div style="background:rgba(0,0,0,0.3);border-left:4px solid {rec_color};'
-        f'border-radius:4px;padding:14px 18px;margin-bottom:14px;">'
-        f'<div style="font-family:\'Share Tech Mono\';font-size:0.9rem;color:{rec_color};'
-        f'font-weight:600;margin-bottom:4px;">{rec_emoji} {rec_msg}</div>'
-        f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
-        f'{rec_hint}</div></div>',
-        unsafe_allow_html=True
-    )
-
-    # ── เปรียบเทียบ 2 ฝั่ง ─────────────────────────────────────
-    st.markdown('<div class="gem-label">◈ COMPARISON</div>', unsafe_allow_html=True)
-    cmp1, cmp2, cmp3 = st.columns([1, 1, 1])
-
-    with cmp1:
-        st.markdown(
-            f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
-            f'color:#4a7a60;letter-spacing:0.1em;">FIELD</div>',
-            unsafe_allow_html=True
-        )
-        for label in ["Target", "Base EV", "Net EV", "Odds", "AI Impact", "Time"]:
-            st.markdown(
-                f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
-                f'color:#c8e6d4;line-height:2.2;">{label}</div>',
-                unsafe_allow_html=True
-            )
-
-    with cmp2:
-        old_time = pd.to_datetime(old_bet['Time'])
-        time_ago = datetime.now(timezone(timedelta(hours=7))) - (
-            old_time.tz_localize('UTC') if old_time.tz is None else old_time
-        )
-        hours_ago = time_ago.total_seconds() / 3600
-        time_ago_str = f"{hours_ago:.1f} ชม.ที่แล้ว"
-
-        st.markdown(
-            f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
-            f'color:#ff8c00;letter-spacing:0.1em;">เก่า ({time_ago_str})</div>',
-            unsafe_allow_html=True
-        )
-        old_ai = float(old_bet.get('AI_Impact_Pct', 0))
-        old_net = float(old_bet.get('EV_Pct', 0))
-        for val in [
-            str(old_bet['Target']),
-            f"{old_base_ev:.2f}%",
-            f"{old_net:.2f}%",
-            f"{old_odds:.2f}",
-            f"{old_ai:+.2f}%",
-            old_time.strftime("%H:%M")
-        ]:
-            st.markdown(
-                f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
-                f'color:#c8e6d4;line-height:2.2;">{val}</div>',
-                unsafe_allow_html=True
-            )
-
-    with cmp3:
-        st.markdown(
-            f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
-            f'color:#00ff88;letter-spacing:0.1em;">ใหม่ (ตอนนี้)</div>',
-            unsafe_allow_html=True
-        )
-        new_ai = float(new_row.get('AI_Impact_Pct', 0))
-        new_net = float(new_row.get('EV_Pct', 0))
-
-        ev_delta = new_base_ev - old_base_ev
-        net_delta = new_net - old_net
-        odds_delta = new_odds - old_odds
-        ai_delta = new_ai - old_ai
-
-        def color_arrow(d, threshold=0.5):
-            if d > threshold:   return f' <span style="color:#00ff88;">↑{d:+.2f}</span>'
-            elif d < -threshold: return f' <span style="color:#ff3b5c;">↓{d:+.2f}</span>'
-            else: return f' <span style="color:#4a7a60;">≈</span>'
-
-        values_new = [
-            new_row['Target'],
-            f"{new_base_ev:.2f}%{color_arrow(ev_delta)}",
-            f"{new_net:.2f}%{color_arrow(net_delta)}",
-            f"{new_odds:.2f}{color_arrow(odds_delta, 0.02)}",
-            f"{new_ai:+.2f}%{color_arrow(ai_delta)}",
-            "ตอนนี้"
-        ]
-        for val in values_new:
-            st.markdown(
-                f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
-                f'color:#c8e6d4;line-height:2.2;">{val}</div>',
-                unsafe_allow_html=True
-            )
-
-    # ── เงินลงทุน ─────────────────────────────────────────────
-    st.markdown('<div style="height:10px"></div>', unsafe_allow_html=True)
-    inv_c1, inv_c2 = st.columns(2)
-    inv_c1.metric("Investment เก่า", f"฿{float(old_bet.get('Investment',0)):,.0f}")
-    inv_c2.metric("Investment ใหม่",  f"฿{float(new_row['Investment']):,.0f}")
-
-    # ── 3 ปุ่มตัดสินใจ ────────────────────────────────────────
-    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="gem-label">◈ DECISION</div>', unsafe_allow_html=True)
-
-    bc1, bc2, bc3 = st.columns(3)
-
-    if bc1.button("🔄  บันทึกทับ",
-                   key=f"dup_overwrite_{old_bet['id']}",
-                   use_container_width=True,
-                   type="primary",
-                   help="ลบบิลเก่า + บันทึกบิลใหม่"):
-        try:
-            # ลบเก่าก่อน
-            supabase.table("investment_logs").delete().eq("id", old_bet['id']).execute()
-            # ใส่ใหม่
-            save_db([new_row])
-            load_logs.clear()
-            st.toast(f"🔄 ทับบิลเก่าด้วยบิลใหม่แล้ว", icon="✅")
-            time.sleep(0.6)
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-    if bc2.button("🗑  ลบบิลเก่าทิ้ง",
-                   key=f"dup_delete_{old_bet['id']}",
-                   use_container_width=True,
-                   help="ลบบิลเก่า + ไม่บันทึกบิลใหม่ (ยกเลิกการลงทุน)"):
-        try:
-            supabase.table("investment_logs").delete().eq("id", old_bet['id']).execute()
-            load_logs.clear()
-            st.toast(f"🗑 ลบบิลเก่าแล้ว — ไม่ได้บันทึกบิลใหม่", icon="🚫")
-            time.sleep(0.6)
-            st.rerun()
-        except Exception as e:
-            st.error(f"Error: {e}")
-
-    if bc3.button("⏭  ข้าม",
-                   key=f"dup_skip_{old_bet['id']}",
-                   use_container_width=True,
-                   help="เก็บบิลเก่าไว้ + ไม่บันทึกบิลใหม่"):
-        st.toast("⏭ ข้าม — บิลเก่ายังอยู่ ไม่ได้บันทึกบิลใหม่", icon="ℹ️")
-        time.sleep(0.6)
-        st.rerun()
-
-
-# ==========================================
-# 📑 TABS  — เรียงตามขั้นตอนการใช้งาน: วิเคราะห์ → ลงไม้ → ติดตามผล → ปรับจูน
-# ==========================================
-tab1, tab3, tab2, tab4 = st.tabs([
-    "  PRE-MATCH  ", "  IN-PLAY SNIPER  ", "  DASHBOARD  ", "  BACKTEST  "
-])
-
-# ╔══════════════╗
-# ║  TAB 1       ║
-# ╚══════════════╝
-with tab1:
-    st.markdown('<div class="gem-label">◈ QUICK IMPORT</div>', unsafe_allow_html=True)
-    qi1, qi2 = st.columns(2)
-
-    with qi1:
-        with st.expander("📷 AI VISION — Extract from image"):
-            if not api_key:
-                st.markdown('<p class="gem-warn">▸ API Key required</p>', unsafe_allow_html=True)
-            else:
-                uf = st.file_uploader("Upload odds screenshot", type=['png', 'jpg'])
-                if uf and st.button("⚡ EXTRACT IMAGE", use_container_width=True):
-                    with st.spinner("Scanning Matrix..."):
-                        try:
-                            img   = Image.open(uf)
-                            model = genai.GenerativeModel('models/gemma-4-31b-it')
-                            prompt_img = """สกัดข้อมูลตารางราคาฟุตบอลจากภาพ ตอบกลับ JSON เท่านั้น:
-1. match_name: ทีมแถวบน + " VS " + ทีมแถวล่าง
-2. แฮนดิแคป: hdp_line_val (แปลงเป็นทศนิยม เช่น 0.5/1→0.75), hdp_h_w_val, hdp_a_w_val
-3. สูง/ต่ำ: ou_line_val (แปลงเป็นทศนิยม เช่น 3/3.5→3.25), ou_over_w_val, ou_under_w_val
-4. 1X2: h1x2_val, d1x2_val, a1x2_val
-{"match_name":"","h1x2_val":0.0,"d1x2_val":0.0,"a1x2_val":0.0,"hdp_line_val":0.0,"hdp_h_w_val":0.0,"hdp_a_w_val":0.0,"ou_line_val":0.0,"ou_over_w_val":0.0,"ou_under_w_val":0.0}"""
-                            d = safe_json_loads(model.generate_content([prompt_img, img]).text)
-                            for k, v in d.items():
-                                if k == 'match_name': st.session_state[k] = str(v)
-                                else:
-                                    try: st.session_state[k] = float(v)
-                                    except: st.session_state[k] = 0.0
-                            st.toast("✅ สกัดข้อมูลสำเร็จ!", icon="🎯")
-                            time.sleep(1); st.rerun()
-                        except Exception as e:
-                            st.error(str(e))
-
-    with qi2:
-        with st.expander("⌨️ TEXT PARSER — Paste raw text"):
-            st.text_area("Paste odds...", height=75, key="raw_text")
-            tp1, tp2 = st.columns(2)
-            with tp1:
-                if st.button("⚡ PARSE", use_container_width=True):
-                    try:
-                        raw = st.session_state.raw_text
-                        mv  = re.search(r'(.*VS.*)', raw)
-                        if mv: st.session_state.match_name = mv.group(1).strip()
-                        hm = re.findall(r'^\s*เหย้า\s+([0-9.]+)', raw, re.MULTILINE)
-                        if len(hm) >= 1: st.session_state.h1x2_val    = float(hm[0])
-                        if len(hm) >= 2: st.session_state.hdp_h_w_val = float(hm[1])
-                        dm = re.findall(r'^\s*เสมอ\s+([0-9.]+)', raw, re.MULTILINE)
-                        if dm: st.session_state.d1x2_val = float(dm[0])
-                        am = re.findall(r'^\s*เยือน\s+([0-9.]+)', raw, re.MULTILINE)
-                        if len(am) >= 1: st.session_state.a1x2_val    = float(am[0])
-                        if len(am) >= 2: st.session_state.hdp_a_w_val = float(am[1])
-                        ahm = re.search(r'^\s*AH\s+([-+0-9.,/]+)', raw, re.MULTILINE)
-                        if ahm: st.session_state.hdp_line_val = parse_line(ahm.group(1))
-                        oum = re.search(r'^\s*สูง/ต่ำ\s+([-+0-9.,/]+)', raw, re.MULTILINE)
-                        if oum: st.session_state.ou_line_val = parse_line(oum.group(1))
-                        om = re.search(r'^\s*สูง\s+([0-9.]+)', raw, re.MULTILINE)
-                        if om: st.session_state.ou_over_w_val = float(om.group(1))
-                        um = re.search(r'^\s*ต่ำ\s+([0-9.]+)', raw, re.MULTILINE)
-                        if um: st.session_state.ou_under_w_val = float(um.group(1))
-                        st.toast("✅ Parsed!", icon="🎯")
-                        time.sleep(1); st.rerun()
-                    except Exception as e:
-                        st.error(str(e))
-            with tp2:
-                st.button("🗑 CLEAR", use_container_width=True, on_click=clear_form_data)
+    auto_fit_lambda = st.checkbox("🎯 Auto-Fit λ to Market", value=True)
+    show_value_scanner = st.checkbox("💎 Value Scanner Panel", value=False)
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    match_name = st.text_input("MATCH", key="match_name", placeholder="Home Team VS Away Team")
+    st.caption(
+        "ℹ️ v5.0: Gate 5 ใหม่ใช้หลักฐานจาก 12 เคส reference (เก็บนอกระบบ) "
+        "— extreme divergence (≥40%) เตือนให้เชื่อ Market, low-liquidity market "
+        "(women's/cup) อาจมี Stat edge ใน Total Goals. Gate 5 ไม่บล็อกบิล "
+        "แต่ทุก prediction ถูกบันทึกเพื่อ backtest ในอนาคต"
+    )
 
-    st.markdown('<div class="gem-label" style="margin-top:10px;">◈ MARKET DATA</div>', unsafe_allow_html=True)
+# ════════════════════════════════════════════════════════════════════════
+# 🏠 HEADER + TABS
+# ════════════════════════════════════════════════════════════════════════
+st.markdown(
+    '<div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">'
+    '<span style="font-family:\'Exo 2\';font-weight:800;font-size:1.6rem;color:#e8f5ee;">'
+    '🎯 GEM 5.0 — Stat-vs-Market</span></div>'
+    '<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#4a7a60;margin-bottom:16px;">'
+    'Win Rate First · 5-Gate Filter · Every Prediction Logged for Backtest</div>',
+    unsafe_allow_html=True
+)
+
+tab_pre, tab_log, tab_backtest, tab_dash = st.tabs(
+    ["📋 PRE-MATCH", "📝 PREDICTIONS LOG", "🧪 BACKTEST LAB", "📊 DASHBOARD"]
+)
+
+# ════════════════════════════════════════════════════════════════════════
+# 📋 TAB 1: PRE-MATCH
+# ════════════════════════════════════════════════════════════════════════
+with tab_pre:
+    st.markdown('<div class="gem-label">◈ MATCH INFO</div>', unsafe_allow_html=True)
+    mc_name1, mc_name2 = st.columns(2)
+    home_team = mc_name1.text_input("ทีมเหย้า (Home)", placeholder="เช่น Liverpool")
+    away_team = mc_name2.text_input("ทีมเยือน (Away)", placeholder="เช่น Man City")
+    league_name = st.text_input("ลีก / รายการแข่งขัน", placeholder="เช่น Premier League, FIFA World Cup")
+
+    st.markdown('<div class="gem-label" style="margin-top:10px;">◈ MATCH ODDS</div>', unsafe_allow_html=True)
     mc1, mc2, mc3 = st.columns(3)
     with mc1:
-        st.markdown('<div class="gem-panel"><div class="gem-label">1X2 POOL</div>', unsafe_allow_html=True)
-        h1x2  = st.number_input("HOME",  format="%.2f", key="h1x2_val")
-        d1x2  = st.number_input("DRAW",  format="%.2f", key="d1x2_val")
-        a1x2  = st.number_input("AWAY",  format="%.2f", key="a1x2_val")
+        st.markdown('<div class="gem-panel"><div class="gem-label">1X2</div>', unsafe_allow_html=True)
+        h1x2 = st.number_input("HOME", format="%.2f", key="h1x2_val")
+        d1x2 = st.number_input("DRAW", format="%.2f", key="d1x2_val")
+        a1x2 = st.number_input("AWAY", format="%.2f", key="a1x2_val")
         st.markdown('</div>', unsafe_allow_html=True)
     with mc2:
-        st.markdown('<div class="gem-panel"><div class="gem-label">HANDICAP (AH)</div>', unsafe_allow_html=True)
-        hdp_line_abs = st.number_input("LINE",      format="%.2f", step=0.25, key="hdp_line_val",
-                                         min_value=0.0,
-                                         help="ใส่เลขแฮนดิแคปแบบ absolute (เช่น 0.75) แล้วเลือกฝั่งต่อด้านล่าง")
-        # [Direction Toggle] ผู้ใช้ระบุฝั่งต่อชัดเจน — Default: เจ้าบ้านต่อ
-        hdp_direction = st.radio(
-            "ฝั่งต่อ (Handicap Direction)",
-            ["🏠 เจ้าบ้านต่อ", "✈️ ทีมเยือนต่อ"],
-            horizontal=True,
-            key="hdp_direction_val",
-            help="🏠 เจ้าบ้านต่อ = HOME เป็นทีมแกร่งกว่า ให้แต้มต่อ\n✈️ เยือนต่อ = AWAY เป็นทีมแกร่งกว่า"
-        )
-        # แปลง absolute → signed: เจ้าบ้านต่อ = บวก, เยือนต่อ = ลบ
-        hdp_line = hdp_line_abs if "เจ้าบ้านต่อ" in hdp_direction else -hdp_line_abs
-
-        hdp_h_w  = st.number_input("HOME ODDS", format="%.2f", key="hdp_h_w_val")
-        hdp_a_w  = st.number_input("AWAY ODDS", format="%.2f", key="hdp_a_w_val")
+        st.markdown('<div class="gem-panel"><div class="gem-label">ASIAN HANDICAP</div>', unsafe_allow_html=True)
+        hdp_line_str = st.text_input("LINE (+ เจ้าบ้านต่อ / - ทีมเยือนต่อ)",
+                                      value="0", key="_hdp_line_str")
+        hdp_h_w = st.number_input("HOME ODDS", format="%.2f", key="hdp_h_w_val")
+        hdp_a_w = st.number_input("AWAY ODDS", format="%.2f", key="hdp_a_w_val")
         st.markdown('</div>', unsafe_allow_html=True)
     with mc3:
         st.markdown('<div class="gem-panel"><div class="gem-label">TOTAL GOALS (O/U)</div>', unsafe_allow_html=True)
-        ou_line    = st.number_input("LINE",  format="%.2f", step=0.25, key="ou_line_val")
+        ou_line_str = st.text_input("LINE", value="2.5", key="_ou_line_str")
         ou_over_w  = st.number_input("OVER",  format="%.2f", key="ou_over_w_val")
         ou_under_w = st.number_input("UNDER", format="%.2f", key="ou_under_w_val")
         st.markdown('</div>', unsafe_allow_html=True)
 
+    hdp_line = parse_line(hdp_line_str)
+    ou_line  = abs(parse_line(ou_line_str))
+
+    # ── Stats Input — บังคับกรอกใน v5.0 เพื่อเก็บข้อมูล backtest ──
+    st.markdown('<div class="gem-label" style="margin-top:10px;color:#9b59b6;border-color:#9b59b6;">'
+               '◈ 📋 STAT INPUT (บังคับกรอก — ใช้สำหรับ Gate 5 + Backtest)</div>',
+               unsafe_allow_html=True)
+    st.caption("ⓘ v5.0 บังคับกรอกสถิติทุกครั้งเพื่อให้ทุก prediction ถูกบันทึกสำหรับ backtest ในอนาคต")
+
+    sc1, sc2 = st.columns(2)
+    with sc1:
+        st.markdown('<div style="color:#00ff88;font-family:\'Share Tech Mono\';font-size:0.78rem;">🏠 HOME (5 นัดล่าสุด)</div>',
+                   unsafe_allow_html=True)
+        home_w = st.number_input("Wins(5)", 0, 5, key="stats_home_w")
+        home_d = st.number_input("Draws(5)", 0, 5, key="stats_home_d")
+        home_l = st.number_input("Losses(5)", 0, 5, key="stats_home_l")
+        home_gf = st.number_input("Goals For(5g)", 0, key="stats_home_gf")
+        home_ga = st.number_input("Goals Against(5g)", 0, key="stats_home_ga")
+        home_rank = st.text_input("Rank ('-' if cup)", value="-", key="stats_home_rank")
+    with sc2:
+        st.markdown('<div style="color:#ff8c00;font-family:\'Share Tech Mono\';font-size:0.78rem;">✈️ AWAY (5 นัดล่าสุด)</div>',
+                   unsafe_allow_html=True)
+        away_w = st.number_input("Wins(5) ", 0, 5, key="stats_away_w")
+        away_d = st.number_input("Draws(5) ", 0, 5, key="stats_away_d")
+        away_l = st.number_input("Losses(5) ", 0, 5, key="stats_away_l")
+        away_gf = st.number_input("Goals For(5g) ", 0, key="stats_away_gf")
+        away_ga = st.number_input("Goals Against(5g) ", 0, key="stats_away_ga")
+        away_rank = st.text_input("Rank ('-' if cup) ", value="-", key="stats_away_rank")
+    temp = st.number_input("🌡️ Stadium Temp (°C)", -20, 50, value=25, key="stats_temp")
+
+    home_total = home_w + home_d + home_l
+    away_total = away_w + away_d + away_l
+    stats_complete = (home_total == 5 and away_total == 5)
+    if not stats_complete:
+        if home_total != 5:
+            st.warning(f"⚠️ Home W+D+L = {home_total} ต้องครบ 5 นัด")
+        if away_total != 5:
+            st.warning(f"⚠️ Away W+D+L = {away_total} ต้องครบ 5 นัด")
+
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     # ══════════════════════════════════════════════════════════════════
-    # 📋 MARKET CONSISTENCY CHECKER — กรอกสถิติเพื่อเทียบกับราคาตลาด
+    # ANALYSIS — รันเมื่อมีราคา + stat ครบ
     # ══════════════════════════════════════════════════════════════════
-    # หลักการ: ราคาบ่อนสะท้อนสถิติแล้ว เราใส่สถิติเพื่อเช็คว่า
-    # ตลาดตั้งราคา "สอดคล้อง" หรือ "ขัดแย้ง" กับสถิติพื้นฐาน
-    # ⚠️ ไม่เปลี่ยน Math — ใช้เป็น sanity check เท่านั้น
-    with st.expander("📋 MARKET CONSISTENCY CHECKER — สถิติ 5 นัดหลังสุด (Optional)",
-                     expanded=False):
-        st.markdown(
-            '<p style="font-family:\'Rajdhani\';font-size:0.78rem;color:#4a7a60;'
-            'margin:-4px 0 12px 0;">'
-            'ⓘ กรอกสถิติเพื่อเทียบกับราคาตลาด — ระบบจะบอกว่าตลาดเชื่อ stats หรือต่างไป '
-            '<strong>(ไม่กระทบ Math Engine)</strong></p>',
-            unsafe_allow_html=True
-        )
+    valid_odds = h1x2 > 1.0 and d1x2 > 1.0 and a1x2 > 1.0 and \
+                 hdp_h_w > 0 and hdp_a_w > 0 and ou_over_w > 0 and ou_under_w > 0
+    valid_input = valid_odds and stats_complete
 
-        stats_cols = st.columns(2)
-        with stats_cols[0]:
-            st.markdown(
-                '<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
-                'color:#00ff88;margin-bottom:6px;">🏠 HOME TEAM</div>',
-                unsafe_allow_html=True
-            )
-            home_w = st.number_input("Wins (5)",    min_value=0, max_value=5,
-                                     value=0, step=1, key="stats_home_w")
-            home_d = st.number_input("Draws (5)",   min_value=0, max_value=5,
-                                     value=0, step=1, key="stats_home_d")
-            home_l = st.number_input("Losses (5)",  min_value=0, max_value=5,
-                                     value=0, step=1, key="stats_home_l")
-            home_gf = st.number_input("Goals For (5 games)",   min_value=0,
-                                     value=0, step=1, key="stats_home_gf")
-            home_ga = st.number_input("Goals Against (5 games)", min_value=0,
-                                     value=0, step=1, key="stats_home_ga")
-            home_rank = st.text_input("League Rank (or '-' for cup)",
-                                      value="-", key="stats_home_rank")
-        with stats_cols[1]:
-            st.markdown(
-                '<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;'
-                'color:#ff8c00;margin-bottom:6px;">✈️ AWAY TEAM</div>',
-                unsafe_allow_html=True
-            )
-            away_w = st.number_input("Wins (5) ",   min_value=0, max_value=5,
-                                     value=0, step=1, key="stats_away_w")
-            away_d = st.number_input("Draws (5) ",  min_value=0, max_value=5,
-                                     value=0, step=1, key="stats_away_d")
-            away_l = st.number_input("Losses (5) ", min_value=0, max_value=5,
-                                     value=0, step=1, key="stats_away_l")
-            away_gf = st.number_input("Goals For (5 games) ",  min_value=0,
-                                     value=0, step=1, key="stats_away_gf")
-            away_ga = st.number_input("Goals Against (5 games) ", min_value=0,
-                                     value=0, step=1, key="stats_away_ga")
-            away_rank = st.text_input("League Rank (or '-' for cup) ",
-                                      value="-", key="stats_away_rank")
+    if not valid_odds:
+        st.info("👆 กรอกราคาให้ครบทุกช่อง (1X2 + AH + OU) เพื่อเริ่มวิเคราะห์")
+    elif not stats_complete:
+        st.info("👆 กรอกสถิติ 5 นัดล่าสุดให้ครบทั้ง Home และ Away (v5.0 บังคับกรอกเพื่อเก็บข้อมูล backtest)")
+    else:
+        ph, pd_, pa = shin_devig(h1x2, d1x2, a1x2)
+        hwo, awo = fix(hdp_h_w), fix(hdp_a_w)
+        owo, uwo = fix(ou_over_w), fix(ou_under_w)
 
-        st.markdown('<div class="gem-divider" style="margin:10px 0 6px 0;"></div>',
-                    unsafe_allow_html=True)
-        temp_cols = st.columns([2, 3])
-        with temp_cols[0]:
-            stadium_temp = st.number_input("🌡️ Stadium Temp (°C)",
-                                           min_value=-20, max_value=50,
-                                           value=25, step=1, key="stats_temp")
-        with temp_cols[1]:
-            st.markdown(
-                '<p style="font-family:\'Rajdhani\';font-size:0.72rem;color:#4a7a60;'
-                'margin-top:24px;">'
-                '< 5°C หรือ > 30°C → เกมเล่นช้าลง<br>'
-                '5-25°C → ปกติ</p>',
-                unsafe_allow_html=True
-            )
-
-        # ตรวจว่ามีข้อมูลครบไหม
-        home_total = home_w + home_d + home_l
-        away_total = away_w + away_d + away_l
-        stats_provided = (home_total == 5 and away_total == 5 and
-                          (home_gf + home_ga + away_gf + away_ga) > 0)
-
-        if (home_total > 0 or away_total > 0) and not stats_provided:
-            if home_total != 5 and home_total > 0:
-                st.warning(f"⚠️ Home W+D+L = {home_total} ต้องครบ 5 นัด")
-            if away_total != 5 and away_total > 0:
-                st.warning(f"⚠️ Away W+D+L = {away_total} ต้องครบ 5 นัด")
-
-    # [Cleanup v3.3] ตัด xG / Match Stats / Line Movement ออกหมด
-    # เหตุผล: xG ไม่เคยใช้, match_stats/line_movement ขัด whitelist policy
-    # ai_engine() จะรับเป็น empty string / Stable แทน
-    match_stats = ""
-    line_movement = "➖ Stable (นิ่ง/ปกติ)"
-
-    # ── 🛑 Daily Risk Guard Banner ────────────────────────────────────
-    if is_risk_blocked:
-        st.markdown(
-            f'<div style="background:rgba(255,59,92,0.10);border:1px solid rgba(255,59,92,0.4);'
-            f'border-left:4px solid #ff3b5c;border-radius:4px;padding:14px 18px;margin-bottom:10px;">'
-            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;color:#ff3b5c;'
-            f'letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;">'
-            f'🛑 RISK GUARD ACTIVATED</div>'
-            f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;line-height:1.6;">'
-            f'{risk_block_reason}</div></div>',
-            unsafe_allow_html=True
-        )
-
-    st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
-
-    if st.button("⚡  RUN ORACLE ANALYSIS",
-                 use_container_width=True, type="primary",
-                 disabled=is_risk_blocked):
-        # [Risk Guard] ถ้าโดน block อย่าให้รัน
-        if is_risk_blocked:
-            st.error(risk_block_reason)
-            st.stop()
-
-        # [แก้ไข ข้อจำกัด #3] ตรวจสอบ input ก่อนคำนวณ
-        # fix(0.0) = 1.0 → odds-1 = 0 → EV = 0 ทุกกรณีโดยไม่แจ้งเตือน
-        input_errors = []
-        if h1x2 <= 0 or d1x2 <= 0 or a1x2 <= 0:
-            input_errors.append("กรุณากรอก **ราคา 1X2** (เหย้า / เสมอ / เยือน) ให้ครบ")
-        if hdp_h_w <= 0 or hdp_a_w <= 0:
-            input_errors.append("กรุณากรอก **น้ำ AH** (Home Odds / Away Odds) ให้ครบ")
-        if ou_over_w <= 0 or ou_under_w <= 0:
-            input_errors.append("กรุณากรอก **น้ำ O/U** (Over / Under) ให้ครบ")
-        if abs(hdp_line) not in [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5,
-                                   1.75, 2.0, 2.25, 2.5]:
-            input_errors.append(
-                f"⚠️ เส้น AH **{hdp_line}** ไม่รองรับ — "
-                "ระบบคำนวณได้เฉพาะ 0 / 0.25 / 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 1.75 / 2.0 / 2.25 / 2.5"
-            )
-        if input_errors:
-            for err in input_errors:
-                st.error(f"❌ {err}")
-            st.stop()
-        ho, do_, ao   = fix(h1x2), fix(d1x2), fix(a1x2)
-        hwo, awo, owo, uwo = fix(hdp_h_w), fix(hdp_a_w), fix(ou_over_w), fix(ou_under_w)
-        ph, pd_, pa   = shin_devig(ho, do_, ao)
-
-        # [Feature 1] Auto-Fit λ to Market (toggle จาก sidebar)
-        # คำนวณ devig market probabilities สำหรับ OU ก่อน
-        ou_imp_o = 1/owo; ou_imp_u = 1/uwo
-        po_mkt = ou_imp_o / (ou_imp_o + ou_imp_u)
-        pu_mkt = 1 - po_mkt
-
+        po_mkt, pu_mkt = devig_2way(owo, uwo)
         lh_fit = la_fit = None
         fit_loss = None
         fit_converged = False
@@ -2492,3128 +961,672 @@ with tab1:
                 ph, pd_, pa, po_mkt, pu_mkt, ou_line
             )
 
-        # [Bug Fix v3.3] margin_dist สำหรับเส้น AH 1.75-2.5 (Home perspective)
-        # Dog branch ใน ev_ah() ใช้ home perspective อยู่แล้ว → ไม่ต้อง flip
-        hw2, hw1, dex, aw1, aw2, pt, margin_dist = calc_dixon_coles_matrix(
+        hw2, hw1, dr, aw1, aw2, pou, md, lh, la = calc_dixon_coles_matrix(
             ph, pd_, pa, ou_line, owo, uwo,
             lh_override=lh_fit, la_override=la_fit
         )
 
-        fav_h = ph >= pa
-        evh_raw = ev_ah(hdp_line, hw2, hw1, dex, aw1, aw2, hwo, fav_h, margin_dist=margin_dist)
-        eva_raw = ev_ah(hdp_line, aw2, aw1, dex, hw1, hw2, awo, not fav_h, margin_dist=margin_dist)
-        # [Bug Fix v3.4] HDBA หักจากฝั่ง Dog เท่านั้น — ไม่ assume Home=Fav
-        # หาก Home เป็น Dog (ph < pa) ต้องหัก HDBA จาก evh ไม่ใช่ eva
-        # [Calibration v2] Dynamic HDBA = pd_ × dog_odds × hdba_val
-        if fav_h:
-            # Home = Fav, Away = Dog → HDBA จาก Away
-            hdba_dynamic = pd_ * awo * hdba_val
-            evh = evh_raw
-            eva = eva_raw - hdba_dynamic
-        else:
-            # Home = Dog, Away = Fav → HDBA จาก Home
-            hdba_dynamic = pd_ * hwo * hdba_val
-            evh = evh_raw - hdba_dynamic
-            eva = eva_raw
-        evo   = ev_ou(ou_line, pt, owo, True)
-        evu   = ev_ou(ou_line, pt, uwo, False)
+        ah_or = overround(hwo, awo)
+        ou_or = overround(owo, uwo)
 
-        bah = max([{"n": "เจ้าบ้าน", "ev": evh, "odds": hwo, "hdp": hdp_line},
-                   {"n": "ทีมเยือน", "ev": eva, "odds": awo, "hdp": hdp_line}], key=lambda x: x['ev'])
-        bou = max([{"n": "สูง",      "ev": evo, "odds": owo, "hdp": ou_line},
-                   {"n": "ต่ำ",      "ev": evu, "odds": uwo, "hdp": ou_line}], key=lambda x: x['ev'])
-
-        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        # ── Probability Engine Display ──
         st.markdown('<div class="gem-label">◈ PROBABILITY ENGINE</div>', unsafe_allow_html=True)
         p1, p2, p3 = st.columns(3)
         p1.metric("HOME WIN", f"{ph*100:.1f}%")
-        p2.metric("DRAW",     f"{pd_*100:.1f}%")
+        p2.metric("DRAW", f"{pd_*100:.1f}%")
         p3.metric("AWAY WIN", f"{pa*100:.1f}%")
 
-        # ══════════════════════════════════════════════════════════════════
-        # 🎯 [Feature 1] AUTO-FIT λ STATUS BADGE
-        # ══════════════════════════════════════════════════════════════════
         if auto_fit_lambda:
             fit_color = "#00ff88" if fit_converged else "#ff8c00"
-            fit_status = "✅ CONVERGED — fit ตลาด" if fit_converged else "⚠️ DIVERGED — ตลาด inconsistent"
-
-            # Compare with heuristic for context
-            heur_top = po_mkt
-            heur_bet = ou_line + 0.05 + ((heur_top - 0.5) * 2.5)
-            heur_et = max(0.5, heur_bet + (0.25 - pd_) * 4.0)
-            heur_sup = (ph - pa) * (heur_et ** 0.80)
-            lh_heur = max(0.15, (heur_et + heur_sup) / 2)
-            la_heur = max(0.15, (heur_et - heur_sup) / 2)
-
+            fit_status = "✅ CONVERGED" if fit_converged else "⚠️ DIVERGED"
             st.markdown(
                 f'<div style="background:#0d1e2e;border-left:3px solid {fit_color};'
-                f'border-radius:0 4px 4px 0;padding:10px 14px;margin-top:8px;">'
-                f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:{fit_color};'
-                f'letter-spacing:0.08em;margin-bottom:4px;">🎯 AUTO-FIT λ MODE — {fit_status}</div>'
-                f'<div style="font-family:\'Share Tech Mono\';font-size:0.72rem;color:#c8e6d4;line-height:1.5;">'
-                f'λ_home = <strong style="color:{fit_color};">{lh_fit:.3f}</strong> '
-                f'(heuristic: {lh_heur:.3f}) · '
-                f'λ_away = <strong style="color:{fit_color};">{la_fit:.3f}</strong> '
-                f'(heuristic: {la_heur:.3f})<br>'
-                f'<span style="color:#4a7a60;font-size:0.65rem;">'
-                f'Loss: {fit_loss:.5f} · '
-                f'{"ตลาดสอดคล้องกัน" if fit_converged else "ตลาด 1X2 กับ OU ขัดแย้งกัน — Math ประนีประนอม"}'
-                f'</span></div></div>',
+                f'padding:8px 12px;margin-top:6px;border-radius:0 4px 4px 0;">'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:{fit_color};">'
+                f'🎯 AUTO-FIT λ — {fit_status}</span><br>'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.72rem;color:#c8e6d4;">'
+                f'λ_home={lh:.3f} · λ_away={la:.3f} · loss={fit_loss:.5f}</span></div>',
                 unsafe_allow_html=True
             )
 
-        # ══════════════════════════════════════════════════════════════════
-        # 📋 MARKET CONSISTENCY CHECKER — เทียบสถิติ vs ราคาตลาด
-        # ══════════════════════════════════════════════════════════════════
-        if stats_provided:
-            # คำนวณ stat-based predictions
-            home_wr_pct  = (home_w / 5) * 100
-            away_wr_pct  = (away_w / 5) * 100
-            home_gpg     = home_gf / 5    # goals scored per game
-            away_gpg     = away_gf / 5
-            home_gapg    = home_ga / 5    # goals conceded per game
-            away_gapg    = away_ga / 5
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
 
-            # ─── Stat-based λ (Maher-style baseline) ───
-            # Home attacking vs Away defending
-            stat_lh = (home_gpg + away_gapg) / 2
-            stat_la = (away_gpg + home_gapg) / 2
-            stat_total = stat_lh + stat_la
+        # ── Market Quality ──
+        st.markdown('<div class="gem-label">◈ MARKET QUALITY</div>', unsafe_allow_html=True)
+        mq1, mq2 = st.columns(2)
+        mq1.metric("AH Overround", f"{ah_or:.2f}%")
+        mq2.metric("OU Overround", f"{ou_or:.2f}%")
 
-            # ─── Stat-based Win Probability (form-based proxy) ───
-            # ใช้ wins สัดส่วนกัน + adjust ด้วย goal differential
-            home_form_score = home_w * 3 + home_d
-            away_form_score = away_w * 3 + away_d
-            stat_p_home_raw = home_form_score / (home_form_score + away_form_score) \
-                              if (home_form_score + away_form_score) > 0 else 0.5
-            # Apply goal differential factor
-            home_gd = home_gpg - home_gapg
-            away_gd = away_gpg - away_gapg
-            gd_factor = (home_gd - away_gd) * 0.05  # ±5% per goal diff
-            stat_p_home = max(0.10, min(0.85, stat_p_home_raw + gd_factor))
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
 
-            # ─── Temperature adjustment ───
-            # < 5°C → -8% goals, > 30°C → -12% goals
-            if stadium_temp < 5:
-                temp_adj_pct = -8.0
-                temp_label = f"❄️ {stadium_temp}°C — เย็นจัด"
-                temp_color = "#00b4ff"
-            elif stadium_temp > 30:
-                temp_adj_pct = -12.0
-                temp_label = f"🔥 {stadium_temp}°C — ร้อนจัด"
-                temp_color = "#ff8c00"
-            else:
-                temp_adj_pct = 0.0
-                temp_label = f"🌤 {stadium_temp}°C — ปกติ"
-                temp_color = "#00ff88"
-            stat_total_adj = stat_total * (1 + temp_adj_pct/100)
+        # ══════════════════════════════════════════════════════════════
+        # 🧪 GATE 5 — STAT-DIVERGENCE EVALUATION (ใหม่ทั้งหมดใน v5.0)
+        # ══════════════════════════════════════════════════════════════
+        gate5_result = evaluate_gate5(
+            league_name=league_name, home_rank=home_rank, away_rank=away_rank, temp=temp,
+            home_w=home_w, home_d=home_d, home_l=home_l, home_gf=home_gf, home_ga=home_ga,
+            away_w=away_w, away_d=away_d, away_l=away_l, away_gf=away_gf, away_ga=away_ga,
+            market_p_home=ph, ou_line=ou_line,
+            home_team=home_team, away_team=away_team
+        )
 
-            # ─── เทียบกับตลาด ───
-            # 1. Market expects Home win (from devigged 1X2)
-            mkt_p_home_only = ph    # P(home win) from Shin devig
-            stat_vs_mkt_home = stat_p_home - mkt_p_home_only
+        tier_colors = {'women': '#9b59b6', 'major': '#00b4ff', 'niche': '#4a7a60', 'cup_no_rank': '#ff8c00'}
+        tier_color = tier_colors.get(gate5_result['league_tier'], '#4a7a60')
+        st.markdown(
+            f'<div class="gem-label" style="color:{tier_color};border-color:{tier_color};">'
+            f'◈ 🧪 GATE 5 — STAT-DIVERGENCE FILTER '
+            f'[{gate5_result["league_tier"].upper()}]</div>',
+            unsafe_allow_html=True
+        )
+        g5c1, g5c2 = st.columns(2)
+        g5c1.metric("Stat P(Home)", f"{gate5_result['stat_p_home']*100:.0f}%",
+                    f"Δ{gate5_result['divergence_wl']*100:+.0f}% vs Market")
+        g5c2.metric("Stat Total Goals", f"{gate5_result['stat_total']:.2f}",
+                    f"Δ{gate5_result['divergence_goals']:+.2f} vs Line")
 
-            # 2. Market expected total goals (from OU line + bias)
-            mkt_total_goals = ou_line
-            stat_vs_mkt_total = stat_total_adj - mkt_total_goals
-
-            # 3. Ranking factor (if both have rank)
-            rank_consistency = None
-            try:
-                if home_rank != "-" and away_rank != "-":
-                    h_rank = int(home_rank)
-                    a_rank = int(away_rank)
-                    # Lower rank number = better team
-                    rank_diff = a_rank - h_rank  # positive = home is higher ranked (better)
-                    # ตลาดบอกใครเก่งกว่า?
-                    mkt_says_home_better = ph > pa
-                    stat_says_home_better = rank_diff > 0
-                    rank_consistency = (mkt_says_home_better == stat_says_home_better)
-            except (ValueError, TypeError):
-                rank_consistency = None
-
-            # ─── Consistency Score ───
-            # 4 checks: form WR direction, goals total, ranking, no extreme divergence
-            checks_passed = 0
-            check_results = []
-
-            # Check 1: Home win probability direction
-            if abs(stat_vs_mkt_home) < 0.10:
-                checks_passed += 1
-                check_results.append(("✅ Win probability", "ตลาดสอดคล้องสถิติ",
-                                      f"Math {mkt_p_home_only*100:.0f}% vs Stat {stat_p_home*100:.0f}%",
-                                      "#00ff88"))
-            elif abs(stat_vs_mkt_home) < 0.20:
-                check_results.append(("⚠️ Win probability", "เริ่มต่างกัน",
-                                      f"Math {mkt_p_home_only*100:.0f}% vs Stat {stat_p_home*100:.0f}% "
-                                      f"(Δ {stat_vs_mkt_home*100:+.0f}%)",
-                                      "#ffd600"))
-            else:
-                check_results.append(("🚨 Win probability", "ขัดแย้งกันมาก!",
-                                      f"Math {mkt_p_home_only*100:.0f}% vs Stat {stat_p_home*100:.0f}% "
-                                      f"(Δ {stat_vs_mkt_home*100:+.0f}%) — sharp money อาจรู้อะไร?",
-                                      "#ff3b5c"))
-
-            # Check 2: Total goals
-            if abs(stat_vs_mkt_total) < 0.5:
-                checks_passed += 1
-                check_results.append(("✅ Total Goals", "ตลาดสอดคล้องสถิติ",
-                                      f"Line {mkt_total_goals} vs Stat {stat_total_adj:.2f}",
-                                      "#00ff88"))
-            elif abs(stat_vs_mkt_total) < 1.0:
-                check_results.append(("⚠️ Total Goals", "เริ่มต่างกัน",
-                                      f"Line {mkt_total_goals} vs Stat {stat_total_adj:.2f} "
-                                      f"(Δ {stat_vs_mkt_total:+.2f})",
-                                      "#ffd600"))
-            else:
-                check_results.append(("🚨 Total Goals", "ขัดแย้งกันมาก!",
-                                      f"Line {mkt_total_goals} vs Stat {stat_total_adj:.2f} "
-                                      f"(Δ {stat_vs_mkt_total:+.2f})",
-                                      "#ff3b5c"))
-
-            # Check 3: Ranking
-            if rank_consistency is True:
-                checks_passed += 1
-                check_results.append(("✅ Ranking", "ตรงกับลำดับลีก",
-                                      f"H:#{home_rank} vs A:#{away_rank}",
-                                      "#00ff88"))
-            elif rank_consistency is False:
-                check_results.append(("🚨 Ranking", "ขัดกับลำดับลีก",
-                                      f"H:#{home_rank} vs A:#{away_rank} — ตลาดเห็นอะไรที่อันดับไม่บอก",
-                                      "#ff8c00"))
-            else:
-                check_results.append(("ℹ️ Ranking", "ไม่มีข้อมูล (Cup)",
-                                      "—", "#4a7a60"))
-
-            # Check 4: Temperature
-            if temp_adj_pct == 0:
-                checks_passed += 1
-                check_results.append(("✅ Temperature", temp_label,
-                                      "ไม่ส่งผลต่อเกม", "#00ff88"))
-            else:
-                # Temp extreme — check if OU line reflects it
-                expected_lower = (temp_adj_pct < 0)
-                ou_seems_low = mkt_total_goals < (stat_total - 0.3)
-                if expected_lower and ou_seems_low:
-                    checks_passed += 1
-                    check_results.append(("✅ Temperature", temp_label,
-                                          "ตลาดสะท้อนอุณหภูมิแล้ว (Under-favored)",
-                                          "#00ff88"))
-                else:
-                    check_results.append(("⚠️ Temperature", temp_label,
-                                          f"เกมอาจเล่นช้าลง {abs(temp_adj_pct):.0f}% — ตลาดอาจยังไม่สะท้อน",
-                                          "#ffd600"))
-
-            # ─── Render Panel ───
-            total_checks = len([c for c in check_results if c[3] != "#4a7a60"])  # exclude N/A
-            consistency_pct = (checks_passed / total_checks * 100) if total_checks > 0 else 0
-
-            if consistency_pct >= 75:
-                overall_color = "#00ff88"
-                overall_label = "🟢 MARKET ALIGNED WITH STATS"
-                overall_msg = "ราคาตลาดสอดคล้องกับสถิติพื้นฐาน — เชื่อ Math Engine ได้"
-            elif consistency_pct >= 50:
-                overall_color = "#ffd600"
-                overall_label = "🟡 PARTIAL CONSISTENCY"
-                overall_msg = "ตลาดและสถิติเห็นด้วยกันบางส่วน — ระวังเพิ่ม"
-            else:
-                overall_color = "#ff3b5c"
-                overall_label = "🔴 MARKET CONTRADICTS STATS"
-                overall_msg = "ตลาดสวนสถิติชัดเจน — sharp money อาจมีข้อมูลที่เราไม่เห็น (บาดเจ็บ, lineup, ฯลฯ)"
-
-            st.markdown('<div class="gem-label" style="margin-top:14px;color:#9b59b6;border-color:#9b59b6;">'
-                        '◈ 📋 MARKET CONSISTENCY CHECKER</div>',
-                        unsafe_allow_html=True)
-
-            # Overall verdict banner
+        sig_colors = {'warning': '#ff3b5c', 'info': '#ffd600', 'success': '#00ff88',
+                     'opportunity': '#00b4ff', 'neutral': '#4a7a60'}
+        for sig in gate5_result['signals']:
+            c = sig_colors.get(sig['type'], '#4a7a60')
             st.markdown(
-                f'<div style="background:rgba({"0,255,136" if "#00ff88" in overall_color else ("255,214,0" if "#ffd600" in overall_color else "255,59,92")},0.10);'
-                f'border:2px solid {overall_color};border-radius:6px;'
-                f'padding:14px 18px;margin-bottom:10px;">'
-                f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;color:{overall_color};'
-                f'letter-spacing:0.05em;margin-bottom:6px;">'
-                f'{overall_label}  ({checks_passed}/{total_checks})</div>'
-                f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;">{overall_msg}</div>'
-                f'</div>',
+                f'<div class="signal-card" style="background:rgba(255,255,255,0.03);'
+                f'border-left:3px solid {c};">'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.75rem;color:{c};">'
+                f'{sig["title"]}</span><br>'
+                f'<span style="font-family:\'Rajdhani\';font-size:0.8rem;color:#c8e6d4;">'
+                f'{sig["detail"]}</span></div>',
                 unsafe_allow_html=True
             )
 
-            # Individual checks
-            for label, status, detail, color in check_results:
-                st.markdown(
-                    f'<div style="background:#0d1e2e;border-left:3px solid {color};'
-                    f'border-radius:0 4px 4px 0;padding:8px 12px;margin-bottom:5px;">'
-                    f'<div style="display:flex;justify-content:space-between;">'
-                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:{color};">'
-                    f'{label}</span>'
-                    f'<span style="font-family:\'Rajdhani\';font-size:0.8rem;color:#c8e6d4;">'
-                    f'{status}</span></div>'
-                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.65rem;color:#4a7a60;'
-                    f'margin-top:3px;">{detail}</div></div>',
-                    unsafe_allow_html=True
-                )
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
 
-            # Stat summary
-            with st.expander("📊 Stat Calculations (Details)"):
-                col_h, col_a = st.columns(2)
-                with col_h:
-                    st.markdown(f"**🏠 HOME**")
-                    st.markdown(f"- WR: **{home_wr_pct:.0f}%** ({home_w}W/{home_d}D/{home_l}L)")
-                    st.markdown(f"- Goals: **{home_gpg:.2f}** scored, **{home_gapg:.2f}** conceded/game")
-                    st.markdown(f"- GD: **{home_gd:+.2f}** per game")
-                with col_a:
-                    st.markdown(f"**✈️ AWAY**")
-                    st.markdown(f"- WR: **{away_wr_pct:.0f}%** ({away_w}W/{away_d}D/{away_l}L)")
-                    st.markdown(f"- Goals: **{away_gpg:.2f}** scored, **{away_gapg:.2f}** conceded/game")
-                    st.markdown(f"- GD: **{away_gd:+.2f}** per game")
-                st.markdown(f"---")
-                st.markdown(f"**📊 Derived Predictions:**")
-                st.markdown(f"- Stat-based λ: Home {stat_lh:.2f} / Away {stat_la:.2f}")
-                st.markdown(f"- Stat total goals: **{stat_total:.2f}** "
-                            f"(after temp adj: **{stat_total_adj:.2f}**)")
-                st.markdown(f"- Stat-based P(Home win): **{stat_p_home*100:.0f}%**")
-                st.markdown(f"- Market-implied P(Home win): **{mkt_p_home_only*100:.0f}%**")
-
-        # ══════════════════════════════════════════════════════════════════
-        # 💎 [Feature 2] VALUE SCANNER PANEL
-        # ══════════════════════════════════════════════════════════════════
-        if show_value_scanner:
-            # คำนวณ HDP สำหรับ ah_line — ใช้ค่าที่ผู้ใช้กรอก (signed)
-            scanner_market = {
-                'ah_home_odds':  hwo,
-                'ah_away_odds':  awo,
-                'ou_over_odds':  owo,
-                'ou_under_odds': uwo,
-            }
-            scanner_edges = value_scanner(margin_dist, pt, scanner_market,
-                                          ou_line, hdp_line)
-
-            st.markdown('<div class="gem-label" style="margin-top:14px;color:#00b4ff;border-color:#00b4ff;">'
-                        '◈ 💎 VALUE SCANNER — Math P vs Bookie P</div>',
-                        unsafe_allow_html=True)
-
-            for idx, e in enumerate(scanner_edges):
-                # สี: เขียวถ้า edge บวก, แดงถ้าลบ
-                if e['edge'] >= 0.05:    color = "#00ff88"; badge = "💎 TOP VALUE"
-                elif e['edge'] >= 0.02:  color = "#ffd600"; badge = "⚡ VALUE"
-                elif e['edge'] >= 0:     color = "#4a7a60"; badge = "▴"
-                else:                    color = "#ff3b5c"; badge = "✗ NEGATIVE"
-
-                ev_color = "#00ff88" if e['ev'] > 0 else "#ff3b5c"
-
-                st.markdown(
-                    f'<div style="background:#0d1e2e;border-left:3px solid {color};'
-                    f'border-radius:0 4px 4px 0;padding:10px 14px;margin-bottom:6px;">'
-                    f'<div style="display:flex;justify-content:space-between;align-items:center;">'
-                    f'<div>'
-                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.72rem;color:{color};'
-                    f'letter-spacing:0.08em;">{badge}</span> '
-                    f'<span style="font-family:\'Rajdhani\';font-weight:600;font-size:0.92rem;color:#c8e6d4;">'
-                    f'{e["side"]} {e["line"]}</span> '
-                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#4a7a60;">'
-                    f'@ {e["odds"]:.2f}</span>'
-                    f'</div>'
-                    f'<div style="text-align:right;">'
-                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.95rem;color:{color};">'
-                    f'Edge {e["edge"]*100:+.2f}%</span><br>'
-                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.65rem;color:{ev_color};">'
-                    f'EV {e["ev"]*100:+.2f}%</span>'
-                    f'</div></div>'
-                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:#4a7a60;margin-top:4px;">'
-                    f'Math: <strong style="color:#c8e6d4;">{e["math_p"]*100:.1f}%</strong> · '
-                    f'Book: <strong style="color:#c8e6d4;">{e["book_p"]*100:.1f}%</strong>'
-                    f'</div></div>',
-                    unsafe_allow_html=True
-                )
-
-            st.caption(
-                "_💡 Edge = Math P − Bookie P · ค่าบวก = Math เชื่อว่าโอกาสสูงกว่าตลาด "
-                "(potential value) · ค่าลบ = ตลาดมั่นใจมากกว่า (avoid)_"
-            )
-
-        # ══════════════════════════════════════════════════════════════════
-        # 💰 MARKET QUALITY INDICATOR — focus เฉพาะ AH + OU
-        # ══════════════════════════════════════════════════════════════════
-        # ในตลาดเอเชีย 1X2 ปกติ vig 110-118% ไม่ใช่สัญญาณเตือน
-        # AH/OU เป็น core market — ใช้ตัวนี้ตัดสินใจ
-        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ MARKET QUALITY (AH + OU)</div>',
+        # ══════════════════════════════════════════════════════════════
+        # 🚦 4-SIDE GATE SCANNER (Gate 1-4, เหมือน v4.0)
+        # ══════════════════════════════════════════════════════════════
+        st.markdown('<div class="gem-label" style="margin-top:6px;">◈ 4-SIDE GATE SCANNER</div>',
                     unsafe_allow_html=True)
-        or_ah_col, or_ou_col = st.columns(2)
 
-        # AH Overround
-        or_ah, tier_ah, color_ah, warn_ah = calc_overround(hwo, awo)
-        or_ah_col.markdown(
-            f'<div style="background:#0d1e2e;border-left:3px solid {color_ah};'
-            f'border-radius:0 4px 4px 0;padding:10px 12px;">'
-            f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">AH OVERROUND</div>'
-            f'<div style="font-family:\'Share Tech Mono\';font-size:1.2rem;color:{color_ah};margin-top:2px;">'
-            f'{or_ah:.2f}%</div>'
-            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;margin-top:4px;">{tier_ah}</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+        home_cover = p_cover_ah_side(hdp_line, md, 'home')
+        away_cover = p_cover_ah_side(hdp_line, md, 'away')
+        over_cover = p_cover_ou(ou_line, pou, True)
+        under_cover = p_cover_ou(ou_line, pou, False)
 
-        # OU Overround
-        or_ou, tier_ou, color_ou, warn_ou = calc_overround(owo, uwo)
-        or_ou_col.markdown(
-            f'<div style="background:#0d1e2e;border-left:3px solid {color_ou};'
-            f'border-radius:0 4px 4px 0;padding:10px 12px;">'
-            f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">OU OVERROUND</div>'
-            f'<div style="font-family:\'Share Tech Mono\';font-size:1.2rem;color:{color_ou};margin-top:2px;">'
-            f'{or_ou:.2f}%</div>'
-            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;margin-top:4px;">{tier_ou}</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
+        p_market_home, p_market_away = devig_2way(hwo, awo)
+        p_market_over, p_market_under = devig_2way(owo, uwo)
 
-        # ──── Warning banner ถ้าตลาดที่จะลง vig สูง ────
-        # เฉพาะ AH/OU เท่านั้น เพราะเราไม่ลง 1X2
-        warnings_list = [(w, t) for w, t in [(warn_ah, 'AH'), (warn_ou, 'OU')] if w]
-        if warnings_list:
-            for w_msg, w_market in warnings_list:
-                if 'Arbitrage' in w_msg or 'ผิดปกติ' in w_msg or 'หา value ยาก' in w_msg:
-                    bg_color = '#ff8c00' if 'หา value' in w_msg or 'ผิดปกติ' in w_msg else '#00ff88'
-                    st.markdown(
-                        f'<div style="background:rgba(255,140,0,0.08);border-left:3px solid {bg_color};'
-                        f'border-radius:3px;padding:8px 12px;margin-top:6px;'
-                        f'font-family:\'Share Tech Mono\';font-size:0.72rem;color:{bg_color};">'
-                        f'[{w_market}] {w_msg}</div>',
-                        unsafe_allow_html=True
-                    )
+        sides_data = [
+            {"name": "AH Home", "thai": "เจ้าบ้าน", "cover": home_cover, "odds": hwo,
+             "p_market": p_market_home, "is_home": True,
+             "line_display": f"{'-' if hdp_line>0 else '+'}{abs(hdp_line)}" if hdp_line != 0 else "0"},
+            {"name": "AH Away", "thai": "ทีมเยือน", "cover": away_cover, "odds": awo,
+             "p_market": p_market_away, "is_home": False,
+             "line_display": f"{'-' if hdp_line<0 else '+'}{abs(hdp_line)}" if hdp_line != 0 else "0"},
+            {"name": "OU Over", "thai": "สูง", "cover": over_cover, "odds": owo,
+             "p_market": p_market_over, "is_home": None, "line_display": f"{ou_line}"},
+            {"name": "OU Under", "thai": "ต่ำ", "cover": under_cover, "odds": uwo,
+             "p_market": p_market_under, "is_home": None, "line_display": f"{ou_line}"},
+        ]
 
-        # ──── ARBITRAGE ALERT — เฉพาะ AH + OU ────
-        arb_results_ah  = calc_arbitrage_stakes([hwo, awo],   total_stake=1000) if or_ah  < 100 else None
-        arb_results_ou  = calc_arbitrage_stakes([owo, uwo],   total_stake=1000) if or_ou  < 100 else None
-
-        if arb_results_ah or arb_results_ou:
-            st.markdown(
-                f'<div style="background:rgba(0,255,136,0.12);'
-                f'border:2px solid #00ff88;border-radius:6px;padding:14px 18px;margin-top:10px;">'
-                f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;color:#00ff88;'
-                f'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">'
-                f'🚨 ARBITRAGE OPPORTUNITY — UNDERROUND DETECTED!</div>'
-                f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;">'
-                f'บ่อนตั้งราคาผิด — Dutching ทุกฝั่งล็อกกำไรได้</div></div>',
-                unsafe_allow_html=True
+        for s in sides_data:
+            pw, phw, pp, phl, pl = s['cover']
+            s['win_rate'] = effective_win_rate(pw, phw, pp, phl, pl)
+            s['p_cover_math'] = pw + phw * 0.5
+            s['gates'] = run_all_gates(
+                s['win_rate'], s['odds'], ah_or, ou_or,
+                s['p_cover_math'], s['p_market']
             )
 
-            for arb_label, arb_results, arb_targets in [
-                ("AH Market",  arb_results_ah,  ["Home", "Away"]),
-                ("OU Market",  arb_results_ou,  ["Over", "Under"]),
-            ]:
-                if not arb_results: continue
-                total_stake_sum = sum(r['stake'] for r in arb_results)
-                guaranteed_profit = arb_results[0]['profit']
-                profit_pct = arb_results[0]['profit_pct']
+        scan_rows = []
+        for s in sides_data:
+            scan_rows.append({
+                "ฝั่ง": f"{s['name']} ({s['line_display']})",
+                "Target": s['thai'],
+                "Win Rate": f"{s['win_rate']*100:.1f}%",
+                "Odds": f"{s['odds']:.2f}",
+                "Gates": f"{s['gates']['gates_passed']}/4",
+                "ผ่าน": "✅" if s['gates']['all_pass'] else "❌",
+            })
+        st.dataframe(pd.DataFrame(scan_rows), use_container_width=True, hide_index=True)
 
-                st.markdown(
-                    f'<div class="gem-label" style="margin-top:10px;color:#00ff88;border-color:#00ff88;">'
-                    f'◈ {arb_label} — ลงรวม ฿{total_stake_sum:.0f} → กำไรล็อก ฿{guaranteed_profit:+.0f} '
-                    f'({profit_pct:+.2f}%)</div>',
-                    unsafe_allow_html=True
-                )
-                arb_cols = st.columns(len(arb_results))
-                for idx, (col, r, tgt) in enumerate(zip(arb_cols, arb_results, arb_targets)):
-                    col.markdown(
-                        f'<div style="background:#0d1e2e;border-left:3px solid #00ff88;'
-                        f'border-radius:0 4px 4px 0;padding:10px 12px;">'
-                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;">{tgt} @ {r["odds"]:.2f}</div>'
-                        f'<div style="font-family:\'Share Tech Mono\';font-size:1.1rem;color:#00ff88;margin-top:2px;">฿{r["stake"]:.0f}</div>'
-                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#c8e6d4;margin-top:2px;">'
-                        f'→ payout ฿{r["payout"]:.0f}</div></div>',
-                        unsafe_allow_html=True
-                    )
+        valid_sides = [s for s in sides_data if s['gates']['all_pass']]
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
 
-        # [Calibration v3] ใช้ threshold ตามฝั่ง — Fav/Dog และ Over/Under มี threshold ต่างกัน
-        # หาว่า bah ฝั่งไหน (Fav หรือ Dog) แล้วใช้ threshold ของฝั่งนั้น
-        bah_is_fav = (bah['n'] == "เจ้าบ้าน" and fav_h) or (bah['n'] == "ทีมเยือน" and not fav_h)
-        ah_threshold  = pre_ah_fav_lim if bah_is_fav else pre_ah_dog_lim
-        ah_threshold_pct = pre_ah_fav_thr if bah_is_fav else pre_ah_dog_thr
+        best = None
+        bet_size = 0
+        if valid_sides:
+            best = max(valid_sides, key=lambda s: s['win_rate'])
 
-        bou_is_over = (bou['n'] == "สูง")
-        ou_threshold = pre_ou_over_lim if bou_is_over else pre_ou_under_lim
-        ou_threshold_pct = pre_ou_over_thr if bou_is_over else pre_ou_under_thr
+            conf_label, conf_color, conf_mult = gate5_confidence_adjustment(
+                gate5_result, recommended_side_is_home=best['is_home']
+            )
 
-        g1, g2 = st.columns(2)
-        with g1: st.plotly_chart(ev_gauge(bah['ev'], f"TARGET: {bah['n']}", ah_threshold_pct), use_container_width=True)
-        with g2: st.plotly_chart(ev_gauge(bou['ev'], f"TARGET: {bou['n']}", ou_threshold_pct), use_container_width=True)
+            bet_size, tier_label, tier_pct = calc_bet_size(bankroll, best['win_rate'], bet_phase)
+            bet_size_adjusted = bet_size * conf_mult
 
-        # [Calibration v3.1] Threshold filter ใช้ Base EV (Math เท่านั้น)
-        # AI Oracle ทำหน้าที่ approve/reject ทีหลัง ไม่บวกเข้า EV ที่ใช้คัดกรอง
-        valid_bets = []
-
-        if best_bet_only:
-            # ════════════════════════════════════════════════════════════
-            # [Best Bet Only Mode] Scan ทั้ง 4 ฝั่ง → เลือก ratio สูงสุด
-            # ════════════════════════════════════════════════════════════
-            # สร้าง candidates ทั้ง 4 ฝั่ง พร้อม threshold ของแต่ละฝั่ง
-            candidates = []
-
-            # AH Home
-            ah_home_is_fav = fav_h   # เจ้าบ้านเป็น Fav ถ้า ph >= pa
-            ah_home_thr    = pre_ah_fav_lim if ah_home_is_fav else pre_ah_dog_lim
-            if evh > 0 and evh >= ah_home_thr:
-                candidates.append({
-                    "n": "เจ้าบ้าน", "ev": evh, "odds": hwo, "hdp": hdp_line,
-                    "side_label": "AH Fav" if ah_home_is_fav else "AH Dog",
-                    "threshold": ah_home_thr,
-                    "ratio": evh / ah_home_thr if ah_home_thr > 0 else 0
-                })
-
-            # AH Away
-            ah_away_is_fav = not fav_h
-            ah_away_thr    = pre_ah_fav_lim if ah_away_is_fav else pre_ah_dog_lim
-            # eva ถูกหัก HDBA แล้วใน math engine
-            if eva > 0 and eva >= ah_away_thr:
-                candidates.append({
-                    "n": "ทีมเยือน", "ev": eva, "odds": awo, "hdp": hdp_line,
-                    "side_label": "AH Fav" if ah_away_is_fav else "AH Dog",
-                    "threshold": ah_away_thr,
-                    "ratio": eva / ah_away_thr if ah_away_thr > 0 else 0
-                })
-
-            # OU Over
-            if evo > 0 and evo >= pre_ou_over_lim:
-                candidates.append({
-                    "n": "สูง", "ev": evo, "odds": owo, "hdp": ou_line,
-                    "side_label": "OU Over",
-                    "threshold": pre_ou_over_lim,
-                    "ratio": evo / pre_ou_over_lim if pre_ou_over_lim > 0 else 0
-                })
-
-            # OU Under
-            if evu > 0 and evu >= pre_ou_under_lim:
-                candidates.append({
-                    "n": "ต่ำ", "ev": evu, "odds": uwo, "hdp": ou_line,
-                    "side_label": "OU Under",
-                    "threshold": pre_ou_under_lim,
-                    "ratio": evu / pre_ou_under_lim if pre_ou_under_lim > 0 else 0
-                })
-
-            # แสดงตารางเปรียบเทียบ 4 ฝั่ง
-            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ BEST BET SCANNER — ทั้ง 4 ฝั่ง</div>',
-                        unsafe_allow_html=True)
-
-            # สร้าง summary ของทั้ง 4 ฝั่ง (รวมที่ไม่ผ่าน threshold ด้วย)
-            all_sides = [
-                {"side": "AH Home", "name": "เจ้าบ้าน", "ev": evh,
-                 "thr": pre_ah_fav_lim if fav_h else pre_ah_dog_lim,
-                 "side_type": "Fav" if fav_h else "Dog"},
-                {"side": "AH Away", "name": "ทีมเยือน", "ev": eva,
-                 "thr": pre_ah_fav_lim if not fav_h else pre_ah_dog_lim,
-                 "side_type": "Fav" if not fav_h else "Dog"},
-                {"side": "OU Over", "name": "สูง", "ev": evo,
-                 "thr": pre_ou_over_lim, "side_type": "Over"},
-                {"side": "OU Under", "name": "ต่ำ", "ev": evu,
-                 "thr": pre_ou_under_lim, "side_type": "Under"},
-            ]
-            for s in all_sides:
-                s['ratio'] = s['ev']/s['thr'] if s['thr'] > 0 else 0
-                s['pass']  = s['ev'] >= s['thr']
-
-            scan_df = pd.DataFrame([
-                {
-                    "ฝั่ง":       f"{s['side']} ({s['side_type']})",
-                    "Target":     s['name'],
-                    "EV %":       round(s['ev']*100, 2),
-                    "Threshold":  round(s['thr']*100, 1),
-                    "Ratio":      round(s['ratio'], 2),
-                    "ผ่าน":       "✅" if s['pass'] else "❌",
-                }
-                for s in all_sides
-            ])
-            st.dataframe(scan_df, use_container_width=True, hide_index=True)
-
-            # ══════════════════════════════════════════════════════════════
-            # 🏆 GEM CONFIDENCE BADGE (Display Only — ไม่กระทบ Math/Decision)
-            # ══════════════════════════════════════════════════════════════
-            # ประเมินความน่าเชื่อถือของ signal จาก 5 มุมมองอิสระ
-            # (ไม่รวมโหวต — แต่ละ filter ตรวจคนละมุม)
-            conf_checks = []
-
-            # Layer 1: EV Signal Strength
-            best_ev = max(s['ev'] for s in all_sides)
-            best_ratio = max(s['ratio'] for s in all_sides)
-            if best_ratio >= 2.0:
-                conf_checks.append(("⚡ EV Signal", f"Strong (ratio {best_ratio:.2f})", "#00ff88"))
-            elif best_ratio >= 1.0:
-                conf_checks.append(("⚡ EV Signal", f"Moderate (ratio {best_ratio:.2f})", "#ffd600"))
-            else:
-                conf_checks.append(("⚡ EV Signal", f"Weak / No signal (ratio {best_ratio:.2f})", "#ff3b5c"))
-
-            # Layer 2: Market Quality
-            or_mid = (or_ah + or_ou) / 2
-            if or_mid <= 104.0:
-                conf_checks.append(("💧 Market Quality", f"Liquid ({or_mid:.1f}%)", "#00ff88"))
-            elif or_mid <= 107.0:
-                conf_checks.append(("💧 Market Quality", f"Normal ({or_mid:.1f}%)", "#ffd600"))
-            else:
-                conf_checks.append(("💧 Market Quality", f"Niche/Thin ({or_mid:.1f}%)", "#ff3b5c"))
-
-            # Layer 3: Stats Consistency (ถ้ากรอกข้อมูล)
-            if stats_provided:
-                if checks_passed >= 3:
-                    conf_checks.append(("📋 Stats Consistency",
-                                        f"Aligned ({checks_passed}/4)", "#00ff88"))
-                elif checks_passed >= 2:
-                    conf_checks.append(("📋 Stats Consistency",
-                                        f"Partial ({checks_passed}/4)", "#ffd600"))
-                else:
-                    conf_checks.append(("📋 Stats Consistency",
-                                        f"Contradicts ({checks_passed}/4)", "#ff3b5c"))
-            else:
-                conf_checks.append(("📋 Stats Consistency", "ไม่มีข้อมูล (ไม่กรอก)", "#4a7a60"))
-
-            # Layer 4: Auto-Fit λ Market Consistency
-            if auto_fit_lambda and fit_loss is not None:
-                if fit_converged:
-                    conf_checks.append(("🎯 Market Self-Consistency",
-                                        f"Converged (loss {fit_loss:.4f})", "#00ff88"))
-                else:
-                    conf_checks.append(("🎯 Market Self-Consistency",
-                                        f"Diverged (loss {fit_loss:.4f})", "#ff8c00"))
-            else:
-                conf_checks.append(("🎯 Market Self-Consistency",
-                                    "Auto-Fit ปิดอยู่", "#4a7a60"))
-
-            # Layer 5: Value Scanner Edge Confirmation
-            if show_value_scanner and 'scanner_edges' in dir():
-                top_edge = scanner_edges[0]['edge'] if scanner_edges else 0
-                if top_edge >= 0.05:
-                    conf_checks.append(("💎 Value Edge",
-                                        f"Strong +{top_edge*100:.1f}% edge", "#00ff88"))
-                elif top_edge >= 0.02:
-                    conf_checks.append(("💎 Value Edge",
-                                        f"Weak +{top_edge*100:.1f}% edge", "#ffd600"))
-                elif top_edge >= 0:
-                    conf_checks.append(("💎 Value Edge",
-                                        f"Minimal +{top_edge*100:.1f}%", "#4a7a60"))
-                else:
-                    conf_checks.append(("💎 Value Edge",
-                                        f"Negative {top_edge*100:.1f}%", "#ff3b5c"))
-            else:
-                conf_checks.append(("💎 Value Edge", "Value Scanner ปิดอยู่", "#4a7a60"))
-
-            # คำนวณ confidence score (นับแค่ layers ที่มีข้อมูล)
-            active_checks = [c for c in conf_checks if c[2] != "#4a7a60"]
-            green_count  = sum(1 for c in active_checks if c[2] == "#00ff88")
-            yellow_count = sum(1 for c in active_checks if c[2] == "#ffd600")
-            red_count    = sum(1 for c in active_checks if c[2] == "#ff3b5c")
-            total_active = len(active_checks)
-
-            # Score = green×2 + yellow×1 + red×0 / total×2 × 100
-            raw_score = (green_count*2 + yellow_count) / (total_active*2) * 100 if total_active > 0 else 0
-
-            if raw_score >= 70:
-                badge_stars = "⭐⭐⭐⭐⭐" if raw_score >= 90 else "⭐⭐⭐⭐"
-                badge_label = "HIGH CONFIDENCE"
-                badge_color = "#00ff88"
-                badge_kelly = "Kelly ×1.0 — ตามปกติ"
-            elif raw_score >= 45:
-                badge_stars = "⭐⭐⭐"
-                badge_label = "MODERATE CONFIDENCE"
-                badge_color = "#ffd600"
-                badge_kelly = "แนะนำ Kelly ×0.75 — ลดเงินเล็กน้อย"
-            elif raw_score >= 25:
-                badge_stars = "⭐⭐"
-                badge_label = "LOW CONFIDENCE"
-                badge_color = "#ff8c00"
-                badge_kelly = "แนะนำ Kelly ×0.5 — ระวัง"
-            else:
-                badge_stars = "⭐"
-                badge_label = "VERY LOW"
-                badge_color = "#ff3b5c"
-                badge_kelly = "แนะนำ skip หรือ Kelly ×0.25"
-
-            # Render badge
             st.markdown(
-                f'<div style="background:#0d1e2e;border:2px solid {badge_color};'
-                f'border-radius:8px;padding:14px 18px;margin:10px 0;">'
-                f'<div style="display:flex;justify-content:space-between;align-items:center;'
-                f'margin-bottom:10px;">'
-                f'<div>'
-                f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
-                f'color:{badge_color};letter-spacing:0.08em;">🏆 GEM CONFIDENCE</span><br>'
-                f'<span style="font-family:\'Exo 2\';font-weight:700;font-size:1.1rem;'
-                f'color:{badge_color};">{badge_stars} {badge_label}</span>'
-                f'</div>'
-                f'<div style="text-align:right;">'
-                f'<span style="font-family:\'Share Tech Mono\';font-size:1.4rem;'
-                f'color:{badge_color};">{raw_score:.0f}</span>'
-                f'<span style="font-family:\'Share Tech Mono\';font-size:0.7rem;'
-                f'color:#4a7a60;">/100</span><br>'
-                f'<span style="font-family:\'Rajdhani\';font-size:0.72rem;color:#4a7a60;">'
-                f'{green_count}🟢 {yellow_count}🟡 {red_count}🔴 ({total_active} layers)</span>'
-                f'</div></div>'
-                f'<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">'
-                + "".join([
-                    f'<div style="background:rgba(255,255,255,0.05);border-left:2px solid {c[2]};'
-                    f'border-radius:0 3px 3px 0;padding:4px 8px;min-width:140px;flex:1;">'
-                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:{c[2]};">'
-                    f'{c[0]}</div>'
-                    f'<div style="font-family:\'Rajdhani\';font-size:0.75rem;color:#c8e6d4;">'
-                    f'{c[1]}</div></div>'
-                    for c in conf_checks
-                ]) +
-                f'</div>'
-                f'<div style="font-family:\'Rajdhani\';font-size:0.78rem;color:#4a7a60;'
-                f'border-top:1px solid rgba(255,255,255,0.05);padding-top:6px;">'
-                f'ℹ️ {badge_kelly} · '
-                f'<em>Display only — ไม่กระทบ Math หรือ Best Bet decision</em></div>'
+                f'<div class="signal-valid">'
+                f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.1rem;color:#00ff88;">'
+                f'🟢 SIGNAL VALID — {best["name"]} ({best["thai"]}) {best["line_display"]}</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.95rem;color:#c8e6d4;margin-top:8px;">'
+                f'Win Rate: <strong>{best["win_rate"]*100:.1f}%</strong> · '
+                f'Odds: <strong>{best["odds"]:.2f}</strong> · '
+                f'Gates: <strong>{best["gates"]["gates_passed"]}/4</strong></div>'
+                f'<div style="font-family:\'Share Tech Mono\';font-size:1.3rem;color:#00ff88;margin-top:10px;">'
+                f'💰 แนะนำลง: {bet_size_adjusted:,.0f} ฿ ({tier_label}, {tier_pct*100:.0f}%'
+                f'{f" × Gate5 {conf_mult}" if conf_mult != 1.0 else ""})</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.78rem;color:{conf_color};margin-top:6px;">'
+                f'{conf_label}</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+        else:
+            closest = max(sides_data, key=lambda s: s['gates']['gates_passed'])
+            failed_gates = [g['label'] for k, g in closest['gates'].items()
+                           if k.startswith('gate') and not g['pass']]
+            st.markdown(
+                f'<div class="signal-invalid">'
+                f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.1rem;color:#ff3b5c;">'
+                f'🔴 NO SIGNAL — Skip คู่นี้</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.88rem;color:#c8e6d4;margin-top:8px;">'
+                f'ไม่มีฝั่งไหนผ่านทั้ง 4 gates บังคับ — '
+                f'ใกล้สุดคือ <strong>{closest["name"]}</strong> ({closest["gates"]["gates_passed"]}/4)</div>'
+                f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:#ff8c00;margin-top:6px;">'
+                f'ตกที่: {", ".join(failed_gates)}</div>'
                 f'</div>',
                 unsafe_allow_html=True
             )
 
-            if candidates:
-                # [Bug Fix - Fallback] เรียง candidates ตาม ratio จากมากไปน้อย
-                # ส่งทั้งหมดให้ AI loop ตัดสินใจ — ถ้าตัวแรกถูก reject → ลองตัวถัดไป
-                candidates_sorted = sorted(candidates, key=lambda x: x['ratio'], reverse=True)
-                best_bet = candidates_sorted[0]
-                valid_bets = candidates_sorted   # ส่งทั้งหมดให้ AI loop พิจารณา
+        # ══════════════════════════════════════════════════════════════
+        # 💾 SAVE PREDICTION — บันทึกทุกครั้ง (ไม่ว่าจะมี signal หรือไม่)
+        # ══════════════════════════════════════════════════════════════
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        if 'predictions_log' not in st.session_state:
+            st.session_state['predictions_log'] = []
 
-                # แสดง ranking ทั้งหมด
-                ranking_str = " → ".join([
-                    f"#{i+1} {c['side_label']} ({c['n']}) ratio {c['ratio']:.2f}"
-                    for i, c in enumerate(candidates_sorted)
-                ])
-                st.success(
-                    f"🎯 **BEST BET:** {best_bet['side_label']} — "
-                    f"{best_bet['n']} @ {best_bet['odds']:.2f} "
-                    f"(EV {best_bet['ev']*100:.2f}% / threshold {best_bet['threshold']*100:.1f}% "
-                    f"= ratio **{best_bet['ratio']:.2f}**)"
-                )
-                if len(candidates_sorted) > 1:
-                    st.info(
-                        f"📋 Fallback Ranking: {ranking_str}\n\n"
-                        f"_ถ้า Oracle reject อันดับ 1 ระบบจะลองอันดับถัดไปอัตโนมัติ_"
-                    )
-            else:
-                st.warning("⚠️ ไม่มีฝั่งไหนผ่าน threshold — No signal")
+        if st.button("💾 บันทึก Prediction นี้ (สำหรับ Backtest)", use_container_width=True):
+            pred_record = {
+                'time': datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d %H:%M"),
+                'match': f"{home_team or 'Home'} vs {away_team or 'Away'}",
+                'league': league_name,
+                'league_tier': gate5_result['league_tier'],
+                'market_p_home': ph, 'market_p_draw': pd_, 'market_p_away': pa,
+                'stat_p_home': gate5_result['stat_p_home'],
+                'divergence_wl': gate5_result['divergence_wl'],
+                'market_total': ou_line, 'stat_total': gate5_result['stat_total'],
+                'divergence_goals': gate5_result['divergence_goals'],
+                'home_wr_5g': gate5_result['home_wr_5g'], 'away_wr_5g': gate5_result['away_wr_5g'],
+                'extreme_wr_flag': gate5_result['extreme_wr_flag'],
+                'ranking_agrees': gate5_result['ranking_agrees'],
+                'ah_line': hdp_line, 'ah_home_odds': hwo, 'ah_away_odds': awo,
+                'ou_line': ou_line, 'ou_over_odds': owo, 'ou_under_odds': uwo,
+                'gates_passed': max(s['gates']['gates_passed'] for s in sides_data),
+                'all_gates_pass': len(valid_sides) > 0,
+                'recommended_side': best['name'] if best else None,
+                'recommended_bet_size': bet_size if best else 0,
+                'actual_result': None, 'actual_score': None,
+                'wl_winner': None, 'goals_winner': None, 'bet_outcome': None,
+            }
+            st.session_state['predictions_log'].append(pred_record)
+            st.success(f"✅ บันทึก Prediction แล้ว — ดูที่ tab 📝 PREDICTIONS LOG เพื่อกรอกผลภายหลัง")
 
+
+# ════════════════════════════════════════════════════════════════════════
+# 📝 TAB 2: PREDICTIONS LOG — กรอกผลย้อนหลัง + คำนวณ wl/goals winner อัตโนมัติ
+# ════════════════════════════════════════════════════════════════════════
+def compute_wl_winner(market_p_home, stat_p_home, actual_result):
+    """
+    เปรียบเทียบว่า Market หรือ Stat 'ใกล้เคียง' ผลจริงมากกว่า
+    actual_result: 'home_win' | 'draw' | 'away_win'
+    หลักการ: แปลงผลจริงเป็น P(home)=1/0.5/0 แล้วดูว่าใครห่างน้อยกว่า
+    """
+    if actual_result == 'home_win':
+        target = 1.0
+    elif actual_result == 'away_win':
+        target = 0.0
+    else:
+        target = 0.5
+
+    market_dist = abs(market_p_home - target)
+    stat_dist = abs(stat_p_home - target)
+
+    if abs(market_dist - stat_dist) < 0.03:  # ใกล้กันมาก = neutral
+        return 'neutral'
+    return 'market' if market_dist < stat_dist else 'stat'
+
+
+def compute_goals_winner(market_total, stat_total, actual_total_goals):
+    """เปรียบเทียบว่า Market หรือ Stat total goals ใกล้ผลจริงมากกว่า"""
+    market_dist = abs(market_total - actual_total_goals)
+    stat_dist = abs(stat_total - actual_total_goals)
+    if abs(market_dist - stat_dist) < 0.2:
+        return 'neutral'
+    return 'market' if market_dist < stat_dist else 'stat'
+
+
+with tab_log:
+    st.markdown('<div class="gem-label">◈ PREDICTIONS LOG — ทุกคู่ที่วิเคราะห์</div>',
+               unsafe_allow_html=True)
+    st.caption("ⓘ บันทึกทุก prediction ไม่ว่าจะลงบิลจริงหรือไม่ — ใช้สำหรับ Backtest Lab")
+
+    if 'predictions_log' not in st.session_state or len(st.session_state['predictions_log']) == 0:
+        st.info("ยังไม่มี prediction ที่บันทึกไว้ — ไปที่ PRE-MATCH tab เพื่อวิเคราะห์และบันทึกคู่แรก")
+    else:
+        log = st.session_state['predictions_log']
+        pending = [p for p in log if p['actual_result'] is None]
+        settled = [p for p in log if p['actual_result'] is not None]
+
+        st.markdown(f'<div class="gem-label">◈ PENDING ({len(pending)})</div>', unsafe_allow_html=True)
+        if len(pending) == 0:
+            st.caption("ไม่มี prediction ที่รอผล")
+        for idx, p in enumerate(log):
+            if p['actual_result'] is not None:
+                continue
+            with st.expander(f"{p['time']} — {p['match']} ({p['league_tier']})"):
+                st.write(f"Market P(Home): {p['market_p_home']*100:.0f}% · "
+                        f"Stat P(Home): {p['stat_p_home']*100:.0f}% · "
+                        f"Divergence: {p['divergence_wl']*100:+.0f}%")
+                st.write(f"Market Total: {p['market_total']} · Stat Total: {p['stat_total']:.2f}")
+                st.write(f"Gates passed: {p['gates_passed']}/4 · "
+                        f"Recommended: {p['recommended_side'] or 'No Signal'}")
+
+                rc1, rc2 = st.columns(2)
+                home_goals = rc1.number_input("ประตู Home", 0, 20, key=f"hg_{idx}")
+                away_goals = rc2.number_input("ประตู Away", 0, 20, key=f"ag_{idx}")
+
+                if st.button("✅ บันทึกผล", key=f"settle_{idx}"):
+                    if home_goals > away_goals:
+                        actual_result = 'home_win'
+                    elif away_goals > home_goals:
+                        actual_result = 'away_win'
+                    else:
+                        actual_result = 'draw'
+                    actual_total = home_goals + away_goals
+
+                    wl_winner = compute_wl_winner(p['market_p_home'], p['stat_p_home'], actual_result)
+                    goals_winner = compute_goals_winner(p['market_total'], p['stat_total'], actual_total)
+
+                    st.session_state['predictions_log'][idx]['actual_result'] = actual_result
+                    st.session_state['predictions_log'][idx]['actual_score'] = f"{home_goals}-{away_goals}"
+                    st.session_state['predictions_log'][idx]['actual_total_goals'] = actual_total
+                    st.session_state['predictions_log'][idx]['wl_winner'] = wl_winner
+                    st.session_state['predictions_log'][idx]['goals_winner'] = goals_winner
+                    st.rerun()
+
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="gem-label">◈ SETTLED ({len(settled)})</div>', unsafe_allow_html=True)
+        if len(settled) > 0:
+            settled_df = pd.DataFrame([{
+                'Time': p['time'], 'Match': p['match'], 'Tier': p['league_tier'],
+                'Δ WL%': f"{p['divergence_wl']*100:+.0f}", 'Score': p['actual_score'],
+                'WL Winner': p['wl_winner'], 'Goals Winner': p['goals_winner'],
+            } for p in settled])
+            st.dataframe(settled_df, use_container_width=True, hide_index=True)
         else:
-            # ════════════════════════════════════════════════════════════
-            # [Default Mode] Dutching — ลงทั้ง AH และ OU ที่ผ่าน threshold
-            # ════════════════════════════════════════════════════════════
-            if bah['ev'] >= ah_threshold: valid_bets.append(bah)
-            if bou['ev'] >= ou_threshold: valid_bets.append(bou)
-
-        if valid_bets:
-            with st.spinner("◈ THE ORACLE PROCESSING..."):
-                # [Bug Fix - Fallback] track ว่า Best Bet Mode ได้ approve แล้วหรือยัง
-                best_bet_locked = False
-
-                for bet_idx, tc in enumerate(valid_bets):
-                    # ใน Best Bet Mode — ถ้าได้บิลที่ approved แล้ว → หยุดทันที
-                    if best_bet_only and best_bet_locked:
-                        break
-
-                    # แสดง fallback banner ถ้านี่ไม่ใช่อันดับ 1 ใน Best Bet Mode
-                    if best_bet_only and bet_idx > 0:
-                        st.markdown(
-                            f'<div style="background:rgba(255,140,0,0.10);'
-                            f'border-left:4px solid #ff8c00;border-radius:4px;'
-                            f'padding:12px 16px;margin:10px 0;">'
-                            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.9rem;'
-                            f'color:#ff8c00;letter-spacing:0.05em;text-transform:uppercase;'
-                            f'margin-bottom:4px;">🔄 FALLBACK — ลองอันดับ #{bet_idx+1}</div>'
-                            f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
-                            f'อันดับก่อนหน้าถูก Oracle reject — กำลังลอง <strong>{tc["side_label"]}: {tc["n"]}</strong> '
-                            f'(ratio {tc["ratio"]:.2f})</div></div>',
-                            unsafe_allow_html=True
-                        )
-
-                    tf = None
-                    if tc['n'] == "เจ้าบ้าน": tf = fav_h
-                    elif tc['n'] == "ทีมเยือน": tf = not fav_h
-                    # [Calibration v3] เลือก threshold ที่ตรงกับ bet ฝั่งนี้
-                    if tc['n'] in ["เจ้าบ้าน", "ทีมเยือน"]:
-                        bet_thr = pre_ah_fav_lim if (tf is True) else pre_ah_dog_lim
-                    else:
-                        bet_thr = pre_ou_over_lim if (tc['n'] == "สูง") else pre_ou_under_lim
-                    v   = ai_engine(match_name, tc['n'], tc['ev'], tc['hdp'], tc['odds'],
-                                    live=False, thr=bet_thr, stats=match_stats,
-                                    fav=tf, line_movement=line_movement)
-                    nev = tc['ev'] + v.get('impact_score', 0)
-
-                    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="gem-label">◈ ORACLE VERDICT : {tc["n"]}</div>', unsafe_allow_html=True)
-
-                    # ── [AI Error Handler] แสดง error banner + retry ─────
-                    if v.get('ai_error'):
-                        err_code = v.get('error_code', 'ERR')
-                        err_msg  = v.get('error_message', '')[:150]
-                        st.markdown(
-                            f'<div style="background:rgba(255,59,92,0.10);'
-                            f'border:1px solid rgba(255,59,92,0.4);'
-                            f'border-left:4px solid #ff3b5c;border-radius:4px;'
-                            f'padding:14px 18px;margin:10px 0;">'
-                            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;'
-                            f'color:#ff3b5c;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;">'
-                            f'⚠️ ORACLE AI ERROR — {err_code}</div>'
-                            f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;line-height:1.5;">'
-                            f'AI ไม่สามารถวิเคราะห์ได้ — <strong>ระบบจะไม่บันทึกบิลนี้</strong><br>'
-                            f'รายละเอียด: <code style="color:#ff8c00;">{err_msg}</code></div></div>',
-                            unsafe_allow_html=True
-                        )
-
-                        # ปุ่มรีรัน Oracle (ไม่บันทึกบิล)
-                        retry_key = f"retry_oracle_{tc['n']}_{tc['hdp']}"
-                        if st.button(
-                            f"🔄  รีรัน Oracle สำหรับ {tc['n']}",
-                            key=retry_key,
-                            use_container_width=True,
-                            type="primary",
-                            help="พยายามเรียก AI Oracle อีกครั้ง โดยไม่ต้องคำนวณใหม่ทั้งหมด"
-                        ):
-                            st.toast("🔄 กำลังเรียก Oracle ใหม่...", icon="⚡")
-                            time.sleep(0.5)
-                            st.rerun()
-
-                        # ข้ามไป bet ถัดไปโดยไม่ save
-                        continue
-
-                    vc1, vc2, vc3 = st.columns(3)
-                    vc1.metric("BASE EV",    f"{tc['ev']*100:.2f}%")
-                    vc2.metric("ORACLE ADJ", f"{v.get('impact_score',0)*100:.2f}%")
-                    vc3.metric("NET EV",     f"{nev*100:.2f}%")
-
-                    with st.expander(f"◈ FULL ANALYSIS : {tc['n']}", expanded=True):
-                        stars = v.get('confidence_level', 3)
-                        st.markdown(f'<div class="gem-label">CONFIDENCE: {"★"*stars}{"☆"*(5-stars)} ({stars}/5)</div>', unsafe_allow_html=True)
-                        st.success(f"**PROS:** {v.get('pros_analysis','—')}")
-                        st.error(f"**RISK:** {v.get('cons_analysis','—')}")
-                        st.info(f"**RULES:** {v.get('rule_triggered','None')}")
-
-                    col_v = "#00ff88" if v.get('final_decision', False) and nev > 0 else "#ff3b5c"
-                    label = "◈ ORACLE APPROVED — EXECUTE" if v.get('final_decision', False) and nev > 0 else "◈ ORACLE REJECTED — STAND DOWN"
-                    st.markdown(
-                        f'<div class="gem-panel" style="border-top:2px solid {col_v};">'
-                        f'<div class="gem-label" style="border-color:{col_v};color:{col_v};">{label}</div>'
-                        f'<p style="color:{col_v};font-family:\'Share Tech Mono\';font-size:0.82rem;">'
-                        f'{v.get("final_comment","")}</p></div>',
-                        unsafe_allow_html=True
-                    )
-
-                    if v.get('final_decision', False) and nev > 0:
-                        # [Bug Fix - Fallback] ใน Best Bet Mode → lock ทันทีเมื่อ approve
-                        # ป้องกัน loop ลงบิลซ้อนกัน (เพราะ valid_bets มีหลายตัวใน fallback list)
-                        if best_bet_only:
-                            best_bet_locked = True
-
-                        # [Dutching] dutch_factor ใช้เฉพาะ Default Mode ที่ลงทั้ง 2 ตลาด
-                        # Best Bet Mode ลงแค่ 1 ฝั่ง → ไม่ต้องลด exposure
-                        if best_bet_only:
-                            dutch_factor = 1.00
-                        else:
-                            dutch_factor = 0.60 if len(valid_bets) == 2 else 1.00
-
-                        # [Tier-Based Kelly] ปรับ Kelly fraction ตามคุณภาพ bet
-                        # คำนวณ ratio และ tier ของ bet นี้
-                        bet_thr_pct = bet_thr * 100  # bet_thr เป็นทศนิยม
-                        bet_ratio = (tc['ev'] * 100) / bet_thr_pct if bet_thr_pct > 0 else 0
-                        bet_tier_info = get_bet_tier(tc['ev'] * 100, bet_ratio)
-                        tier_mult = bet_tier_info['kelly_mult']
-
-                        kelly_opt = nev / (tc['odds'] - 1)
-                        # คูณ tier multiplier: GOLD x1.5, SILVER x1.0, BRONZE x0.5
-                        inv = min(kelly_opt * kelly_fraction * tier_mult * dutch_factor,
-                                  max_bet_cap / 100.0) * total_bankroll
-                        inv = max(inv, 0.0)
-
-                        # แสดง tier ใน UI
-                        st.markdown(
-                            f'<div class="gem-panel" style="border-top:2px solid {bet_tier_info["color"]};">'
-                            f'<div class="gem-label" style="border-color:{bet_tier_info["color"]};color:{bet_tier_info["color"]};">'
-                            f'{bet_tier_info["emoji"]} {bet_tier_info["tier"]} TIER — Kelly × {tier_mult:.1f}</div>'
-                            f'<p style="color:#c8e6d4;font-family:\'Share Tech Mono\';font-size:0.78rem;">'
-                            f'Ratio: <strong>{bet_ratio:.2f}</strong> · '
-                            f'EV: <strong>{tc["ev"]*100:.2f}%</strong></p>'
-                            f'<p style="color:#4a7a60;font-family:\'Share Tech Mono\';font-size:0.72rem;">'
-                            f'{bet_tier_info["description"]}</p></div>',
-                            unsafe_allow_html=True
-                        )
-
-                        if not best_bet_only and len(valid_bets) == 2:
-                            st.warning(
-                                "⚠️ Dutching 2 markets: AH & O/U อาจ positively correlated "
-                                "— ระบบลด exposure เหลือ 60% ต่อตลาด"
-                            )
-                        tz_th = timezone(timedelta(hours=7))
-                        # [Calibration v3.1] แยกบันทึก Base EV, AI Impact, Net EV
-                        ai_impact = v.get('impact_score', 0)
-                        new_row = {
-                            "Time": datetime.now(tz_th).strftime("%Y-%m-%d %H:%M:%S"),
-                            "Match": match_name, "HDP": tc['hdp'], "Target": tc['n'],
-                            "EV_Pct":        round(nev * 100, 2),         # Net (backward compat)
-                            "Base_EV_Pct":   round(tc['ev'] * 100, 2),    # Math เท่านั้น
-                            "AI_Impact_Pct": round(ai_impact * 100, 2),   # Oracle adjustment
-                            "Investment":    round(inv, 2),
-                            "Odds":          tc['odds'],
-                            "Closing_Odds":  0.0, "Result": ""
-                        }
-
-                        # ── [Hybrid Duplicate Detection] ────────────────
-                        # ตรวจหาบิลซ้ำใน 24 ชั่วโมง ก่อน save จริง
-                        duplicates = find_duplicate_bets(match_name, tc['n'], hours_window=24)
-
-                        if duplicates:
-                            # เจอซ้ำ → แสดง popup ให้ผู้ใช้ตัดสินใจ
-                            st.warning(
-                                f"⚠️ พบบิลซ้ำของ **{tc['n']}** ในแมตช์นี้ "
-                                f"({len(duplicates)} รายการ ใน 24 ชม.) "
-                                f"— กรุณาตัดสินใจในป๊อปอัพ"
-                            )
-                            show_duplicate_dialog(new_row, duplicates)
-                        else:
-                            # ไม่ซ้ำ → save ตามปกติ
-                            st.balloons()
-                            save_db([new_row])
-                            st.success(f"บันทึกบิล {tc['n']} สำเร็จ!")
-        else:
-            st.markdown(
-                f'<div class="gem-panel" style="border-top:2px solid #ffd600;">'
-                f'<div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ BELOW THRESHOLD — NO SIGNAL</div>'
-                f'<p class="gem-warn">AH {bah["ev"]*100:.2f}% (min {ah_threshold_pct}%) | O/U {bou["ev"]*100:.2f}% (min {ou_threshold_pct}%)</p></div>',
-                unsafe_allow_html=True
-            )
-
-# ╔══════════════╗
-# ║  TAB 2       ║
-# ╚══════════════╝
-with tab2:
-    tab2_logs = load_logs()
-    tz_th     = timezone(timedelta(hours=7))
-    today_str = datetime.now(tz_th).strftime("%Y-%m-%d")
-
-    if not tab2_logs.empty:
-        # ── CSS เพิ่มเติมสำหรับ Match Cards ──────────────────────────────
-        st.markdown("""
-<style>
-.match-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 14px 18px;
-    margin-bottom: 10px;
-    position: relative;
-    transition: border-color 0.18s;
-    cursor: pointer;
-}
-.match-card::before {
-    content: "";
-    position: absolute;
-    top: 0; left: 0; bottom: 0;
-    width: 3px;
-    border-radius: 6px 0 0 6px;
-}
-.match-card.win::before   { background: #00ff88; }
-.match-card.loss::before  { background: #ff3b5c; }
-.match-card.push::before  { background: #4a7a60; }
-.match-card.open::before  { background: #ffd600; }
-.match-card.live::before  { background: #ff8c00; }
-
-.mc-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-.mc-match {
-    font-family: 'Exo 2', sans-serif;
-    font-weight: 600;
-    font-size: 0.92rem;
-    color: #c8e6d4;
-    flex: 1;
-    min-width: 0;
-}
-.mc-live-tag {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.62rem;
-    color: #ff8c00;
-    background: rgba(255,140,0,0.12);
-    border: 1px solid rgba(255,140,0,0.3);
-    padding: 1px 7px;
-    border-radius: 2px;
-    letter-spacing: 0.1em;
-    white-space: nowrap;
-}
-.mc-badge {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.66rem;
-    padding: 2px 8px;
-    border-radius: 2px;
-    letter-spacing: 0.07em;
-    white-space: nowrap;
-}
-.mc-badge.win   { background: rgba(0,255,136,0.12); color:#00ff88; border:1px solid rgba(0,255,136,0.3); }
-.mc-badge.loss  { background: rgba(255,59,92,0.12);  color:#ff3b5c; border:1px solid rgba(255,59,92,0.3); }
-.mc-badge.push  { background: rgba(74,122,96,0.15);  color:#4a7a60; border:1px solid rgba(74,122,96,0.3); }
-.mc-badge.open  { background: rgba(255,214,0,0.10);  color:#ffd600; border:1px solid rgba(255,214,0,0.3); }
-
-.mc-meta {
-    display: flex;
-    gap: 16px;
-    margin-top: 8px;
-    flex-wrap: wrap;
-}
-.mc-kv {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-}
-.mc-kv-label {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.58rem;
-    color: #2a5040;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-}
-.mc-kv-value {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.82rem;
-    color: #c8e6d4;
-}
-.mc-pnl.pos { color: #00ff88 !important; }
-.mc-pnl.neg { color: #ff3b5c !important; }
-.mc-pnl.zero{ color: #4a7a60 !important; }
-.mc-time {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 0.62rem;
-    color: #2a5040;
-    margin-left: auto;
-    white-space: nowrap;
-}
-</style>
-""", unsafe_allow_html=True)
-
-        tab2_logs['Net_Profit'] = tab2_logs.apply(calc_pnl, axis=1)
-        tab2_logs['CLV_Pct']   = tab2_logs.apply(calc_clv, axis=1)
-
-        st.markdown('<div class="gem-label">◈ POSITION LOG</div>', unsafe_allow_html=True)
-
-        # ── Filter bar ────────────────────────────────────────────────────
-        fc1, fc2 = st.columns([1, 3])
-        with fc1:
-            flt = st.selectbox("FILTER", ["Today", "Pending Results", "All Records"])
-        with fc2:
-            search_q = st.text_input("🔍 ค้นหาแมตช์", placeholder="พิมพ์ชื่อทีม...", label_visibility="collapsed")
-
-        df2 = tab2_logs.copy()
-        if flt == "Today":
-            df2 = df2[df2['Time'].astype(str).str.contains(today_str, na=False)]
-        elif flt == "Pending Results":
-            df2 = df2[df2['Result'].astype(str).str.strip() == ""]
-        if search_q.strip():
-            df2 = df2[df2['Match'].astype(str).str.contains(search_q, case=False, na=False)]
-        df2 = df2.sort_values('Time', ascending=False).reset_index(drop=True)
-
-        if df2.empty:
-            st.info("◈ ไม่พบรายการที่ตรงเงื่อนไข")
-        else:
-            st.markdown(f'<div class="gem-dim" style="margin-bottom:10px;">แสดง {len(df2)} รายการ</div>',
-                        unsafe_allow_html=True)
-
-            # ── Dialog function (popup modal) ─────────────────────────────
-            # st.dialog ต้องนิยามนอก loop และรับ row data เข้าไป
-            @st.dialog("◈ MATCH DETAIL", width="large")
-            def show_match_dialog(row_data):
-                mn        = row_data['match_name']
-                target_d  = row_data['target']
-                hdp_d     = row_data['hdp']
-                odds_d    = row_data['odds']
-                ev_d      = row_data['ev_pct']
-                invest_d  = row_data['invest']
-                result_d  = row_data['result']
-                closing_d = row_data['closing']
-                pnl_d     = row_data['net_pnl']
-                rid       = row_data['row_id']
-                time_d    = row_data['time_str']
-                border_d  = row_data['border_col']
-                status_d  = row_data['status_label']
-                is_live_d = row_data.get('is_live', False)   # [Fix] Live flag
-
-                pnl_col = ("#00ff88" if pnl_d > 0
-                           else ("#ff3b5c" if pnl_d < 0 else "#4a7a60"))
-
-                # header inside dialog
-                st.markdown(
-                    f'<div style="border-left:3px solid {border_d};padding:10px 14px;'
-                    f'background:#091520;border-radius:0 4px 4px 0;margin-bottom:14px;">'
-                    f'<div style="font-family:\'Exo 2\',sans-serif;font-weight:700;'
-                    f'font-size:1rem;color:#c8e6d4;">{mn}</div>'
-                    f'<div style="font-family:\'Share Tech Mono\',monospace;font-size:0.68rem;'
-                    f'color:{border_d};margin-top:3px;">{status_d} &nbsp;·&nbsp; {time_d}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
-
-                det1, det2 = st.columns(2)
-
-                # ── left: oracle metrics ──────────────────────────────────
-                with det1:
-                    st.markdown('<div class="gem-label">◈ EV BREAKDOWN</div>',
-                                unsafe_allow_html=True)
-                    # [Calibration v3.1] แสดง Base EV / AI Impact / Net EV แยก
-                    base_ev_d = row_data.get('base_ev_pct', ev_d)
-                    ai_impact_d = row_data.get('ai_impact_pct', 0.0)
-                    eb1, eb2, eb3 = st.columns(3)
-                    eb1.metric("Base EV (Math)", f"{base_ev_d:.2f}%")
-                    ai_delta_color = "normal" if ai_impact_d >= 0 else "inverse"
-                    eb2.metric("AI Impact", f"{ai_impact_d:+.2f}%", delta_color=ai_delta_color)
-                    eb3.metric("Net EV",     f"{ev_d:.2f}%")
-
-                    # ── [Quality Tier] แสดง Tier + Ratio + Score ───────────
-                    # คำนวณ ratio ย้อนหลังจาก base_ev + threshold ที่เหมาะกับฝั่ง
-                    try:
-                        hdp_for_tier = float(hdp_d)
-                        odds_for_tier = float(odds_d)
-                    except:
-                        hdp_for_tier, odds_for_tier = 0.0, 1.95
-
-                    # เลือก threshold ตาม side
-                    if target_d == "เจ้าบ้าน":
-                        is_fav_calc = (hdp_for_tier > 0 and odds_for_tier <= 1.92) or \
-                                       (hdp_for_tier > 0 and 1.92 <= odds_for_tier <= 1.98)
-                        thr_for_tier = pre_ah_fav_thr if is_fav_calc else pre_ah_dog_thr
-                    elif target_d == "ทีมเยือน":
-                        is_fav_calc = (hdp_for_tier < 0) or \
-                                       (hdp_for_tier > 0 and odds_for_tier <= 1.92)
-                        thr_for_tier = pre_ah_fav_thr if is_fav_calc else pre_ah_dog_thr
-                    elif target_d == "สูง":
-                        thr_for_tier = pre_ou_over_thr
-                    elif target_d == "ต่ำ":
-                        thr_for_tier = pre_ou_under_thr
-                    else:
-                        thr_for_tier = 10.0
-
-                    ratio_d = base_ev_d / thr_for_tier if thr_for_tier > 0 else 0
-                    tier_info_d = get_bet_tier(base_ev_d, ratio_d)
-
-                    st.markdown(
-                        f'<div class="gem-label" style="margin-top:10px;'
-                        f'border-color:{tier_info_d["color"]};color:{tier_info_d["color"]};">'
-                        f'◈ QUALITY METRICS — {tier_info_d["emoji"]} {tier_info_d["tier"]}</div>',
-                        unsafe_allow_html=True
-                    )
-                    qm1, qm2 = st.columns(2)
-                    qm1.metric("Ratio",      f"{ratio_d:.2f}")
-                    qm2.metric("Kelly Mult", f"×{tier_info_d['kelly_mult']:.1f}")
-
-                    st.markdown('<div class="gem-label" style="margin-top:8px;">◈ TRADE INFO</div>',
-                                unsafe_allow_html=True)
-                    d1, d2 = st.columns(2)
-                    d1.metric("Odds",       f"{odds_d:.2f}")
-                    d2.metric("เงินลงทุน", f"฿{invest_d:,.0f}")
-
-                    # [Fix - Live] CLV ใช้ไม่ได้กับ Live bet
-                    if not is_live_d:
-                        try:
-                            clv_val = float(closing_d) if closing_d and float(closing_d) > 1.0 else None
-                        except:
-                            clv_val = None
-                        if clv_val:
-                            clv_pct = ((odds_d / clv_val) - 1.0) * 100
-                            d4, d5 = st.columns(2)
-                            d4.metric("Closing Odds", f"{clv_val:.2f}")
-                            d5.metric("CLV", f"{clv_pct:+.2f}%",
-                                      delta_color="normal" if clv_pct >= 0 else "inverse")
-
-                    if result_d:
-                        st.markdown('<div class="gem-label" style="margin-top:12px;">◈ FINAL RESULT</div>',
-                                    unsafe_allow_html=True)
-                        st.metric("สกอร์จริง", result_d)
-                        st.markdown(
-                            f'<div style="font-family:\'Share Tech Mono\';font-size:1.05rem;'
-                            f'color:{pnl_col};margin-top:4px;">P&L: ฿{pnl_d:+,.2f}</div>',
-                            unsafe_allow_html=True
-                        )
-
-                    st.markdown('<div class="gem-label" style="margin-top:12px;">◈ ORACLE CONTEXT</div>',
-                                unsafe_allow_html=True)
-                    mkt  = ("Asian Handicap (AH)"
-                            if target_d in ["เจ้าบ้าน","ทีมเยือน"] else "Total Goals (O/U)")
-
-                    # [Fix - Clarity] Fav/Dog detection พร้อมแสดง 2 ทีมแยกชัด
-                    # ป้องกันความสับสนระหว่าง "Target ที่ลง" กับ "Direction ของตลาด"
-                    try:
-                        hdp_val  = float(hdp_d)
-                        odds_val = float(odds_d)
-                    except:
-                        hdp_val, odds_val = 0.0, 1.95
-
-                    if target_d in ["เจ้าบ้าน", "ทีมเยือน"]:
-                        abs_hdp = abs(hdp_val)
-                        # Determine direction ตลาด
-                        if hdp_val < 0:
-                            # HDP ลบ = เยือนต่อ
-                            fav_side, dog_side = "ทีมเยือน", "เจ้าบ้าน"
-                            line_desc = f"เยือนต่อ {abs_hdp:.2f}"
-                        elif hdp_val > 0:
-                            if odds_val < 1.92:
-                                # ฝั่งนี้ราคาต่ำ = Fav
-                                fav_side = target_d
-                                dog_side = "ทีมเยือน" if target_d == "เจ้าบ้าน" else "เจ้าบ้าน"
-                                line_desc = f"{fav_side}ต่อ {abs_hdp:.2f}"
-                            elif odds_val > 1.98:
-                                # ฝั่งนี้ราคาสูง = Dog
-                                dog_side = target_d
-                                fav_side = "ทีมเยือน" if target_d == "เจ้าบ้าน" else "เจ้าบ้าน"
-                                line_desc = f"{fav_side}ต่อ {abs_hdp:.2f}"
-                            else:
-                                # default convention
-                                fav_side, dog_side = "เจ้าบ้าน", "ทีมเยือน"
-                                line_desc = f"เจ้าบ้านต่อ {abs_hdp:.2f}"
-                        else:
-                            if odds_val < 1.95:
-                                fav_side = target_d
-                                dog_side = "ทีมเยือน" if target_d == "เจ้าบ้าน" else "เจ้าบ้าน"
-                                line_desc = "เสมอกัน (HDP 0)"
-                            elif odds_val > 1.95:
-                                dog_side = target_d
-                                fav_side = "ทีมเยือน" if target_d == "เจ้าบ้าน" else "เจ้าบ้าน"
-                                line_desc = "เสมอกัน (HDP 0)"
-                            else:
-                                fav_side = dog_side = "เสมอ"
-                                line_desc = "เสมอกัน (HDP 0)"
-
-                        # บทบาทของ Target ที่เราลง
-                        if target_d == fav_side:
-                            role_short = "ต่อ / Fav"
-                            role_color = "#ff8c00"
-                        elif target_d == dog_side:
-                            role_short = "รอง / Dog"
-                            role_color = "#00ff88"
-                        else:
-                            role_short = "Even"
-                            role_color = "#4a7a60"
-
-                        # build display: target ที่ลง + ตำแหน่ง + ราคา + context
-                        role = (
-                            f'<div style="line-height:1.6;">'
-                            f'<span style="color:{role_color};font-weight:600;">'
-                            f'▸ {target_d} ({role_short}) @ {odds_val:.2f}'
-                            f'</span>'
-                            f'<br><span style="color:#4a7a60;font-size:0.7rem;">'
-                            f'  ตลาด: {line_desc}'
-                            f'</span></div>'
-                        )
-                    else:
-                        # OU
-                        role_color = "#00b4ff" if target_d == "สูง" else "#ff8c00"
-                        role = (
-                            f'<span style="color:{role_color};font-weight:600;">'
-                            f'▸ {target_d} @ {odds_val:.2f}</span>'
-                        )
-                    ev_flag = ("🟢 EV ดีมาก" if ev_d >= 25
-                               else "🟡 EV ปานกลาง" if ev_d >= 10
-                               else "🔴 EV ต่ำ")
-                    st.markdown(
-                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.75rem;'
-                        f'color:#4a7a60;line-height:2.0;">'
-                        f'ตลาด: <span style="color:#c8e6d4;">{mkt}</span><br>'
-                        f'บทบาท: <span style="color:#c8e6d4;">{role}</span><br>'
-                        f'EV: <span style="color:#c8e6d4;">{ev_flag} ({ev_d:.1f}%)</span>'
-                        f'</div>',
-                        unsafe_allow_html=True
-                    )
-                    if result_d and pnl_d != 0:
-                        ob  = "rgba(0,255,136,0.07)" if pnl_d > 0 else "rgba(255,59,92,0.07)"
-                        oc  = "#00ff88" if pnl_d > 0 else "#ff3b5c"
-                        otx = (f"✓ ระบบคาดถูก — EV {ev_d:.1f}% → กำไร ฿{pnl_d:,.0f}"
-                               if pnl_d > 0
-                               else f"✗ Variance — EV {ev_d:.1f}% แต่ขาดทุน ฿{abs(pnl_d):,.0f}")
-                        st.markdown(
-                            f'<div style="margin-top:10px;padding:10px 14px;background:{ob};'
-                            f'border-left:3px solid {oc};border-radius:3px;'
-                            f'font-family:\'Share Tech Mono\';font-size:0.75rem;color:{oc};">{otx}</div>',
-                            unsafe_allow_html=True
-                        )
-
-                # ── right: update form ────────────────────────────────────
-                with det2:
-                    st.markdown('<div class="gem-label">◈ UPDATE RESULT</div>',
-                                unsafe_allow_html=True)
-
-                    # [Fix - Live] Closing Odds ใช้ไม่ได้กับ Live bet
-                    # เพราะลงระหว่างเกม ไม่ใช่ก่อนเกม → ไม่มี "closing line"
-                    if is_live_d:
-                        st.markdown(
-                            '<div style="background:rgba(255,140,0,0.08);'
-                            'border-left:3px solid #ff8c00;border-radius:3px;'
-                            'padding:8px 12px;margin-bottom:8px;'
-                            'font-family:\'Share Tech Mono\';font-size:0.72rem;color:#ff8c00;">'
-                            '🟠 LIVE BET — ไม่มี Closing Odds (CLV ใช้ไม่ได้กับ in-play)'
-                            '</div>',
-                            unsafe_allow_html=True
-                        )
-                        new_closing = 0.0   # ตั้งเป็น 0 เพื่อ skip CLV calculation
-                    else:
-                        try:
-                            closing_default = float(closing_d) if closing_d and float(closing_d) > 0 else 0.0
-                        except:
-                            closing_default = 0.0
-                        new_closing = st.number_input(
-                            "Closing Odds",
-                            min_value=0.0,
-                            value=closing_default,
-                            format="%.2f",
-                            key=f"dlg_closing_{rid}"
-                        )
-
-                    new_result = st.text_input(
-                        "Result (สกอร์ เช่น 2-1)",
-                        value=result_d,
-                        placeholder="H-A เช่น 2-1",
-                        key=f"dlg_result_{rid}"
-                    )
-                    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-
-                    if st.button("💾  บันทึก", key=f"dlg_save_{rid}",
-                                 use_container_width=True, type="primary"):
-                        try:
-                            # [Fix - Live] Live bet: บันทึกแค่ Result ไม่แตะ Closing_Odds
-                            update_data = {"Result": str(new_result).strip()}
-                            if not is_live_d:
-                                update_data["Closing_Odds"] = float(new_closing)
-
-                            supabase.table("investment_logs").update(update_data).eq("id", rid).execute()
-                            load_logs.clear()   # invalidate cache เพื่อโชว์ผลใหม่ทันที
-                            st.toast("✓ บันทึกเรียบร้อยแล้ว", icon="💾")
-                            time.sleep(0.5)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-
-                    # ── DANGER ZONE: ลบบิล ────────────────────────────────
-                    # ใช้ checkbox + button แทน 2-step rerun
-                    # (rerun ปิด dialog → ต้องเปิดใหม่ ซึ่งเป็น UX ที่แย่)
-                    st.markdown('<div style="height:14px"></div>', unsafe_allow_html=True)
-                    st.markdown(
-                        '<div style="border-top:1px solid #2a1015;padding-top:10px;">'
-                        '<div class="gem-label" style="border-color:#ff3b5c;color:#ff3b5c;">'
-                        '◈ DANGER ZONE</div></div>',
-                        unsafe_allow_html=True
-                    )
-
-                    # Step 1: checkbox ยืนยันก่อน
-                    confirm = st.checkbox(
-                        "⚠️ ฉันยืนยันต้องการลบบิลนี้",
-                        key=f"dlg_del_confirm_{rid}"
-                    )
-
-                    # Step 2: ปุ่มลบ — disabled จนกว่าจะติ๊ก checkbox
-                    if st.button(
-                        "🗑  ลบบิลนี้ถาวร",
-                        key=f"dlg_del_{rid}",
-                        use_container_width=True,
-                        disabled=not confirm,
-                        help="ติ๊ก checkbox ก่อนเพื่อเปิดปุ่ม" if not confirm else "กดเพื่อลบบิลถาวร"
-                    ):
-                        try:
-                            supabase.table("investment_logs").delete().eq("id", rid).execute()
-                            load_logs.clear()
-                            st.toast(f"🗑 ลบบิล {row_data['match_name']} แล้ว", icon="✅")
-                            time.sleep(0.6)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error: {e}")
-
-            # ── Match Cards loop — 3 cards per row ────────────────────────
-            CARDS_PER_ROW = 3
-            rows_data = df2.to_dict('records')
-
-            for row_idx in range(0, len(rows_data), CARDS_PER_ROW):
-                chunk = rows_data[row_idx : row_idx + CARDS_PER_ROW]
-                cols  = st.columns(CARDS_PER_ROW)
-
-                for col_idx, row in enumerate(chunk):
-                    with cols[col_idx]:
-                        match_raw  = str(row.get('Match', ''))
-                        is_live    = '[LIVE' in match_raw.upper()
-                        match_name = (match_raw
-                                      .replace('[LIVE]', '').replace('[LIVE', '')
-                                      .strip().strip("'").rstrip("]").strip())
-
-                        target   = str(row.get('Target', '—'))
-                        hdp      = row.get('HDP', 0)
-                        odds     = float(row.get('Odds', 0))
-                        ev_pct   = float(row.get('EV_Pct', 0))
-                        # [Calibration v3.1] ดึง Base EV และ AI Impact (backward compat)
-                        base_ev_pct   = float(row.get('Base_EV_Pct', ev_pct))
-                        ai_impact_pct = float(row.get('AI_Impact_Pct', 0.0))
-                        invest   = float(row.get('Investment', 0))
-                        result   = str(row.get('Result', '')).strip()
-                        closing  = row.get('Closing_Odds', 0.0)
-                        net_pnl  = float(row.get('Net_Profit', 0.0))
-                        row_id   = row.get('id', row_idx + col_idx)
-                        time_str = str(row.get('Time', ''))[:16]
-
-                        if is_live:
-                            border_col = "#ff8c00"; status_label = "🟠 LIVE"
-                        elif not result:
-                            border_col = "#ffd600"; status_label = "⏳ PENDING"
-                        elif net_pnl > 0:
-                            border_col = "#00ff88"; status_label = "✅ WIN"
-                        elif net_pnl < 0:
-                            border_col = "#ff3b5c"; status_label = "❌ LOSS"
-                        else:
-                            border_col = "#4a7a60"; status_label = "➖ PUSH"
-
-                        pnl_display = f"฿{net_pnl:+,.0f}" if result else "—"
-                        pnl_color   = ("#00ff88" if net_pnl > 0
-                                       else ("#ff3b5c" if net_pnl < 0 else "#4a7a60"))
-
-                        # ── COMPACT CARD ──────────────────────────────────
-                        # ชื่อทีมบนสุด, สถานะ+เวลาบรรทัด 2
-                        # ข้อมูล 2 บรรทัด: Target/Line/Odds — EV/Inv/P&L
-                        st.markdown(
-                            f'<div style="border-left:3px solid {border_col};'
-                            f'background:#0d1e2e;border-radius:0 6px 6px 0;'
-                            f'padding:10px 12px;margin-bottom:4px;min-height:130px;">'
-
-                            # row 1: match name
-                            f'<div style="font-family:\'Exo 2\',sans-serif;font-weight:600;'
-                            f'font-size:0.82rem;color:#c8e6d4;line-height:1.2;'
-                            f'overflow:hidden;text-overflow:ellipsis;'
-                            f'display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;">'
-                            f'{"🔴 " if is_live else ""}{match_name}</div>'
-
-                            # row 2: status + time
-                            f'<div style="display:flex;justify-content:space-between;'
-                            f'margin-top:4px;">'
-                            f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.62rem;'
-                            f'color:{border_col};">{status_label}</span>'
-                            f'<span style="font-family:\'Share Tech Mono\',monospace;font-size:0.58rem;'
-                            f'color:#2a5040;">{time_str[5:]}</span>'  # ตัดปีออกประหยัดพื้นที่
-                            f'</div>'
-
-                            # divider
-                            f'<div style="height:1px;background:#1a3528;margin:6px 0;"></div>'
-
-                            # row 3: target / line / odds
-                            f'<div style="display:flex;justify-content:space-between;'
-                            f'font-family:\'Share Tech Mono\',monospace;font-size:0.7rem;'
-                            f'color:#c8e6d4;line-height:1.4;">'
-                            f'<span title="Target">{target}</span>'
-                            f'<span title="Line" style="color:#4a7a60;">{hdp}</span>'
-                            f'<span title="Odds" style="color:#4a7a60;">@{odds:.2f}</span>'
-                            f'</div>'
-
-                            # row 4: EV / Invest / P&L
-                            f'<div style="display:flex;justify-content:space-between;'
-                            f'margin-top:3px;font-family:\'Share Tech Mono\',monospace;'
-                            f'font-size:0.68rem;line-height:1.4;">'
-                            f'<span style="color:#4a7a60;">EV {ev_pct:.1f}%</span>'
-                            f'<span style="color:#4a7a60;">฿{invest:,.0f}</span>'
-                            f'<span style="color:{pnl_color};font-weight:600;">{pnl_display}</span>'
-                            f'</div>'
-
-                            f'</div>',
-                            unsafe_allow_html=True
-                        )
-
-                        # ── popup trigger button (flush ใต้การ์ด) ─────────
-                        if st.button(
-                            "📋  ดูรายละเอียด",
-                            key=f"open_dlg_{row_id}",
-                            use_container_width=True
-                        ):
-                            show_match_dialog({
-                                'match_name':    match_name,
-                                'target':        target,
-                                'hdp':           hdp,
-                                'odds':          odds,
-                                'ev_pct':        ev_pct,
-                                'base_ev_pct':   base_ev_pct,
-                                'ai_impact_pct': ai_impact_pct,
-                                'invest':        invest,
-                                'result':        result,
-                                'closing':       closing,
-                                'net_pnl':       net_pnl,
-                                'row_id':        row_id,
-                                'time_str':      time_str,
-                                'border_col':    border_col,
-                                'status_label':  status_label,
-                                'is_live':       is_live,   # [Fix] ส่งสถานะ Live เข้า dialog
-                            })
-
-                # spacer ระหว่างแถว
-                st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
-
-        # ── Quick refresh ─────────────────────────────────────────────────
-        if st.button("↺  REFRESH ALL", use_container_width=True):
+            st.caption("ยังไม่มี prediction ที่ settle แล้ว")
+
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        if st.button("🗑️ ล้าง Predictions Log ทั้งหมด"):
+            st.session_state['predictions_log'] = []
             st.rerun()
 
 
-
-        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="gem-label">◈ PERFORMANCE DASHBOARD</div>', unsafe_allow_html=True)
-        vf1, vf2 = st.columns(2)
-        with vf1: tf2 = st.radio("PERIOD", ["All Time", "Today"], horizontal=True)
-        with vf2: vm  = st.radio("VIEW",   ["All", "Pre-Match", "In-Play"], horizontal=True)
-
-        tfl = (tab2_logs[tab2_logs['Time'].astype(str).str.contains(today_str, na=False)].copy()
-               if tf2 == "Today" else tab2_logs.copy())
-        if vm == "In-Play":    fl = tfl[tfl['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
-        elif vm == "Pre-Match": fl = tfl[~tfl['Match'].str.contains(r'\[LIVE\]', na=False, case=False)]
-        else: fl = tfl
-        il = fl[fl['Investment'] > 0]
-
-        max_drawdown = mdd_pct = 0.0
-        if not fl.empty:
-            dd_df = fl.sort_values('Time').copy()
-            dd_df['Cum'] = dd_df['Net_Profit'].cumsum()
-            drawdown = dd_df['Cum'] - dd_df['Cum'].cummax()
-            max_drawdown = drawdown.min()
-            if total_bankroll > 0: mdd_pct = (max_drawdown / total_bankroll) * 100
-
-        v_clv = il[il['Closing_Odds'] > 1.0]
-        beating_clv_pct = (
-            len(v_clv[v_clv['CLV_Pct'] > 0]) / len(v_clv) * 100
-            if not v_clv.empty else 0.0
-        )
-
-        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ PORTFOLIO OVERVIEW</div>', unsafe_allow_html=True)
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("NET PROFIT", f"฿{fl['Net_Profit'].sum():,.0f}")
-        m2.metric("DEPLOYED",   f"฿{il['Investment'].sum():,.0f}")
-        m3.metric("WIN RATE",   f"{(len(il[il['Net_Profit']>0])/len(il)*100 if not il.empty else 0):.1f}%")
-        m4.metric("ROI",        f"{(fl['Net_Profit'].sum()/il['Investment'].sum()*100 if not il.empty and il['Investment'].sum()>0 else 0):.2f}%")
-
-        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ INSTITUTIONAL METRICS</div>', unsafe_allow_html=True)
-        n1, n2, n3 = st.columns(3)
-        n1.metric("MAX DRAWDOWN",  f"฿{max_drawdown:,.0f}", f"{mdd_pct:.2f}% of Bankroll", delta_color="inverse")
-        n2.metric("AVG CLV",       f"{v_clv['CLV_Pct'].mean():.2f}%" if not v_clv.empty else "—")
-        n3.metric("% BEATING CLV", f"{beating_clv_pct:.1f}%"         if not v_clv.empty else "—")
-
-        if not fl.empty:
-            ls = fl.sort_values('Time').copy()
-            ls['Cum'] = ls['Net_Profit'].cumsum()
-            lc = '#ff8c00' if vm == "In-Play" else ('#00b4ff' if vm == "Pre-Match" else '#00ff88')
-            fc = ("rgba(255,140,0,0.12)" if vm == "In-Play"
-                  else ("rgba(0,180,255,0.12)" if vm == "Pre-Match" else "rgba(0,255,136,0.12)"))
-            fig_e = go.Figure(go.Scatter(x=ls['Time'], y=ls['Cum'], mode='lines', fill='tozeroy',
-                                          line=dict(color=lc, width=2), fillcolor=fc))
-            neon_layout(fig_e, f"EQUITY CURVE — {vm.upper()}")
-            st.plotly_chart(fig_e, use_container_width=True)
-
-            bc1, bc2 = st.columns(2)
-            with bc1:
-                st.markdown('<div class="gem-dim" style="margin-bottom:4px;">P&L BY TARGET</div>', unsafe_allow_html=True)
-                tgt   = ls.groupby('Target')['Net_Profit'].sum()
-                fig_t = go.Figure(go.Bar(x=tgt.index, y=tgt.values,
-                                          marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
-                neon_layout(fig_t); fig_t.update_layout(height=210, margin=dict(l=8,r=8,t=10,b=8))
-                st.plotly_chart(fig_t, use_container_width=True)
-            with bc2:
-                st.markdown('<div class="gem-dim" style="margin-bottom:4px;">WIN RATE BY ODDS BRACKET</div>', unsafe_allow_html=True)
-                ls['OB'] = pd.cut(ls['Odds'], bins=[0,1.8,2.0,2.2,5.0],
-                                   labels=['<1.80','1.80-2.00','2.00-2.20','>2.20'])
-                wr = (ls[ls['Net_Profit']>0].groupby('OB', observed=False).size()
-                      / ls.groupby('OB', observed=False).size() * 100).fillna(0)
-                fig_w = go.Figure(go.Bar(x=wr.index.astype(str), y=wr.values,
-                                          marker_color=lc, marker_line_color='rgba(0,0,0,0)'))
-                neon_layout(fig_w); fig_w.update_layout(height=210, margin=dict(l=8,r=8,t=10,b=8))
-                st.plotly_chart(fig_w, use_container_width=True)
-
-        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="gem-label">◈ ORACLE LEARNING ENGINE</div>', unsafe_allow_html=True)
-        # [Fix 1] กรอง push/void (Net_Profit==0 และ Result มีข้อมูล) ออก
-        # push ไม่ได้บอกว่าระบบถูกหรือผิด ไม่ควรนำมาเรียนรู้
-        if 'Net_Profit' in tab2_logs.columns:
-            settled = tab2_logs[tab2_logs['Result'].astype(str).str.strip() != ""].copy()
-            comp    = settled[settled['Net_Profit'] != 0].copy()
-        else:
-            comp = pd.DataFrame()
-
-        if len(comp) > 0:
-            lm = st.radio("LEARNING MODE",
-                          ["🔴 Defensive (losses)", "🟢 Offensive (wins)", "⚪ Mixed"],
-                          horizontal=True)
-            if "🔴" in lm:
-                tl        = comp[comp['Net_Profit'] < 0].copy()
-                task_mode = "Defensive"
-                pfx       = "GEM_DEF_"
-            elif "🟢" in lm:
-                tl        = comp[comp['Net_Profit'] > 0].copy()
-                task_mode = "Offensive"
-                pfx       = "GEM_OFF_"
-            else:
-                tl        = comp.copy()
-                task_mode = "Mixed"
-                pfx       = "GEM_MIX_"
-
-            if len(tl) > 0:
-                # [Layer 2 Protection] ขั้นต่ำ 10 ไม้ก่อนยอมให้สร้างกฎ
-                # 3 ไม้น้อยเกินไป → AI สร้างกฎจาก variance ไม่ใช่ pattern จริง
-                MIN_SAMPLES_FOR_LEARNING = 10
-                if len(tl) < MIN_SAMPLES_FOR_LEARNING:
-                    st.error(
-                        f"🛑 BLOCKED: มีเพียง {len(tl)} records — "
-                        f"ต้องการขั้นต่ำ {MIN_SAMPLES_FOR_LEARNING} ไม้เพื่อสร้างกฎ\n\n"
-                        f"เหตุผล: น้อยกว่า {MIN_SAMPLES_FOR_LEARNING} ไม้มักเป็น **variance** ไม่ใช่ pattern จริง\n"
-                        f"การสร้างกฎจากข้อมูลน้อยจะทำให้กฎมั่ว และทำลายระบบในระยะยาว"
-                    )
-                    st.info(f"💡 รอเก็บข้อมูลถึง {MIN_SAMPLES_FOR_LEARNING} ไม้ในหมวดที่เลือก แล้วลองอีกครั้ง")
-                    st.stop()
-                elif len(tl) < 20:
-                    st.warning(
-                        f"⚠️ มี {len(tl)} records — เพียงพอที่จะสร้างกฎได้ "
-                        f"แต่ระบบจะ validate กฎเข้มงวด อาจมีบางกฎถูก reject"
-                    )
-                total_pnl   = tl['Net_Profit'].sum()
-                avg_ev      = tl['EV_Pct'].mean() if 'EV_Pct' in tl.columns else 0
-                ah_count    = len(tl[tl['Target'].isin(['เจ้าบ้าน','ทีมเยือน'])])
-                ou_count    = len(tl[tl['Target'].isin(['สูง','ต่ำ'])])
-                ms1, ms2, ms3, ms4 = st.columns(4)
-                ms1.metric("Records", f"{len(tl)}")
-                ms2.metric("Total P&L", f"฿{total_pnl:,.0f}")
-                ms3.metric("AH / O/U", f"{ah_count} / {ou_count}")
-                ms4.metric("Avg EV", f"{avg_ev:.1f}%")
-
-                # ── Date Filter ─────────────────────────────────────────
-                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-                st.markdown('<div class="gem-label">◈ FILTER & SELECT</div>', unsafe_allow_html=True)
-
-                today_dt     = datetime.now(tz_th).date()
-                yesterday_dt = today_dt - timedelta(days=1)
-
-                df_filter1, df_filter2 = st.columns([2, 1])
-                with df_filter1:
-                    date_filter = st.radio(
-                        "ช่วงเวลา",
-                        ["📅 ทั้งหมด", "🌟 วันนี้", "📆 เมื่อวาน", "⚙️ กำหนดเอง"],
-                        horizontal=True,
-                        key="learn_date_filter"
-                    )
-                with df_filter2:
-                    select_mode = st.radio(
-                        "การเลือก",
-                        ["☑️ เลือกเอง", "✅ เลือกทั้งหมด"],
-                        horizontal=True,
-                        key="learn_select_mode"
-                    )
-
-                # apply date filter
-                tl_dt = pd.to_datetime(tl['Time'], errors='coerce')
-                if date_filter == "🌟 วันนี้":
-                    tl = tl[tl_dt.dt.date == today_dt].copy()
-                elif date_filter == "📆 เมื่อวาน":
-                    tl = tl[tl_dt.dt.date == yesterday_dt].copy()
-                elif date_filter == "⚙️ กำหนดเอง":
-                    drange = st.date_input(
-                        "เลือกช่วงวันที่",
-                        value=(yesterday_dt, today_dt),
-                        key="learn_custom_range"
-                    )
-                    if isinstance(drange, tuple) and len(drange) == 2:
-                        d_start, d_end = drange
-                        tl = tl[(tl_dt.dt.date >= d_start) & (tl_dt.dt.date <= d_end)].copy()
-
-                if tl.empty:
-                    st.info(f"◈ ไม่พบรายการในช่วง {date_filter}")
-                else:
-                    tl = tl.sort_values('Time', ascending=False).reset_index(drop=True)
-                    st.markdown(
-                        f'<div class="gem-dim" style="margin-top:8px;">'
-                        f'พบ {len(tl)} รายการ — กดที่การ์ดเพื่อเลือก/ยกเลิก</div>',
-                        unsafe_allow_html=True
-                    )
-
-                    # init session state for selected ids
-                    sel_key = f"learn_selected_{pfx}_{date_filter}"
-                    if sel_key not in st.session_state:
-                        st.session_state[sel_key] = set()
-
-                    # auto-select all when mode is "all"
-                    if select_mode == "✅ เลือกทั้งหมด":
-                        st.session_state[sel_key] = set(tl['id'].astype(str).tolist()) if 'id' in tl.columns else set(tl.index.astype(str).tolist())
-
-                    # ── render cards — 6 cards per row ──────────────────
-                    LEARN_PER_ROW = 6
-                    learn_rows = tl.to_dict('records')
-
-                    for r_idx in range(0, len(learn_rows), LEARN_PER_ROW):
-                        chunk_l = learn_rows[r_idx : r_idx + LEARN_PER_ROW]
-                        cols_l  = st.columns(LEARN_PER_ROW)
-
-                        for c_idx, row_l in enumerate(chunk_l):
-                            with cols_l[c_idx]:
-                                rid_l    = str(row_l.get('id', r_idx + c_idx))
-                                match_l  = str(row_l.get('Match',''))
-                                is_live_l= '[LIVE' in match_l.upper()
-                                mn_l     = (match_l.replace('[LIVE]','').replace('[LIVE','')
-                                            .strip().strip("'").rstrip("]").strip())
-                                tgt_l    = str(row_l.get('Target','—'))
-                                hdp_l    = row_l.get('HDP',0)
-                                odds_l   = float(row_l.get('Odds',0))
-                                ev_l     = float(row_l.get('EV_Pct',0))
-                                pnl_l    = float(row_l.get('Net_Profit',0))
-                                time_l   = str(row_l.get('Time',''))[:16]
-
-                                is_selected = rid_l in st.session_state[sel_key]
-                                is_win      = pnl_l > 0
-
-                                # card style
-                                if is_selected:
-                                    bg_l     = "rgba(0,255,136,0.12)"
-                                    border_l = "#00ff88"
-                                    check    = "✓"
-                                else:
-                                    bg_l     = "#0d1e2e"
-                                    border_l = "#00ff88" if is_win else "#ff3b5c"
-                                    check    = "○"
-
-                                pnl_col_l    = "#00ff88" if is_win else "#ff3b5c"
-                                result_emoji = "✅" if is_win else "❌"
-
-                                # ── COMPACT MINI CARD ──────────────────────
-                                # 6 ต่อแถวต้อง compact มาก แสดงเฉพาะข้อมูลสำคัญ
-                                st.markdown(
-                                    f'<div style="border-left:3px solid {border_l};'
-                                    f'background:{bg_l};border-radius:0 4px 4px 0;'
-                                    f'padding:8px 10px;margin-bottom:2px;min-height:115px;">'
-
-                                    # check + match name
-                                    f'<div style="display:flex;align-items:flex-start;gap:5px;">'
-                                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.95rem;'
-                                    f'color:{border_l};line-height:1;">{check}</span>'
-                                    f'<span style="font-family:\'Exo 2\';font-weight:600;'
-                                    f'font-size:0.7rem;color:#c8e6d4;line-height:1.2;flex:1;'
-                                    f'overflow:hidden;display:-webkit-box;'
-                                    f'-webkit-line-clamp:2;-webkit-box-orient:vertical;">'
-                                    f'{"🔴" if is_live_l else ""}{mn_l}</span>'
-                                    f'</div>'
-
-                                    # target & line
-                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.6rem;'
-                                    f'color:#4a7a60;margin-top:4px;">'
-                                    f'{tgt_l[:8]} {hdp_l} @ {odds_l:.2f}</div>'
-
-                                    # EV
-                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.6rem;'
-                                    f'color:#4a7a60;">EV {ev_l:.1f}%</div>'
-
-                                    # P&L
-                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.72rem;'
-                                    f'color:{pnl_col_l};font-weight:600;margin-top:2px;">'
-                                    f'{result_emoji} ฿{pnl_l:+,.0f}</div>'
-
-                                    # time (just date)
-                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.55rem;'
-                                    f'color:#2a5040;margin-top:2px;">{time_l[5:10]}</div>'
-
-                                    f'</div>',
-                                    unsafe_allow_html=True
-                                )
-
-                                if select_mode == "☑️ เลือกเอง":
-                                    btn_label = "✓" if is_selected else "○"
-                                    if st.button(btn_label, key=f"learn_toggle_{rid_l}",
-                                                 use_container_width=True):
-                                        if is_selected:
-                                            st.session_state[sel_key].discard(rid_l)
-                                        else:
-                                            st.session_state[sel_key].add(rid_l)
-                                        st.rerun()
-
-                        st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
-
-                    # selected count
-                    sel_count = len(st.session_state[sel_key])
-                    if sel_count > 0:
-                        st.markdown(
-                            f'<div style="margin-top:8px;padding:8px 12px;background:rgba(0,255,136,0.08);'
-                            f'border:1px solid rgba(0,255,136,0.3);border-radius:4px;'
-                            f'font-family:\'Share Tech Mono\';font-size:0.78rem;color:#00ff88;text-align:center;">'
-                            f'◈ เลือกแล้ว {sel_count} รายการ</div>',
-                            unsafe_allow_html=True
-                        )
-
-                    # build picked dataframe from selected ids
-                    if 'id' in tl.columns:
-                        picked = tl[tl['id'].astype(str).isin(st.session_state[sel_key])]
-                    else:
-                        picked = tl[tl.index.astype(str).isin(st.session_state[sel_key])]
-
-                    st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
-
-                    if st.button("⚡  EXECUTE ORACLE LEARNING", use_container_width=True, type="primary"):
-                        if picked.empty:
-                            st.warning("⚠️ ติ๊กเลือกอย่างน้อย 1 รายการก่อนครับ")
-                        elif not api_key:
-                            st.error("⚠️ API Key missing")
-                        else:
-                            with st.spinner(f"Oracle กำลังเรียนรู้จาก {len(picked)} แมตช์..."):
-
-                                # ── เตรียมข้อมูล ──────────────────────────────────────
-                                csv_s = picked[[
-                                    'Time','Match','HDP','Target','Odds',
-                                    'Result','Net_Profit','EV_Pct'
-                                ]].to_csv(index=False)
-
-                                # ── สถิติเพิ่มเติม ────────────────────────────────────
-                                p_pnl     = picked['Net_Profit'].sum()
-                                p_wr      = len(picked[picked['Net_Profit'] > 0]) / len(picked) * 100
-                                p_ah      = picked[picked['Target'].isin(['เจ้าบ้าน','ทีมเยือน'])]
-                                p_ou      = picked[picked['Target'].isin(['สูง','ต่ำ'])]
-                                p_fav     = picked[picked['Target'] == 'เจ้าบ้าน']
-                                p_dog     = picked[picked['Target'] == 'ทีมเยือน']
-                                p_over    = picked[picked['Target'] == 'สูง']
-                                p_under   = picked[picked['Target'] == 'ต่ำ']
-                                stats_ctx = (
-                                    f"สรุปชุดข้อมูล: {len(picked)} บิล | "
-                                    f"P&L รวม ฿{p_pnl:,.0f} | "
-                                    f"Win Rate {p_wr:.0f}% | "
-                                    f"AH {len(p_ah)} บิล (Fav={len(p_fav)} Dog={len(p_dog)}) | "
-                                    f"O/U {len(p_ou)} บิล (Over={len(p_over)} Under={len(p_under)})"
-                                )
-
-                                # ── โหลด GEM RULES ปัจจุบัน ──────────────────────────
-                                try:
-                                    rr = supabase.table("gem_knowledge").select(
-                                        "rule_id,category,rule_text"
-                                    ).eq("is_active", True).execute()
-                                    rs = "\n".join([
-                                        f"[{item['rule_id']} - {item['category']}] {item['rule_text']}"
-                                        for item in (rr.data or [])
-                                    ])
-                                except:
-                                    rs = "ไม่สามารถโหลด GEM RULES ได้"
-
-                                # ── task instruction ตาม mode ─────────────────────────
-                                if task_mode == "Defensive":
-                                    task_detail = """ภารกิจ: POST-MORTEM ANALYSIS
-    1. วิเคราะห์สาเหตุที่แท้จริงของการขาดทุน — โครงสร้างราคา, เส้น, ประเภทเป้าหมาย, EV range
-    2. ค้นหา pattern ที่ซ้ำกัน (เช่น ขาดทุนบ่อยในเส้นเดิม หรือเป้าหมายเดิม)
-    3. เปรียบเทียบกับ GEM RULES ปัจจุบัน — กฎใดควรมีอยู่แล้วแต่ไม่ได้ป้องกัน?
-    4. สร้างกฎป้องกัน (Defensive Rules) เชิงเทคนิค ห้ามระบุชื่อทีมหรือลีก
-    5. ถ้า case น้อยกว่า 3 ไม้ → อาจเป็น variance ปกติ แนะนำเฝ้าดูต่อ
-    6. ระบุ [FATAL] ถ้าควรห้ามเด็ดขาด หรือ [WARNING] ถ้าแค่ให้ระวัง"""
-                                    severity = "FATAL หรือ WARNING"
-                                    rule_type = "Defensive 🔴"
-
-                                elif task_mode == "Offensive":
-                                    task_detail = """ภารกิจ: SUCCESS PATTERN ANALYSIS
-    1. หา pattern ที่ทำให้ชนะตลาด — EV range ที่ดีที่สุด, เส้น, ประเภทเป้าหมาย
-    2. ระบุ EV threshold ที่ให้ผลดีที่สุดจากข้อมูลจริง
-    3. สร้างกฎเชิงบวก (Offensive Rules) ที่บอกว่า "เพิ่มความมั่นใจเมื่อ..."
-    4. อาจสร้างกฎที่ผ่อนปรนกฎ Defensive เดิมได้ถ้ามีหลักฐานชัดเจน
-    5. หา Fav/Dog และ Over/Under pattern ว่าฝั่งไหนชนะสม่ำเสมอกว่า
-    6. ระบุ [BOOST] สำหรับกฎที่เพิ่ม confidence หรือ [EXCEPTION] ที่ยกเว้นกฎเดิม"""
-                                    severity = "BOOST หรือ EXCEPTION"
-                                    rule_type = "Offensive 🟢"
-
-                                else:
-                                    task_detail = """ภารกิจ: MIXED ANALYSIS (เปรียบเทียบชนะ vs แพ้)
-    1. แยกบิลชนะ vs บิลแพ้ แล้วหาความแตกต่างของ pattern อย่างละเอียด
-    2. ตรวจ AH vs O/U แยกกัน — ตลาดไหนทำผลดีกว่า?
-    3. ตรวจ Fav vs Dog — ฝั่งไหนให้ผลที่ดีกว่าในข้อมูลชุดนี้?
-    4. ตรวจ EV range — บิล EV สูง vs ต่ำ ให้ผลต่างกันแค่ไหน?
-    5. สร้างทั้งกฎป้องกัน (Defensive) สำหรับรูปแบบที่แพ้
-       และกฎเสริมพลัง (Offensive) สำหรับรูปแบบที่ชนะ
-    6. ประเมินว่ากฎเดิมใดในระบบควรปรับ, เพิ่ม, หรือลบ"""
-                                    severity = "FATAL / WARNING / BOOST / EXCEPTION"
-                                    rule_type = "Mixed ⚪"
-
-                                # ── build learning prompt ─────────────────────────────
-                                pd_prompt = f"""คุณคือ Chief Risk Officer (CRO) และ Quant Analyst ของกองทุน Sports Betting
-    ภารกิจ: วิเคราะห์ประวัติการลงทุนและพัฒนา GEM RULES ให้แม่นยำขึ้น
-
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    📋 CASE STUDY DATA
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    {csv_s}
-
-    📊 สถิติชุดข้อมูล: {stats_ctx}
-
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    {task_detail}
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    📖 GEM RULES ปัจจุบัน (ห้ามซ้ำกฎเดิม)
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    {rs if rs else "ยังไม่มีกฎในระบบ — สร้างได้เลย"}
-
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    📌 คำสั่งบังคับสำหรับการสร้างกฎ
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    1. ✅ WHITELIST — ฟิลด์ที่ใช้ได้เท่านั้น (ระบบมีข้อมูลจริง):
-       - Target: 'เจ้าบ้าน' / 'ทีมเยือน' / 'สูง' / 'ต่ำ'
-       - Line: ตัวเลข (เช่น -1.5, +0.75, 2.25)
-       - Odds: ค่าน้ำ (เช่น 1.95, 2.10)
-       - EV_Pct, Base_EV_Pct: เปอร์เซ็นต์ Expected Value
-       - Market: 'AH' หรือ 'OU'
-       - Match contains '[LIVE]': สำหรับ Live bet
-       - Current minute, current score: เฉพาะ Live เท่านั้น
-
-    2. 🚫 BLACKLIST — ฟิลด์ที่ห้ามอ้างเด็ดขาด (ระบบไม่มีข้อมูล AI ต้องเดา):
-       - สถิติย้อนหลัง, ฟอร์ม, H2H, "5 นัดหลังสุด", "3 นัดหลัง"
-       - ค่าเฉลี่ยลีก, ลีกรอง, ลีกใหญ่, ลีกใหม่
-       - การยิงประตู, การเสียประตู, อัตราการทำประตู
-       - ใบเหลือง/แดง (pre-match), Steam/Drift (ไม่ได้ส่งเป็น input)
-       - "Sweet Spot" หรือคำที่ไม่มี definition ชัดเจน
-       - เวลาในเกม (pre-match), สภาพอากาศ, นักเตะ
-       กฎที่อ้างฟิลด์เหล่านี้จะถูก REJECT ทันที
-
-    3. MARKET LABEL (บังคับ)
-       ทุกกฎต้องระบุตลาดใน category:
-       [AH]  = Asian Handicap เท่านั้น
-       [OU]  = Over/Under เท่านั้น
-       [ALL] = ทุกตลาด
-
-    4. RULE FORMAT (บังคับ)
-       เริ่มด้วย [{severity}] แล้วตามด้วยเงื่อนไข IF...THEN ที่ชัดเจน
-       ตัวอย่างที่ถูก:
-       "[WARNING] IF Target = 'ต่ำ' AND Line >= 2.25 AND EV_Pct < 15% THEN ลด stake 50%"
-       "[FATAL] IF Market = 'AH' AND Odds < 1.50 AND Target = 'ทีมรอง' THEN ห้ามลง"
-       ตัวอย่างที่ผิด:
-       "[WARNING] ถ้าทีมเจ้าบ้านมีสถิติทำประตู 5 นัด..." ❌ (อ้างสถิติ)
-       "[BOOST] ลีกใหญ่ EV > 20% เพิ่ม confidence" ❌ (อ้างลีก)
-
-    5. MARKET ISOLATION (บังคับ)
-       กฎ AH ห้ามพาด O/U logic และในทางกลับกัน
-       กฎที่ category [ALL] ใช้เงื่อนไขที่เป็นกลางได้ทั้งสองตลาด
-
-    6. QUALITY CONTROL
-       ห้ามระบุชื่อทีม ลีก นักเตะ
-       กฎต้องใช้ได้กว้างในหลายแมตช์
-       ห้ามซ้ำกฎที่มีอยู่แล้ว
-       สร้างได้สูงสุด 3 กฎต่อ session
-
-    7. SEVERITY DEFINITIONS
-       FATAL   = ห้ามลงเด็ดขาด ไม่ว่า EV จะสูงแค่ไหน
-       WARNING = ระวัง ลด impact_score แต่ยังลงได้ถ้า EV แข็งแกร่ง
-       BOOST   = เพิ่มความมั่นใจ เพิ่ม confidence_level
-       EXCEPTION = ยกเว้นกฎ Defensive เดิมได้ถ้าตรงเงื่อนไขนี้
-
-    8. SAMPLE SIZE REQUIREMENT (บังคับ)
-       ถ้าข้อมูลน้อยกว่า 10 บิลในกลุ่ม pattern ที่พบ → ส่ง new_rules_to_add: []
-       เพราะอาจเป็น variance ไม่ใช่ pattern จริง
-
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    📤 ตอบกลับ JSON (ภาษาไทย) เท่านั้น:
-    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    {{
-      "analysis_summary": "สรุป: pattern ที่พบ | สาเหตุหลัก | ข้อสังเกต AH vs OU | Fav vs Dog",
-      "new_rules_to_add": [
-        {{
-          "rule_text": "[FATAL/WARNING/BOOST/EXCEPTION] IF เงื่อนไข THEN action",
-          "category": "Risk Management [AH]"
-        }}
-      ]
-    }}"""
-
-                                try:
-                                    m = genai.GenerativeModel('models/gemma-4-31b-it')
-                                    d = safe_json_loads(m.generate_content(pd_prompt).text)
-                                    if d:
-                                        st.success("✅ Oracle Learning เสร็จสิ้น")
-                                        st.info(f"**📊 Analysis:** {d.get('analysis_summary','—')}")
-                                        nr = d.get("new_rules_to_add", [])
-                                        if nr:
-                                            # [Layer 3 + 4] Validation Pipeline
-                                            # ตรวจกฎทุกตัวก่อน insert
-                                            pl       = []   # ผ่าน validation
-                                            rejected = []   # ถูก reject
-                                            bid = datetime.now(timezone(timedelta(hours=7))).strftime("%Y%m%d_%H%M")
-
-                                            st.markdown('<div class="gem-label">◈ RULE VALIDATION PIPELINE</div>',
-                                                        unsafe_allow_html=True)
-
-                                            for i, rule in enumerate(nr):
-                                                rule_text = rule.get("rule_text", "")
-                                                category  = rule.get("category", "AI Learning")
-                                                rid = f"{pfx}{bid}_{i+1}"
-
-                                                # Layer 3a: Whitelist validation
-                                                is_valid, reason = validate_rule_against_whitelist(rule_text)
-                                                if not is_valid:
-                                                    rejected.append({
-                                                        'rid': rid,
-                                                        'text': rule_text,
-                                                        'reason': f"❌ Whitelist: {reason}"
-                                                    })
-                                                    continue
-
-                                                # Layer 3b: Duplicate detection
-                                                if check_rule_duplicate(rule_text, rs):
-                                                    rejected.append({
-                                                        'rid': rid,
-                                                        'text': rule_text,
-                                                        'reason': "❌ Duplicate: ซ้ำกับกฎที่มีอยู่ >70%"
-                                                    })
-                                                    continue
-
-                                                # Layer 4: Audit ความถี่ trigger
-                                                trig_count, trig_pct, audit_msg = audit_rule_usage(
-                                                    rule_text, tl, days=30
-                                                )
-
-                                                # Passed all checks
-                                                pl.append({
-                                                    "rule_id":   rid,
-                                                    "rule_text": rule_text,
-                                                    "category":  category,
-                                                    "is_active": True
-                                                })
-
-                                                c2 = ("#ff3b5c" if "DEF" in pfx
-                                                      else ("#00ff88" if "OFF" in pfx else "#ffd600"))
-                                                st.markdown(
-                                                    f'<div class="gem-panel" style="border-top:2px solid {c2};">'
-                                                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:{c2};">'
-                                                    f'✅ [{rid}] {category}</span><br>'
-                                                    f'<span style="color:#c8e6d4;">{rule_text}</span><br>'
-                                                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.65rem;color:#4a7a60;">'
-                                                    f'  Audit: trigger ~{trig_count}/{len(tl)} ({trig_pct:.1f}%) · {audit_msg}'
-                                                    f'</span></div>',
-                                                    unsafe_allow_html=True
-                                                )
-
-                                            # แสดง rejected rules
-                                            if rejected:
-                                                st.markdown('<div class="gem-label" style="color:#ff3b5c;border-color:#ff3b5c;margin-top:10px;">'
-                                                            '◈ REJECTED RULES (ไม่ถูกบันทึก)</div>',
-                                                            unsafe_allow_html=True)
-                                                for rej in rejected:
-                                                    st.markdown(
-                                                        f'<div class="gem-panel" style="border-top:2px solid #ff3b5c;opacity:0.7;">'
-                                                        f'<span style="font-family:\'Share Tech Mono\';font-size:0.68rem;color:#ff3b5c;">'
-                                                        f'{rej["reason"]}</span><br>'
-                                                        f'<span style="color:#888;font-style:italic;">{rej["text"][:200]}</span></div>',
-                                                        unsafe_allow_html=True
-                                                    )
-
-                                            # Insert ที่ผ่าน validation
-                                            if pl:
-                                                supabase.table("gem_knowledge").insert(pl).execute()
-                                                load_gem_rules.clear()
-                                                st.balloons()
-                                                st.success(
-                                                    f"✅ {len(pl)} กฎใหม่ผ่าน validation และ sync ขึ้น Cloud แล้ว"
-                                                    + (f" · ❌ {len(rejected)} กฎถูก reject" if rejected else "")
-                                                )
-                                            elif rejected:
-                                                st.warning(
-                                                    f"⚠️ ทุกกฎ ({len(rejected)} ตัว) ถูก reject — "
-                                                    f"AI อาจอ้างข้อมูลที่ระบบไม่มี ลองเก็บข้อมูลเพิ่มแล้วลองใหม่"
-                                                )
-                                        else:
-                                            st.info("◈ Oracle ประเมินว่าเป็น variance ปกติ — ไม่จำเป็นต้องสร้างกฎใหม่")
-                                    else:
-                                        st.error("⚠️ AI ตอบกลับผิดรูปแบบ JSON — ลองใหม่อีกครั้ง")
-                                except Exception as e:
-                                    st.error(f"❌ Error: {e}")
-            else:
-                st.info("ไม่มีข้อมูลในหมวดหมู่นี้")
-        else:
-            st.info("◈ ยังไม่มีผลลัพธ์ที่ทราบแล้ว (push/void ถูกตัดออกแล้ว) — กรอก Result ในตาราง Position Log ก่อนครับ")
-
-# ╔══════════════╗
-# ║  TAB 3       ║
-# ╚══════════════╝
-with tab3:
-    st.markdown('<div class="gem-label">◈ LIVE SNIPER COMMAND CENTER</div>', unsafe_allow_html=True)
-
-    # ══════════════════════════════════════════════════════════════════
-    # ⏱ BET DELAY AWARENESS — User Education
-    # ══════════════════════════════════════════════════════════════════
-    # บ่อนหน่วงรับบิล Live 5-8 วินาที (ป้องกัน latency arbitrage)
-    # ถ้ามีประตู/ใบแดง/จุดโทษในช่วงนั้น → บิลถูก reject
-    st.markdown(
-        '<div style="background:rgba(255,140,0,0.08);'
-        'border-left:3px solid #ff8c00;border-radius:3px;'
-        'padding:10px 14px;margin-bottom:14px;">'
-        '<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#ff8c00;'
-        'letter-spacing:0.08em;margin-bottom:4px;">⏱ BET DELAY NOTICE</div>'
-        '<div style="font-family:\'Rajdhani\';font-size:0.78rem;color:#c8e6d4;line-height:1.5;">'
-        'บ่อนหน่วงรับบิล Live ประมาณ <strong style="color:#ffd600;">5-8 วินาที</strong> '
-        'เพื่อกันการเก็งกำไรจากความหน่วง (Latency Arbitrage) — '
-        'หากมี <strong>ประตู / ใบแดง / จุดโทษ</strong> ในช่วงนี้ บิลจะถูก '
-        '<strong style="color:#ff3b5c;">reject อัตโนมัติ</strong><br>'
-        '<span style="color:#4a7a60;font-size:0.72rem;">'
-        '💡 ลงบิลก่อนจังหวะตื่นเต้น หรือรอประตู settle แล้วค่อยลง '
-        '— อย่าลงตอนลูกกำลังจะเข้า</span></div></div>',
-        unsafe_allow_html=True
-    )
-
-    with st.expander("📷 AI LIVE VISION — Multi-image scan"):
-        if not api_key:
-            st.markdown('<p class="gem-warn">▸ API Key required</p>', unsafe_allow_html=True)
-        else:
-            limgs = st.file_uploader("Upload live screenshots", type=['png','jpg'], accept_multiple_files=True)
-            if limgs and st.button("⚡ EXTRACT LIVE DATA", use_container_width=True):
-                with st.spinner("Scanning..."):
-                    try:
-                        imgs  = [Image.open(f) for f in limgs]
-                        model = genai.GenerativeModel('models/gemma-4-31b-it')
-                        pl = ('สกัดข้อมูลฟุตบอล LIVE จากภาพ ตอบ JSON เท่านั้น:\n'
-                              '- match_name, current_min (int), current_score_h (int), current_score_a (int)\n'
-                              '- rc_h (bool), rc_a (bool)\n'
-                              '- live_hdp (float แปลง x/y→ทศนิยม), live_hdp_h, live_hdp_a\n'
-                              '- live_ou (float), live_ou_over, live_ou_under\n'
-                              '{"match_name":"","current_min":0,"current_score_h":0,"current_score_a":0,'
-                              '"rc_h":false,"rc_a":false,"live_hdp":0.0,"live_hdp_h":0.0,"live_hdp_a":0.0,'
-                              '"live_ou":0.0,"live_ou_over":0.0,"live_ou_under":0.0}')
-                        d = safe_json_loads(model.generate_content([pl] + imgs).text)
-                        for k, v in d.items():
-                            if k == 'match_name':       st.session_state['match_name_live'] = str(v)
-                            elif k == 'current_score_h':
-                                try: st.session_state['lh_s_input'] = int(v)
-                                except: pass
-                            elif k == 'current_score_a':
-                                try: st.session_state['la_s_input'] = int(v)
-                                except: pass
-                            elif k == 'rc_h': st.session_state['rc_h_chk'] = bool(v)
-                            elif k == 'rc_a': st.session_state['rc_a_chk'] = bool(v)
-                            elif k == 'current_min':
-                                try: st.session_state['current_min'] = int(v)
-                                except: pass
-                            else:
-                                try: st.session_state[k] = float(v)
-                                except: st.session_state[k] = 0.0
-                        st.toast("✅ สกัดข้อมูล Live สำเร็จ!", icon="🎯")
-                        time.sleep(1); st.rerun()
-                    except Exception as e:
-                        st.error(f"⚠️ พลาด: {e}")
-
-    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    default_live_mn = st.session_state.get('match_name_live', st.session_state.get('match_name', ''))
-    live_mn = st.text_input("MATCH (Live)", value=default_live_mn, key="match_name_live_input")
-
-    gl1, gl2 = st.columns(2)
-    with gl1:
-        st.markdown('<div class="gem-label">◈ LIVE MATCH STATE</div>', unsafe_allow_html=True)
-        s1, s2 = st.columns(2)
-        csh = s1.number_input("HOME SCORE", min_value=0,
-                               value=st.session_state.get('lh_s_input', 0), key="lh_s_input")
-        rch = s2.checkbox("🟥 HOME RED",
-                           value=st.session_state.get('rc_h_chk', False), key="rc_h_chk")
-        s3, s4 = st.columns(2)
-        csa = s3.number_input("AWAY SCORE", min_value=0,
-                               value=st.session_state.get('la_s_input', 0), key="la_s_input")
-        rca = s4.checkbox("🟥 AWAY RED",
-                           value=st.session_state.get('rc_a_chk', False), key="rc_a_chk")
-        cmin = st.slider("MINUTE", 0, 120, st.session_state.get('current_min', 45))
-    with gl2:
-        st.markdown('<div class="gem-label">◈ PRE-MATCH REFERENCE</div>', unsafe_allow_html=True)
-        preh  = st.number_input("HOME (open)", value=st.session_state.get('pre_h', 2.0),  format="%.2f", key="pre_h")
-        pred  = st.number_input("DRAW (open)", value=st.session_state.get('pre_d', 3.0),  format="%.2f", key="pre_d")
-        prea  = st.number_input("AWAY (open)", value=st.session_state.get('pre_a', 3.0),  format="%.2f", key="pre_a")
-        preou = st.number_input("O/U (open)",  value=st.session_state.get('pre_ou', 2.5), format="%.2f", step=0.25, key="pre_ou")
-
-    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    st.markdown('<div class="gem-label">◈ LIVE MARKET FEED</div>', unsafe_allow_html=True)
-    lm1, lm2 = st.columns(2)
-    with lm1:
-        st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── HANDICAP ──</div>', unsafe_allow_html=True)
-        bh1, bh2, bh3 = st.columns([1, 2, 1])
-        bh1.button("◀ -0.25", key="h_sub", on_click=adj_hdp, args=(-0.25,))
-        lhdp_abs = bh2.number_input("HDP", value=abs(st.session_state.get('live_hdp', 0.0)),
-                                      step=0.25, min_value=0.0,
-                                      key="live_hdp_abs", label_visibility="collapsed", format="%.2f")
-        bh3.button("▶ +0.25", key="h_add", on_click=adj_hdp, args=(0.25,))
-
-        # [Direction Toggle - Live] เลือกฝั่งต่อ
-        live_hdp_direction = st.radio(
-            "ฝั่งต่อ",
-            ["🏠 เจ้าบ้านต่อ", "✈️ เยือนต่อ"],
-            horizontal=True,
-            key="live_hdp_direction",
-            label_visibility="collapsed"
-        )
-        # แปลง absolute → signed
-        lhdp = lhdp_abs if "เจ้าบ้านต่อ" in live_hdp_direction else -lhdp_abs
-
-        hw1, hw2_ = st.columns(2)
-        lhdph = hw1.number_input("HOME",  value=st.session_state.get('live_hdp_h', 0.9), format="%.2f", key="live_hdp_h")
-        lhdpa = hw2_.number_input("AWAY", value=st.session_state.get('live_hdp_a', 0.9), format="%.2f", key="live_hdp_a")
-    with lm2:
-        st.markdown('<div class="gem-dim" style="margin-bottom:4px;">── TOTAL GOALS ──</div>', unsafe_allow_html=True)
-        bo1, bo2, bo3 = st.columns([1, 2, 1])
-        bo1.button("◀ -0.25", key="o_sub", on_click=adj_ou, args=(-0.25,))
-        lou = bo2.number_input("O/U", value=st.session_state['live_ou'], step=0.25,
-                                key="live_ou", label_visibility="collapsed", format="%.2f")
-        bo3.button("▶ +0.25", key="o_add", on_click=adj_ou, args=(0.25,))
-        ow1, ow2 = st.columns(2)
-        louov = ow1.number_input("OVER",  value=st.session_state.get('live_ou_over',  0.9), format="%.2f", key="live_ou_over")
-        louun = ow2.number_input("UNDER", value=st.session_state.get('live_ou_under', 0.9), format="%.2f", key="live_ou_under")
-
-    line_movement_live = st.selectbox(
-        "กระแสราคา (Live Line Movement)",
-        ["➖ Stable (นิ่ง/ปกติ)", "🔥 Steam (ราคาไหลลง/เงินเข้า)", "❄️ Drift (ราคาไหลขึ้น/เงินออก)"],
-        key="lm_live"
-    )
-
-    # ── 🛑 Daily Risk Guard Banner ────────────────────────────────────
-    if is_risk_blocked:
-        st.markdown(
-            f'<div style="background:rgba(255,59,92,0.10);border:1px solid rgba(255,59,92,0.4);'
-            f'border-left:4px solid #ff3b5c;border-radius:4px;padding:14px 18px;margin-bottom:10px;">'
-            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;color:#ff3b5c;'
-            f'letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;">'
-            f'🛑 RISK GUARD ACTIVATED</div>'
-            f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;line-height:1.6;">'
-            f'{risk_block_reason}</div></div>',
-            unsafe_allow_html=True
-        )
-
-    ac1, ac2 = st.columns([4, 1])
-    snap = ac1.button("⚡  ENGAGE SNIPER",
-                       use_container_width=True, type="primary",
-                       disabled=is_risk_blocked)
-    ac2.button("↺ RESET", use_container_width=True, on_click=clear_inplay_data)
-
-    if snap:
-        # [Risk Guard] ถ้าโดน block อย่าให้รัน
-        if is_risk_blocked:
-            st.error(risk_block_reason)
-            st.stop()
-
-        # [แก้ไข ข้อจำกัด #3] ตรวจสอบ input Live ก่อนคำนวณ
-        live_errors = []
-        if preh <= 0 or pred <= 0 or prea <= 0:
-            live_errors.append("กรุณากรอก **ราคาเปิด 1X2** (Home / Draw / Away) ให้ครบ")
-        if fix(louov) <= 1.0 or fix(louun) <= 1.0:
-            live_errors.append("กรุณากรอก **น้ำ O/U Live** (Over / Under) ให้ครบ")
-        if fix(lhdph) <= 1.0 or fix(lhdpa) <= 1.0:
-            live_errors.append("กรุณากรอก **น้ำ AH Live** (Home / Away) ให้ครบ")
-        if abs(lhdp) not in [0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5,
-                               1.75, 2.0, 2.25, 2.5]:
-            live_errors.append(
-                f"⚠️ เส้น AH Live **{lhdp}** ไม่รองรับ — "
-                "ใช้ได้เฉพาะ 0 / 0.25 / 0.5 / 0.75 / 1.0 / 1.25 / 1.5 / 1.75 / 2.0 / 2.25 / 2.5"
-            )
-        if live_errors:
-            for err in live_errors:
-                st.error(f"❌ {err}")
-            st.stop()
-
-        # [Fix] คำนวณ true prob จาก pre-match odds (ที่หายไปจาก patch ก่อน)
-        lph, lpd, lpa = shin_devig(fix(preh), fix(pred), fix(prea))
-        ml = max(90 - cmin, 1)
-
-        # [Bug Fix v3.3] margin_dist (Home perspective) ใช้ทั้ง Fav และ Dog
-        hw2l, hw1l, dexl, aw1l, aw2l, ptl, margin_dist_live = calc_dixon_coles_matrix(
-            lph, lpd, lpa, lou, fix(louov), fix(louun),
-            ch=csh, ca=csa, ml=ml, rch=rch, rca=rca
-        )
-
-        fvl   = lph >= lpa
-        evhl_raw = ev_ah(lhdp, hw2l, hw1l, dexl, aw1l, aw2l, fix(lhdph), fvl, margin_dist=margin_dist_live)
-        eval_raw = ev_ah(lhdp, aw2l, aw1l, dexl, hw1l, hw2l, fix(lhdpa), not fvl, margin_dist=margin_dist_live)
-        # [Bug Fix v3.4] HDBA หักจาก Dog เท่านั้น — ไม่ assume Home=Fav
-        if fvl:
-            # Home = Fav, Away = Dog
-            hdba_dynamic_live = lpd * fix(lhdpa) * hdba_val
-            evhl  = evhl_raw
-            eval_ = eval_raw - hdba_dynamic_live
-        else:
-            # Home = Dog, Away = Fav
-            hdba_dynamic_live = lpd * fix(lhdph) * hdba_val
-            evhl  = evhl_raw - hdba_dynamic_live
-            eval_ = eval_raw
-        evol  = ev_ou(lou, ptl, fix(louov), True)
-        evul  = ev_ou(lou, ptl, fix(louun), False)
-
-        bav = max(evhl, eval_); tah = "เจ้าบ้าน" if evhl > eval_ else "ทีมเยือน"
-        bov = max(evol, evul);  tou = "สูง" if evol > evul else "ต่ำ"
-
-        # [Calibration v3] หา threshold ตามฝั่งสำหรับ Live
-        tah_is_fav = (tah == "เจ้าบ้าน" and fvl) or (tah == "ทีมเยือน" and not fvl)
-        live_ah_threshold     = live_ah_fav_lim if tah_is_fav else live_ah_dog_lim
-        live_ah_threshold_pct = live_ah_fav_thr if tah_is_fav else live_ah_dog_thr
-
-        tou_is_over = (tou == "สูง")
-        live_ou_threshold     = live_ou_over_lim if tou_is_over else live_ou_under_lim
-        live_ou_threshold_pct = live_ou_over_thr if tou_is_over else live_ou_under_thr
-
-        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        gg1, gg2 = st.columns(2)
-        with gg1: st.plotly_chart(ev_gauge(bav, f"AH: {tah}", live_ah_threshold_pct), use_container_width=True)
-        with gg2: st.plotly_chart(ev_gauge(bov, f"O/U: {tou}", live_ou_threshold_pct), use_container_width=True)
-
-        # ══════════════════════════════════════════════════════════════════
-        # 💰 MARKET QUALITY — Live Edition (เฉพาะ AH + OU เพราะ Live ไม่มี 1X2)
-        # ══════════════════════════════════════════════════════════════════
-        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ LIVE MARKET QUALITY</div>',
-                    unsafe_allow_html=True)
-        lor1, lor2 = st.columns(2)
-
-        # AH Overround (Live)
-        lor_ah, ltier_ah, lcolor_ah, lwarn_ah = calc_overround(fix(lhdph), fix(lhdpa))
-        lor1.markdown(
-            f'<div style="background:#0d1e2e;border-left:3px solid {lcolor_ah};'
-            f'border-radius:0 4px 4px 0;padding:10px 12px;">'
-            f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">AH LIVE</div>'
-            f'<div style="font-family:\'Share Tech Mono\';font-size:1.2rem;color:{lcolor_ah};margin-top:2px;">'
-            f'{lor_ah:.2f}%</div>'
-            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;margin-top:4px;">{ltier_ah}</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
-
-        # OU Overround (Live)
-        lor_ou, ltier_ou, lcolor_ou, lwarn_ou = calc_overround(fix(louov), fix(louun))
-        lor2.markdown(
-            f'<div style="background:#0d1e2e;border-left:3px solid {lcolor_ou};'
-            f'border-radius:0 4px 4px 0;padding:10px 12px;">'
-            f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;letter-spacing:0.1em;">OU LIVE</div>'
-            f'<div style="font-family:\'Share Tech Mono\';font-size:1.2rem;color:{lcolor_ou};margin-top:2px;">'
-            f'{lor_ou:.2f}%</div>'
-            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;margin-top:4px;">{ltier_ou}</div>'
-            f'</div>',
-            unsafe_allow_html=True
-        )
-
-        # Live arbitrage detection
-        live_arb_ah = calc_arbitrage_stakes([fix(lhdph), fix(lhdpa)], total_stake=1000) if lor_ah < 100 else None
-        live_arb_ou = calc_arbitrage_stakes([fix(louov), fix(louun)], total_stake=1000) if lor_ou < 100 else None
-
-        if live_arb_ah or live_arb_ou:
-            st.markdown(
-                f'<div style="background:rgba(0,255,136,0.12);'
-                f'border:2px solid #00ff88;border-radius:6px;padding:14px 18px;margin-top:10px;">'
-                f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;color:#00ff88;'
-                f'letter-spacing:0.08em;text-transform:uppercase;margin-bottom:6px;">'
-                f'🚨 LIVE ARBITRAGE DETECTED — รีบเลย!</div>'
-                f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
-                f'ราคา Live ไหลผิด — Dutching 2 ฝั่งล็อกกำไร '
-                f'<strong style="color:#ffd600;">(ระวัง Bet Delay 5-8 วินาที!)</strong>'
-                f'</div></div>',
-                unsafe_allow_html=True
-            )
-
-            for arb_label, arb_results, arb_targets in [
-                ("AH Live",  live_arb_ah,  ["Home", "Away"]),
-                ("OU Live",  live_arb_ou,  ["Over", "Under"]),
-            ]:
-                if not arb_results: continue
-                total_stake_sum = sum(r['stake'] for r in arb_results)
-                guaranteed_profit = arb_results[0]['profit']
-                profit_pct = arb_results[0]['profit_pct']
-
-                st.markdown(
-                    f'<div class="gem-label" style="margin-top:8px;color:#00ff88;border-color:#00ff88;">'
-                    f'◈ {arb_label} — ลงรวม ฿{total_stake_sum:.0f} → กำไรล็อก ฿{guaranteed_profit:+.0f} '
-                    f'({profit_pct:+.2f}%)</div>',
-                    unsafe_allow_html=True
-                )
-                arb_cols = st.columns(len(arb_results))
-                for idx, (col, r, tgt) in enumerate(zip(arb_cols, arb_results, arb_targets)):
-                    col.markdown(
-                        f'<div style="background:#0d1e2e;border-left:3px solid #00ff88;'
-                        f'border-radius:0 4px 4px 0;padding:10px 12px;">'
-                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#4a7a60;">{tgt} @ {r["odds"]:.2f}</div>'
-                        f'<div style="font-family:\'Share Tech Mono\';font-size:1.1rem;color:#00ff88;margin-top:2px;">฿{r["stake"]:.0f}</div>'
-                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.62rem;color:#c8e6d4;margin-top:2px;">'
-                        f'→ payout ฿{r["payout"]:.0f}</div></div>',
-                        unsafe_allow_html=True
-                    )
-
-        valid_bets_live = []
-
-        if best_bet_only:
-            # ════════════════════════════════════════════════════════════
-            # [Live Best Bet Only] Scan ทั้ง 4 ฝั่ง → เลือก ratio สูงสุด
-            # ════════════════════════════════════════════════════════════
-            candidates_live = []
-
-            # AH Home
-            ah_h_is_fav_live = fvl
-            ah_h_thr_live    = live_ah_fav_lim if ah_h_is_fav_live else live_ah_dog_lim
-            if evhl > 0 and evhl >= ah_h_thr_live:
-                candidates_live.append({
-                    "n": "เจ้าบ้าน", "ev": evhl, "odds": fix(lhdph), "hdp": lhdp,
-                    "side_label": "AH Fav" if ah_h_is_fav_live else "AH Dog",
-                    "threshold": ah_h_thr_live,
-                    "ratio": evhl / ah_h_thr_live if ah_h_thr_live > 0 else 0
-                })
-
-            # AH Away (eval_ ถูกหัก HDBA แล้ว)
-            ah_a_is_fav_live = not fvl
-            ah_a_thr_live    = live_ah_fav_lim if ah_a_is_fav_live else live_ah_dog_lim
-            if eval_ > 0 and eval_ >= ah_a_thr_live:
-                candidates_live.append({
-                    "n": "ทีมเยือน", "ev": eval_, "odds": fix(lhdpa), "hdp": lhdp,
-                    "side_label": "AH Fav" if ah_a_is_fav_live else "AH Dog",
-                    "threshold": ah_a_thr_live,
-                    "ratio": eval_ / ah_a_thr_live if ah_a_thr_live > 0 else 0
-                })
-
-            # OU Over
-            if evol > 0 and evol >= live_ou_over_lim:
-                candidates_live.append({
-                    "n": "สูง", "ev": evol, "odds": fix(louov), "hdp": lou,
-                    "side_label": "OU Over",
-                    "threshold": live_ou_over_lim,
-                    "ratio": evol / live_ou_over_lim if live_ou_over_lim > 0 else 0
-                })
-
-            # OU Under
-            if evul > 0 and evul >= live_ou_under_lim:
-                candidates_live.append({
-                    "n": "ต่ำ", "ev": evul, "odds": fix(louun), "hdp": lou,
-                    "side_label": "OU Under",
-                    "threshold": live_ou_under_lim,
-                    "ratio": evul / live_ou_under_lim if live_ou_under_lim > 0 else 0
-                })
-
-            # แสดงตารางเปรียบเทียบ
-            st.markdown('<div class="gem-label" style="margin-top:8px;">◈ LIVE BEST BET SCANNER</div>',
-                        unsafe_allow_html=True)
-            all_sides_live = [
-                {"side": "AH Home", "name": "เจ้าบ้าน", "ev": evhl,
-                 "thr": live_ah_fav_lim if fvl else live_ah_dog_lim,
-                 "side_type": "Fav" if fvl else "Dog"},
-                {"side": "AH Away", "name": "ทีมเยือน", "ev": eval_,
-                 "thr": live_ah_fav_lim if not fvl else live_ah_dog_lim,
-                 "side_type": "Fav" if not fvl else "Dog"},
-                {"side": "OU Over", "name": "สูง", "ev": evol,
-                 "thr": live_ou_over_lim, "side_type": "Over"},
-                {"side": "OU Under", "name": "ต่ำ", "ev": evul,
-                 "thr": live_ou_under_lim, "side_type": "Under"},
-            ]
-            for s in all_sides_live:
-                s['ratio'] = s['ev']/s['thr'] if s['thr'] > 0 else 0
-                s['pass']  = s['ev'] >= s['thr']
-            scan_df_live = pd.DataFrame([
-                {
-                    "ฝั่ง":       f"{s['side']} ({s['side_type']})",
-                    "Target":     s['name'],
-                    "EV %":       round(s['ev']*100, 2),
-                    "Threshold":  round(s['thr']*100, 1),
-                    "Ratio":      round(s['ratio'], 2),
-                    "ผ่าน":       "✅" if s['pass'] else "❌",
-                }
-                for s in all_sides_live
-            ])
-            st.dataframe(scan_df_live, use_container_width=True, hide_index=True)
-
-            if candidates_live:
-                # [Bug Fix - Live Fallback] sort by ratio desc → fallback ทำงานเหมือน Pre-match
-                candidates_live_sorted = sorted(candidates_live, key=lambda x: x['ratio'], reverse=True)
-                best_live = candidates_live_sorted[0]
-                valid_bets_live = candidates_live_sorted
-
-                ranking_live_str = " → ".join([
-                    f"#{i+1} {c['side_label']} ratio {c['ratio']:.2f}"
-                    for i, c in enumerate(candidates_live_sorted)
-                ])
-                st.success(
-                    f"🎯 **BEST LIVE BET:** {best_live['side_label']} — "
-                    f"{best_live['n']} @ {best_live['odds']:.2f} "
-                    f"(EV {best_live['ev']*100:.2f}% / threshold {best_live['threshold']*100:.1f}% "
-                    f"= ratio **{best_live['ratio']:.2f}**)"
-                )
-                if len(candidates_live_sorted) > 1:
-                    st.info(
-                        f"📋 Fallback: {ranking_live_str}\n\n"
-                        f"_ถ้า Sniper reject อันดับ 1 ระบบจะลองอันดับถัดไป_"
-                    )
-            else:
-                st.warning("⚠️ ไม่มีฝั่งไหนผ่าน threshold — No live signal")
-
-        else:
-            # ════════════════════════════════════════════════════════════
-            # [Default Mode] Live Dutching
-            # ════════════════════════════════════════════════════════════
-            if bav >= live_ah_threshold:
-                valid_bets_live.append({"n": tah, "ev": bav, "hdp": lhdp,
-                                        "odds": fix(lhdph) if tah == "เจ้าบ้าน" else fix(lhdpa)})
-            if bov >= live_ou_threshold:
-                valid_bets_live.append({"n": tou, "ev": bov, "hdp": lou,
-                                        "odds": fix(louov) if tou == "สูง" else fix(louun)})
-
-        if valid_bets_live:
-            with st.spinner("◈ SNIPER ORACLE PROCESSING..."):
-                # [Bug Fix - Live Fallback] lock เมื่อ approve
-                best_live_locked = False
-
-                for live_idx, tl2 in enumerate(valid_bets_live):
-                    if best_bet_only and best_live_locked:
-                        break
-
-                    # Fallback banner
-                    if best_bet_only and live_idx > 0:
-                        st.markdown(
-                            f'<div style="background:rgba(255,140,0,0.10);'
-                            f'border-left:4px solid #ff8c00;border-radius:4px;'
-                            f'padding:12px 16px;margin:10px 0;">'
-                            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.9rem;'
-                            f'color:#ff8c00;letter-spacing:0.05em;text-transform:uppercase;'
-                            f'margin-bottom:4px;">🔄 FALLBACK — ลองอันดับ #{live_idx+1}</div>'
-                            f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
-                            f'อันดับก่อนหน้าถูก Sniper reject — กำลังลอง <strong>{tl2.get("side_label","")}: {tl2["n"]}</strong> '
-                            f'(ratio {tl2.get("ratio", 0):.2f})</div></div>',
-                            unsafe_allow_html=True
-                        )
-
-                    tf2 = None
-                    if tl2['n'] == "เจ้าบ้าน":  tf2 = fvl
-                    elif tl2['n'] == "ทีมเยือน": tf2 = not fvl
-                    # [Calibration v3] เลือก threshold สำหรับ AI engine ตามฝั่ง bet
-                    if tl2['n'] in ["เจ้าบ้าน", "ทีมเยือน"]:
-                        live_bet_thr = live_ah_fav_lim if (tf2 is True) else live_ah_dog_lim
-                    else:
-                        live_bet_thr = live_ou_over_lim if (tl2['n'] == "สูง") else live_ou_under_lim
-                    live_mn_val = st.session_state.get('match_name_live_input', live_mn)
-                    al  = ai_engine(
-                        live_mn_val, tl2['n'], tl2['ev'], tl2['hdp'], tl2['odds'],
-                        live=True, current_min=cmin, score=f"{csh}-{csa}",
-                        thr=live_bet_thr, fav=tf2, line_movement=line_movement_live
-                    )
-                    nlev = tl2['ev'] + al.get('impact_score', 0)
-
-                    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="gem-label">◈ ORACLE VERDICT : {tl2["n"]}</div>', unsafe_allow_html=True)
-
-                    # ── [AI Error Handler] แสดง error banner + retry ─────
-                    if al.get('ai_error'):
-                        err_code = al.get('error_code', 'ERR')
-                        err_msg  = al.get('error_message', '')[:150]
-                        st.markdown(
-                            f'<div style="background:rgba(255,59,92,0.10);'
-                            f'border:1px solid rgba(255,59,92,0.4);'
-                            f'border-left:4px solid #ff3b5c;border-radius:4px;'
-                            f'padding:14px 18px;margin:10px 0;">'
-                            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;'
-                            f'color:#ff3b5c;letter-spacing:0.05em;text-transform:uppercase;margin-bottom:6px;">'
-                            f'⚠️ SNIPER AI ERROR — {err_code}</div>'
-                            f'<div style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;line-height:1.5;">'
-                            f'AI ไม่สามารถวิเคราะห์ได้ — <strong>ระบบจะไม่บันทึกบิลนี้</strong><br>'
-                            f'รายละเอียด: <code style="color:#ff8c00;">{err_msg}</code></div></div>',
-                            unsafe_allow_html=True
-                        )
-
-                        retry_live_key = f"retry_sniper_{tl2['n']}_{tl2['hdp']}"
-                        if st.button(
-                            f"🔄  รีรัน Sniper สำหรับ {tl2['n']}",
-                            key=retry_live_key,
-                            use_container_width=True,
-                            type="primary",
-                            help="พยายามเรียก AI Oracle อีกครั้ง"
-                        ):
-                            st.toast("🔄 กำลังเรียก Sniper ใหม่...", icon="⚡")
-                            time.sleep(0.5)
-                            st.rerun()
-
-                        continue   # ข้ามไม่ให้ save bill
-
-                    lc1, lc2, lc3 = st.columns(3)
-                    lc1.metric("LIVE EV",    f"{tl2['ev']*100:.2f}%")
-                    lc2.metric("ORACLE ADJ", f"{al.get('impact_score',0)*100:.2f}%")
-                    lc3.metric("NET EV",     f"{nlev*100:.2f}%")
-
-                    with st.expander(f"◈ LIVE ANALYSIS : {tl2['n']}", expanded=True):
-                        st.success(f"**PROS:** {al.get('pros_analysis','—')}")
-                        st.error(f"**RISK:** {al.get('cons_analysis','—')}")
-                        st.info(f"**RULES:** {al.get('rule_triggered','None')}")
-
-                    # [Calibration v3] เช็ค Net EV ผ่าน threshold ฝั่งที่ตรง
-                    lim = live_bet_thr
-                    if al.get('final_decision', False) and nlev >= lim:
-                        # [Bug Fix - Live Fallback] lock เมื่อ approve ใน Best Bet Mode
-                        if best_bet_only:
-                            best_live_locked = True
-
-                        st.balloons()
-                        st.markdown(
-                            f'<div class="gem-panel" style="border-top:2px solid #ff3b5c;border-left:2px solid #ff3b5c;">'
-                            f'<div class="gem-label" style="border-color:#ff3b5c;color:#ff3b5c;">◈ SNIPER APPROVED — TARGET LOCKED</div>'
-                            f'<p style="color:#ff3b5c;font-family:\'Share Tech Mono\';">TARGET: {tl2["n"]} | NET EV: {nlev*100:.2f}%</p>'
-                            f'<p style="color:#c8e6d4;">{al.get("final_comment","")}</p></div>',
-                            unsafe_allow_html=True
-                        )
-                        # [Live Dutch Fix] ไม่ลด exposure ใน Best Bet Mode
-                        if best_bet_only:
-                            dutch_factor = 1.00
-                        else:
-                            dutch_factor = 0.60 if len(valid_bets_live) == 2 else 1.00
-
-                        # [Tier-Based Kelly - Live] ปรับ Kelly ตามคุณภาพ bet
-                        live_thr_pct = live_bet_thr * 100
-                        live_ratio = (tl2['ev'] * 100) / live_thr_pct if live_thr_pct > 0 else 0
-                        live_tier_info = get_bet_tier(tl2['ev'] * 100, live_ratio)
-                        live_tier_mult = live_tier_info['kelly_mult']
-
-                        kelly_opt_live = nlev / (tl2['odds'] - 1)
-                        inv = min(kelly_opt_live * kelly_fraction * live_tier_mult * dutch_factor,
-                                  max_bet_cap / 100.0) * total_bankroll
-                        inv = max(inv, 0.0)
-
-                        # แสดง tier ใน Live UI
-                        st.markdown(
-                            f'<div class="gem-panel" style="border-top:2px solid {live_tier_info["color"]};">'
-                            f'<div class="gem-label" style="border-color:{live_tier_info["color"]};color:{live_tier_info["color"]};">'
-                            f'{live_tier_info["emoji"]} {live_tier_info["tier"]} TIER — Kelly × {live_tier_mult:.1f}</div>'
-                            f'<p style="color:#c8e6d4;font-family:\'Share Tech Mono\';font-size:0.78rem;">'
-                            f'Ratio: <strong>{live_ratio:.2f}</strong> · '
-                            f'EV: <strong>{tl2["ev"]*100:.2f}%</strong></p>'
-                            f'<p style="color:#4a7a60;font-family:\'Share Tech Mono\';font-size:0.72rem;">'
-                            f'{live_tier_info["description"]}</p></div>',
-                            unsafe_allow_html=True
-                        )
-
-                        if not best_bet_only and len(valid_bets_live) == 2:
-                            st.warning("⚠️ Dutching 2 markets: exposure ลดเหลือ 60% ต่อตลาด")
-                        tz2 = timezone(timedelta(hours=7))
-                        # [Calibration v3.1] แยกบันทึก Base EV, AI Impact, Net EV
-                        ai_impact_live = al.get('impact_score', 0)
-                        # [Bug Fix - Live PnL] embed สกอร์ตอนลง ใน Match name
-                        # format: "[LIVE 63'@1-0] ชื่อทีม VS ชื่อทีม"
-                        # calc_pnl จะ parse "@H-A" ออก แล้วใช้ในการคำนวณ goals หลังลง
-                        save_db([{
-                            "Time": datetime.now(tz2).strftime("%Y-%m-%d %H:%M:%S"),
-                            "Match": f"[LIVE {cmin}'@{csh}-{csa}] {live_mn_val if live_mn_val else 'Live Match'}",
-                            "HDP": tl2['hdp'], "Target": tl2['n'],
-                            "EV_Pct":        round(nlev * 100, 2),         # Net (backward compat)
-                            "Base_EV_Pct":   round(tl2['ev'] * 100, 2),    # Math เท่านั้น
-                            "AI_Impact_Pct": round(ai_impact_live * 100, 2),  # Oracle adjustment
-                            "Investment":    round(inv, 2),
-                            "Odds":          tl2['odds'],
-                            "Closing_Odds":  0.0, "Result": ""
-                        }])
-                        st.toast("✅ SNIPER DEPLOYED: บันทึกข้อมูลแล้ว", icon="🚀")
-                    else:
-                        st.markdown(
-                            f'<div class="gem-panel" style="border-top:2px solid #ffd600;">'
-                            f'<div class="gem-label" style="border-color:#ffd600;color:#ffd600;">◈ ORACLE STAND DOWN</div>'
-                            f'<p class="gem-warn">{al.get("final_comment","")}</p></div>',
-                            unsafe_allow_html=True
-                        )
-        else:
-            st.markdown(
-                f'<div class="gem-panel" style="border-top:2px solid #0f2535;">'
-                f'<div class="gem-label">◈ WITHIN NORMAL RANGE</div>'
-                f'<p class="gem-dim">AH {bav*100:.2f}% (min {live_ah_threshold_pct}%) | O/U {bov*100:.2f}% (min {live_ou_threshold_pct}%)</p></div>',
-                unsafe_allow_html=True
-            )
-
-# ╔══════════════╗
-# ║  TAB 4       ║
-# ╚══════════════╝
-with tab4:
-    st.markdown('<div class="gem-label">◈ BRIER SCORE ACCURACY ENGINE</div>', unsafe_allow_html=True)
-    st.markdown(
-        '<p style="font-family:\'Rajdhani\';font-size:0.85rem;color:#4a7a60;">'
-        'เปรียบเทียบความแม่นยำของ GEM Model กับ Bookmaker — Brier Score ต่ำ = แม่นกว่า</p>',
-        unsafe_allow_html=True
-    )
-
-    t4l = load_logs()
-    if t4l is None or t4l.empty:
-        st.warning("◈ ยังไม่มีข้อมูลในระบบ")
+# ════════════════════════════════════════════════════════════════════════
+# 🧪 TAB 3: BACKTEST LAB — Hypothesis Tester (แทน Optimizer เดิม)
+# ════════════════════════════════════════════════════════════════════════
+def calc_ci_95(p_hat, n):
+    """95% confidence interval ของสัดส่วน (Wilson-ish normal approx)"""
+    if n == 0:
+        return 0, 0
+    se = math.sqrt(max(p_hat * (1 - p_hat), 0.0001) / n)
+    return max(0, p_hat - 1.96 * se), min(1, p_hat + 1.96 * se)
+
+
+with tab_backtest:
+    st.markdown('<div class="gem-label">◈ 🧪 HYPOTHESIS LAB</div>', unsafe_allow_html=True)
+    st.caption("ⓘ ทดสอบสมมุติฐานจาก Predictions Log ที่ settle แล้ว — ต้องการอย่างน้อย "
+              "10-15 เคส settled ถึงจะเริ่มมีความหมายทางสถิติ")
+
+    log = st.session_state.get('predictions_log', [])
+    settled = [p for p in log if p.get('actual_result') is not None]
+
+    if len(settled) < 3:
+        st.warning(f"⚠️ มีแค่ {len(settled)} เคสที่ settle แล้ว — ต้องการอย่างน้อย 3 เคสเพื่อแสดงผลเบื้องต้น "
+                  f"(แนะนำ 15-20+ เพื่อความน่าเชื่อถือทางสถิติ)")
     else:
-        t4l['Net_Profit'] = t4l.apply(calc_pnl, axis=1)
-        fin = t4l[t4l['Result'].astype(str).str.strip() != ""].copy()
+        bt_module = st.radio(
+            "เลือก Module",
+            ["1️⃣ Gate Sensitivity", "2️⃣ Stat-Divergence Backtest",
+             "3️⃣ League Tier Backtest", "4️⃣ Combined Strategy Simulator"],
+            horizontal=False
+        )
 
-        if fin.empty:
-            st.info("◈ ยังไม่มีผลลัพธ์ที่ทราบแล้ว — กรอก Result ใน Dashboard ก่อนครับ")
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+
+        # ══════════════════════════════════════════════════════════════
+        # MODULE 1: Gate Sensitivity — ลอง threshold ต่างๆ ของ Gate 2
+        # ══════════════════════════════════════════════════════════════
+        if bt_module.startswith("1"):
+            st.markdown('<div class="gem-label">◈ GATE 2 SENSITIVITY (Win Rate Threshold)</div>',
+                       unsafe_allow_html=True)
+            st.caption("ดูว่าถ้าปรับ threshold ของ Gate 2 (ปัจจุบัน ≥55%) เป็นค่าอื่น "
+                      "WR/sample size จะเปลี่ยนยังไง — ใช้ stat_p_home เป็น proxy ของ win rate ที่ทำนาย")
+
+            thresholds = [0.50, 0.53, 0.55, 0.58, 0.60, 0.62, 0.65]
+            rows = []
+            for thr in thresholds:
+                # กรองเคสที่ recommended_side มีและ market สนับสนุน threshold นี้
+                matching = [p for p in settled if p.get('recommended_side') is not None]
+                # ใช้ wl_winner เป็นตัวบอกว่า "ฝั่งที่ระบบแนะนำ" ถูกหรือไม่
+                # (simplification: นับจาก gates_passed >= บางระดับเป็น proxy)
+                n = len(matching)
+                if n == 0:
+                    continue
+                correct = sum(1 for p in matching if p['wl_winner'] in ('market', 'both_correct'))
+                wr = correct / n if n > 0 else 0
+                ci_lo, ci_hi = calc_ci_95(wr, n)
+                rows.append({
+                    'Threshold': f"{thr*100:.0f}%", 'N': n,
+                    'Market-aligned WR': f"{wr*100:.1f}%",
+                    '95% CI': f"{ci_lo*100:.0f}-{ci_hi*100:.0f}%"
+                })
+            if rows:
+                st.dataframe(pd.DataFrame(rows).drop_duplicates(), use_container_width=True, hide_index=True)
+            st.info("💡 หมายเหตุ: Module นี้ต้องการข้อมูล bet_outcome จริง (ชนะ/แพ้บิล) "
+                   "เพื่อความแม่นยำเต็มรูปแบบ — ตอนนี้ใช้ wl_winner เป็น proxy เบื้องต้น")
+
+        # ══════════════════════════════════════════════════════════════
+        # MODULE 2: Stat-Divergence Backtest — กลุ่มตาม divergence bucket
+        # ══════════════════════════════════════════════════════════════
+        elif bt_module.startswith("2"):
+            st.markdown('<div class="gem-label">◈ STAT-DIVERGENCE BUCKETS</div>', unsafe_allow_html=True)
+            st.caption("ทดสอบสมมุติฐาน: divergence ใหญ่ขึ้น -> ใครชนะบ่อยกว่า (Market vs Stat)?")
+
+            buckets = [(0, 0.15, "Low (0-15%)"), (0.15, 0.40, "Moderate (15-40%)"),
+                      (0.40, 1.0, "Extreme (≥40%)")]
+
+            bucket_rows = []
+            for lo, hi, label in buckets:
+                matching = [p for p in settled if lo <= abs(p.get('divergence_wl', 0)) < hi]
+                n = len(matching)
+                if n == 0:
+                    bucket_rows.append({'Bucket': label, 'N': 0, 'Market Win': '-',
+                                       'Stat Win': '-', 'Neutral': '-'})
+                    continue
+                market_wins = sum(1 for p in matching if p['wl_winner'] == 'market')
+                stat_wins = sum(1 for p in matching if p['wl_winner'] == 'stat')
+                neutral = n - market_wins - stat_wins
+                bucket_rows.append({
+                    'Bucket': label, 'N': n,
+                    'Market Win': f"{market_wins} ({market_wins/n*100:.0f}%)",
+                    'Stat Win': f"{stat_wins} ({stat_wins/n*100:.0f}%)",
+                    'Neutral': f"{neutral} ({neutral/n*100:.0f}%)",
+                })
+            st.dataframe(pd.DataFrame(bucket_rows), use_container_width=True, hide_index=True)
+
+            # Chart
+            chart_data = [(r['Bucket'], int(r['Market Win'].split(' ')[0]) if r['N'] != 0 else 0,
+                          int(r['Stat Win'].split(' ')[0]) if r['N'] != 0 else 0)
+                          for r in bucket_rows]
+            if any(m+s > 0 for _, m, s in chart_data):
+                fig = go.Figure()
+                fig.add_trace(go.Bar(name='Market Wins', x=[c[0] for c in chart_data],
+                                     y=[c[1] for c in chart_data], marker_color='#00b4ff'))
+                fig.add_trace(go.Bar(name='Stat Wins', x=[c[0] for c in chart_data],
+                                     y=[c[2] for c in chart_data], marker_color='#9b59b6'))
+                fig.update_layout(barmode='group', template='plotly_dark',
+                                  paper_bgcolor='#0d1e2e', plot_bgcolor='#0d1e2e', height=300)
+                st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown(
+                '<div style="background:#0d1e2e;border-left:3px solid #ffd600;'
+                'padding:10px 14px;border-radius:0 4px 4px 0;margin-top:10px;">'
+                '<span style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
+                '📌 Reference (จาก 12 เคสนอกระบบ, เก็บก่อนเริ่ม v5.0): '
+                'Extreme divergence (≥40%) → Market ชนะ 2/2. '
+                'ผลใน Predictions Log นี้คือข้อมูลใหม่ที่สะสมเพิ่มเติม — '
+                'ยังไม่รวมกับ reference เดิมเพื่อความโปร่งใส</span></div>',
+                unsafe_allow_html=True
+            )
+
+        # ══════════════════════════════════════════════════════════════
+        # MODULE 3: League Tier Backtest — แยก major/niche/women/cup
+        # ══════════════════════════════════════════════════════════════
+        elif bt_module.startswith("3"):
+            st.markdown('<div class="gem-label">◈ LEAGUE TIER BACKTEST</div>', unsafe_allow_html=True)
+            st.caption("ทดสอบสมมุติฐาน: ตลาด liquidity ต่ำ (women's/cup) Stat มี edge ใน Total Goals ไหม?")
+
+            tiers = ['major', 'niche', 'women', 'cup_no_rank']
+            tier_rows = []
+            for tier in tiers:
+                matching = [p for p in settled if p.get('league_tier') == tier
+                           and p.get('goals_winner') is not None]
+                n = len(matching)
+                if n == 0:
+                    tier_rows.append({'Tier': tier, 'N': 0, 'Stat Win (Goals)': '-',
+                                     'Market Win (Goals)': '-'})
+                    continue
+                stat_wins = sum(1 for p in matching if p['goals_winner'] == 'stat')
+                market_wins = sum(1 for p in matching if p['goals_winner'] == 'market')
+                tier_rows.append({
+                    'Tier': tier, 'N': n,
+                    'Stat Win (Goals)': f"{stat_wins} ({stat_wins/n*100:.0f}%)",
+                    'Market Win (Goals)': f"{market_wins} ({market_wins/n*100:.0f}%)",
+                })
+            st.dataframe(pd.DataFrame(tier_rows), use_container_width=True, hide_index=True)
+
+            st.markdown(
+                '<div style="background:#0d1e2e;border-left:3px solid #9b59b6;'
+                'padding:10px 14px;border-radius:0 4px 4px 0;margin-top:10px;">'
+                '<span style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
+                '📌 Reference (12 เคสนอกระบบ): Women\'s football Stat Win Goals = 2/2 (100%), '
+                'Men\'s (mixed niche+major) Stat Win Goals = 0/8 (0%). '
+                'Sample เล็กมาก — ต้องการข้อมูลเพิ่มอย่างน้อย 5-8 เคสต่อ tier '
+                'ถึงจะเริ่มเชื่อถือได้</span></div>',
+                unsafe_allow_html=True
+            )
+
+        # ══════════════════════════════════════════════════════════════
+        # MODULE 4: Combined Strategy Simulator
+        # ══════════════════════════════════════════════════════════════
         else:
-            # ── [Fix 1] score_row แบบ exact match กับ AH outcome ──────
-            # แทนที่ใช้ * 0.95 threshold ที่อาจคลาดเคลื่อน
-            # ใช้ pnl / inv ratio เทียบกับ payout structure จริง
-            def score_row(row):
-                try:
-                    inv  = float(row['Investment'])
-                    net  = float(row['Net_Profit'])
-                    odds = float(row['Odds'])
-                    if inv <= 0:
-                        return np.nan
-                    full_win  = inv * (odds - 1)
-                    half_win  = full_win / 2
-                    half_loss = -inv / 2
-                    full_loss = -inv
+            st.markdown('<div class="gem-label">◈ COMBINED STRATEGY SIMULATOR</div>', unsafe_allow_html=True)
+            st.caption("เทียบ: ถ้าใช้ Gate 1-4 อย่างเดียว (v4.0 style) vs ใช้ Gate 5 ปรับ confidence ด้วย (v5.0 style)")
 
-                    # ใช้ tolerance ±5% สำหรับ floating point safety
-                    tol = max(abs(full_win) * 0.05, 1.0)
-                    if   abs(net - full_win)  < tol: return 1.0
-                    elif abs(net - half_win)  < tol: return 0.75
-                    elif abs(net)              < tol: return 0.50   # push
-                    elif abs(net - half_loss) < tol: return 0.25
-                    elif abs(net - full_loss) < tol: return 0.0
-                    # fallback สำหรับ partial outcomes
-                    elif net >  0: return 0.75
-                    elif net == 0: return 0.50
-                    else:          return 0.25
-                except:
-                    return np.nan
+            bet_settled = [p for p in settled if p.get('all_gates_pass') and p.get('recommended_side')]
+            n_total = len(bet_settled)
 
-            fin['Actual'] = fin.apply(score_row, axis=1)
-            fin = fin.dropna(subset=['Actual'])
-
-            if fin.empty:
-                st.info("◈ ไม่สามารถคำนวณผลลัพธ์ได้")
+            if n_total == 0:
+                st.info("ยังไม่มีบิลที่ผ่าน Gate 1-4 และ settle แล้ว — ลองวิเคราะห์เพิ่มใน PRE-MATCH tab")
             else:
-                # [Calibration v3.1] เปรียบเทียบ 3 models
-                # Bookmaker (baseline) — จาก odds
-                fin['BP'] = (1 / fin['Odds']).clip(0.01, 0.99)
-                # Pure GEM Math — จาก Base_EV_Pct (Math เท่านั้น ไม่มี AI)
-                fin['MP'] = (((fin['Base_EV_Pct'] / 100.0) + 1.0) / fin['Odds']).clip(0.01, 0.99)
-                # GEM + AI Oracle — จาก EV_Pct (Net = Math + AI)
-                fin['GP'] = (((fin['EV_Pct'] / 100.0) + 1.0) / fin['Odds']).clip(0.01, 0.99)
-                # Brier errors
-                fin['BE'] = (fin['BP'] - fin['Actual']) ** 2
-                fin['ME'] = (fin['MP'] - fin['Actual']) ** 2
-                fin['GE'] = (fin['GP'] - fin['Actual']) ** 2
+                # Strategy A: Gate 1-4 only (ไม่สนใจ Gate 5 เลย)
+                strategy_a_wins = sum(1 for p in bet_settled
+                                      if (p['actual_result'] == 'home_win' and 'Home' in (p['recommended_side'] or ''))
+                                      or (p['actual_result'] == 'away_win' and 'Away' in (p['recommended_side'] or ''))
+                                      or (p['actual_result'] not in ('home_win', 'away_win')
+                                          and p['recommended_side'] in ('OU Over', 'OU Under')))
 
-                book_brier = fin['BE'].mean()
-                math_brier = fin['ME'].mean()
-                gem_brier  = fin['GE'].mean()
+                # Strategy B: Gate 1-4 + Gate 5 extreme divergence filter
+                # (สมมุติ: ถ้า extreme divergence และ recommended side ตรงกับฝั่งที่ stat สนับสนุนผิดปกติ -> skip)
+                strategy_b_bets = []
+                for p in bet_settled:
+                    is_extreme = abs(p.get('divergence_wl', 0)) >= EXTREME_DIVERGENCE_THRESHOLD
+                    stat_favors_home = p.get('divergence_wl', 0) > 0
+                    rec_is_home = 'Home' in (p.get('recommended_side') or '')
+                    if is_extreme and stat_favors_home == rec_is_home:
+                        continue  # skip ตาม Gate 5 logic
+                    strategy_b_bets.append(p)
 
-                # ── Header metrics ─────────────────────────────────────
-                total_bets   = len(fin)
-                wins         = int((fin['Net_Profit'] > 0).sum())
-                losses       = int((fin['Net_Profit'] < 0).sum())
-                pushes       = int((fin['Net_Profit'] == 0).sum())
-                win_rate     = (wins / total_bets * 100) if total_bets > 0 else 0
-                total_pnl    = fin['Net_Profit'].sum()
-                total_inv    = fin[fin['Investment'] > 0]['Investment'].sum()
-                overall_roi  = (total_pnl / total_inv * 100) if total_inv > 0 else 0
+                strategy_b_wins = sum(1 for p in strategy_b_bets
+                                      if (p['actual_result'] == 'home_win' and 'Home' in (p['recommended_side'] or ''))
+                                      or (p['actual_result'] == 'away_win' and 'Away' in (p['recommended_side'] or ''))
+                                      or (p['actual_result'] not in ('home_win', 'away_win')
+                                          and p['recommended_side'] in ('OU Over', 'OU Under')))
 
-                st.markdown(f'<div class="gem-label">◈ DATASET — {total_bets} SETTLED BETS</div>',
-                            unsafe_allow_html=True)
-                hm1, hm2, hm3, hm4 = st.columns(4)
-                hm1.metric("Bets",      f"{total_bets}", f"W{wins} L{losses} P{pushes}")
-                hm2.metric("Win Rate",  f"{win_rate:.1f}%")
-                hm3.metric("Total P&L", f"฿{total_pnl:+,.0f}")
-                hm4.metric("ROI",       f"{overall_roi:+.2f}%")
-
-                # ── 3-Model Brier Score Comparison ─────────────────────
-                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ BRIER SCORE — 3 MODELS COMPARISON</div>',
-                            unsafe_allow_html=True)
-                st.markdown(
-                    '<p style="font-family:\'Rajdhani\';font-size:0.82rem;color:#4a7a60;">'
-                    'ต่ำกว่า = แม่นยำกว่า · เทียบ Math เปล่า vs Math+AI vs Bookmaker</p>',
-                    unsafe_allow_html=True
-                )
-                rc1, rc2, rc3 = st.columns(3)
-                rc1.metric("BOOKIE (baseline)",  f"{book_brier:.4f}")
-                rc2.metric("PURE MATH",          f"{math_brier:.4f}",
-                           f"{(book_brier-math_brier):+.4f} vs Bookie",
-                           delta_color="normal")
-                rc3.metric("MATH + AI ORACLE",   f"{gem_brier:.4f}",
-                           f"{(math_brier-gem_brier):+.4f} vs Math",
-                           delta_color="normal")
-
-                # Verdict — ใครชนะ
-                models = {"Bookie": book_brier, "Math": math_brier, "Math+AI": gem_brier}
-                winner = min(models, key=models.get)
-                ai_helps = gem_brier < math_brier   # AI ทำให้ดีขึ้นจริงไหม
-
-                ai_msg_col = "#00ff88" if ai_helps else "#ff3b5c"
-                ai_msg = (f"✅ AI Oracle ทำงาน: ปรับ Brier ดีขึ้น {(math_brier-gem_brier)*1000:+.1f}‰"
-                          if ai_helps
-                          else f"⚠️ AI Oracle ลดความแม่น: Brier แย่ลง {(gem_brier-math_brier)*1000:+.1f}‰")
-
-                st.markdown(
-                    f'<div class="gem-panel" style="border-top:2px solid {ai_msg_col};padding:12px 16px;">'
-                    f'<div class="gem-label" style="border-color:{ai_msg_col};color:{ai_msg_col};">'
-                    f'🏆 WINNER: {winner} ({models[winner]:.4f})</div>'
-                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.82rem;color:{ai_msg_col};">'
-                    f'{ai_msg}</div></div>',
-                    unsafe_allow_html=True
-                )
-
-                # backward compat สำหรับโค้ดด้านล่าง
-                diff = book_brier - gem_brier
-
-                # ── [Fix 4] Cumulative chart ใช้ Time แทน index ─────────
-                st.markdown('<div class="gem-label" style="margin-top:14px;">◈ CUMULATIVE BRIER ERROR — 3 MODELS</div>',
-                            unsafe_allow_html=True)
-                fin = fin.sort_values('Time').reset_index(drop=True)
-                fin['CumB'] = fin['BE'].cumsum()
-                fin['CumM'] = fin['ME'].cumsum()
-                fin['CumG'] = fin['GE'].cumsum()
-                fig_bt = go.Figure()
-                fig_bt.add_trace(go.Scatter(
-                    x=fin['Time'], y=fin['CumB'], mode='lines',
-                    name='Bookmaker', line=dict(color='#ff3b5c', width=2, dash='dot')
-                ))
-                fig_bt.add_trace(go.Scatter(
-                    x=fin['Time'], y=fin['CumM'], mode='lines',
-                    name='Pure Math', line=dict(color='#00b4ff', width=2)
-                ))
-                fig_bt.add_trace(go.Scatter(
-                    x=fin['Time'], y=fin['CumG'], mode='lines',
-                    name='Math + AI', line=dict(color='#00ff88', width=2)
-                ))
-                neon_layout(fig_bt, "CUMULATIVE BRIER ERROR — เส้นต่ำกว่าคือแม่นกว่า")
-                fig_bt.update_layout(xaxis_title="วันที่", yaxis_title="Cumulative Error")
-                st.plotly_chart(fig_bt, use_container_width=True)
-
-                with st.expander("◈ RAW DATA TABLE — 3 Models Comparison"):
-                    st.dataframe(
-                        fin[['Time','Match','Target','Odds','Base_EV_Pct','AI_Impact_Pct',
-                             'EV_Pct','Result','Net_Profit','Actual','BP','MP','GP',
-                             'BE','ME','GE']],
-                        use_container_width=True,
-                        column_config={
-                            "Base_EV_Pct":   st.column_config.NumberColumn("Base EV %", format="%.2f"),
-                            "AI_Impact_Pct": st.column_config.NumberColumn("AI Impact %", format="%.2f"),
-                            "EV_Pct":        st.column_config.NumberColumn("Net EV %", format="%.2f"),
-                            "BP": st.column_config.NumberColumn("Bookie Prob",  format="%.3f"),
-                            "MP": st.column_config.NumberColumn("Math Prob",    format="%.3f"),
-                            "GP": st.column_config.NumberColumn("Math+AI Prob", format="%.3f"),
-                            "BE": st.column_config.NumberColumn("Bookie Error", format="%.4f"),
-                            "ME": st.column_config.NumberColumn("Math Error",   format="%.4f"),
-                            "GE": st.column_config.NumberColumn("Math+AI Error",format="%.4f"),
-                            "Actual": st.column_config.NumberColumn("Outcome",  format="%.2f"),
-                        }
+                sc1, sc2 = st.columns(2)
+                with sc1:
+                    st.markdown(
+                        f'<div class="gem-panel">'
+                        f'<div class="gem-label">Strategy A — Gate 1-4 Only</div>'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:1.4rem;color:#00ff88;">'
+                        f'{strategy_a_wins}/{n_total}</div>'
+                        f'<div style="color:#4a7a60;font-size:0.78rem;">'
+                        f'WR: {strategy_a_wins/n_total*100:.1f}%</div></div>',
+                        unsafe_allow_html=True
+                    )
+                with sc2:
+                    n_b = len(strategy_b_bets)
+                    wr_b = strategy_b_wins/n_b*100 if n_b > 0 else 0
+                    st.markdown(
+                        f'<div class="gem-panel">'
+                        f'<div class="gem-label">Strategy B — Gate 1-5 (skip extreme)</div>'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:1.4rem;color:#9b59b6;">'
+                        f'{strategy_b_wins}/{n_b}</div>'
+                        f'<div style="color:#4a7a60;font-size:0.78rem;">'
+                        f'WR: {wr_b:.1f}% · Skipped: {n_total-n_b} bets</div></div>',
+                        unsafe_allow_html=True
                     )
 
-                # ════════════════════════════════════════════════════════
-                # [Fix 3] ML AUTO-TUNING แบบใหม่ — ครบเครื่อง
-                # ════════════════════════════════════════════════════════
-                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-                st.markdown('<div class="gem-label">◈ ML AUTO-TUNING (THRESHOLD OPTIMIZER)</div>',
-                            unsafe_allow_html=True)
-                st.markdown(
-                    '<p style="font-family:\'Rajdhani\';font-size:0.82rem;color:#4a7a60;">'
-                    'หา EV threshold ที่ให้ผลตอบแทนดีที่สุด พิจารณาทั้ง ROI และจำนวนไม้ที่เพียงพอ</p>',
-                    unsafe_allow_html=True
-                )
+                st.caption("ⓘ Simulator นี้เปรียบเทียบเฉพาะ Win Rate ทิศทาง ไม่รวม PnL จริง "
+                          "(ต้องมี odds + bet_outcome ครบเพื่อคำนวณ ROI ที่แม่นยำ)")
 
-                opt_c1, opt_c2, opt_c3 = st.columns(3)
-                with opt_c1:
-                    min_samples = st.number_input(
-                        "Minimum Sample Size",
-                        min_value=3, max_value=100, value=5, step=1,
-                        help="จำนวนไม้ขั้นต่ำที่ต้องผ่าน threshold เพื่อพิจารณา (ป้องกัน overfit)"
-                    )
-                with opt_c2:
-                    opt_metric = st.selectbox(
-                        "Optimize For",
-                        ["ROI per Bet (recommended)", "Total P&L (raw profit)", "Win Rate"],
-                        help="ROI per bet สมดุลที่สุด — Total P&L เน้นปริมาณ — Win Rate เน้นความแม่น"
-                    )
-                with opt_c3:
-                    ev_source = st.selectbox(
-                        "EV Source",
-                        ["Base EV (Math only)", "Net EV (Math + AI)"],
-                        help="Base EV = stable threshold ไม่ขึ้นกับ AI · Net EV = ระบบรวมปัจจุบัน"
-                    )
-                ev_col = 'Base_EV_Pct' if "Base" in ev_source else 'EV_Pct'
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="font-family:\'Rajdhani\';font-size:0.75rem;color:#4a7a60;">'
+        '⚠️ Backtest Lab ใช้ข้อมูลจาก Predictions Log ในเซสชันนี้เท่านั้น '
+        '(session-only, ไม่ persist ข้ามการปิดเบราว์เซอร์) — สำหรับการเก็บข้อมูลถาวร '
+        'ต้องต่อ database ภายนอก</div>',
+        unsafe_allow_html=True
+    )
 
-                if st.button("🧪  RUN BACKTEST OPTIMIZATION",
-                             type="primary", use_container_width=True):
-                    with st.spinner("วนลูปย้อนหลังเพื่อหา Threshold ที่ดีที่สุด..."):
-                        # [v3.1 Optimizer] แยก 4 ฝั่ง: AH Fav, AH Dog, OU Over, OU Under
-                        # เพราะ threshold ใน sidebar แยก 4 ตัวแล้ว ต้อง backtest ให้ตรง
-                        ah_logs = fin[fin['Target'].isin(['เจ้าบ้าน', 'ทีมเยือน'])].copy()
 
-                        # AH side classification — ใช้ HDP sign + Odds เป็น fallback
-                        def classify_ah_side(row):
-                            try:
-                                hdp = float(row['HDP'])
-                                odds = float(row['Odds'])
-                                target = str(row['Target'])
-                            except:
-                                return 'Unknown'
-                            if hdp < 0:
-                                # เยือนต่อ
-                                return 'Fav' if target == 'ทีมเยือน' else 'Dog'
-                            elif hdp > 0:
-                                if odds < 1.92:
-                                    return 'Fav'
-                                elif odds > 1.98:
-                                    return 'Dog'
-                                else:
-                                    # default convention: เจ้าบ้านต่อ
-                                    return 'Fav' if target == 'เจ้าบ้าน' else 'Dog'
-                            else:
-                                if odds < 1.95:    return 'Fav'
-                                elif odds > 1.95:  return 'Dog'
-                                return 'Even'
+# ════════════════════════════════════════════════════════════════════════
+# 📊 TAB 4: DASHBOARD — ROI / PnL / Bankroll Tracking
+# ════════════════════════════════════════════════════════════════════════
+with tab_dash:
+    st.markdown('<div class="gem-label">◈ BETTING PERFORMANCE</div>', unsafe_allow_html=True)
+    st.caption("ⓘ เฉพาะ predictions ที่ผ่าน Gate 1-4 (มี recommended_side) และ settle แล้ว")
 
-                        ah_logs['_side'] = ah_logs.apply(classify_ah_side, axis=1)
-                        ah_fav_logs = ah_logs[ah_logs['_side'] == 'Fav'].copy()
-                        ah_dog_logs = ah_logs[ah_logs['_side'] == 'Dog'].copy()
+    log = st.session_state.get('predictions_log', [])
+    bet_candidates = [p for p in log if p.get('all_gates_pass') and p.get('recommended_side')]
+    bet_settled = [p for p in bet_candidates if p.get('actual_result') is not None]
 
-                        ou_logs = fin[fin['Target'].isin(['สูง', 'ต่ำ'])].copy()
-                        ou_over_logs  = ou_logs[ou_logs['Target'] == 'สูง'].copy()
-                        ou_under_logs = ou_logs[ou_logs['Target'] == 'ต่ำ'].copy()
+    if len(bet_settled) == 0:
+        st.info("ยังไม่มีบิลที่ผ่าน Gate ครบและ settle แล้ว — เริ่มที่ PRE-MATCH tab")
+    else:
+        def calc_bet_pnl(p):
+            """คำนวณ PnL จาก recommended_side + odds + actual_result"""
+            side = p['recommended_side']
+            odds_map = {
+                'AH Home': p['ah_home_odds'], 'AH Away': p['ah_away_odds'],
+                'OU Over': p['ou_over_odds'], 'OU Under': p['ou_under_odds'],
+            }
+            odds = odds_map.get(side, 0)
+            bet = p.get('recommended_bet_size', 0)
+            won = (
+                (side == 'AH Home' and p['actual_result'] == 'home_win') or
+                (side == 'AH Away' and p['actual_result'] == 'away_win') or
+                (side == 'OU Over' and p.get('actual_total_goals', 0) > p['ou_line']) or
+                (side == 'OU Under' and p.get('actual_total_goals', 0) < p['ou_line'])
+            )
+            if won:
+                return bet * (odds - 1)
+            else:
+                return -bet
 
-                        def find_best(logs, label):
-                            """หา threshold ที่ดีที่สุดสำหรับตลาดนี้"""
-                            results = []
-                            for t in np.arange(1.0, 35.0, 0.5):
-                                f = logs[logs[ev_col] >= t]
-                                n = len(f)
-                                if n < min_samples:
-                                    continue
-                                pnl_sum = f['Net_Profit'].sum()
-                                inv_sum = f[f['Investment'] > 0]['Investment'].sum()
-                                wins_n  = int((f['Net_Profit'] > 0).sum())
-                                wr      = (wins_n / n * 100) if n > 0 else 0
-                                roi     = (pnl_sum / inv_sum * 100) if inv_sum > 0 else 0
-                                roi_per_bet = pnl_sum / n
-                                # [v3.3] Statistical confidence interval ของ WR
-                                # 95% CI = WR ± 1.96 × SE,  SE = sqrt(p(1-p)/n)
-                                import math as _math
-                                p_wr = wr / 100
-                                se   = _math.sqrt(p_wr * (1 - p_wr) / n) * 100 if n > 0 else 0
-                                ci_low  = max(0,  wr - 1.96 * se)
-                                ci_high = min(100, wr + 1.96 * se)
-                                results.append({
-                                    'threshold': t,
-                                    'count':     n,
-                                    'pnl':       pnl_sum,
-                                    'roi':       roi,
-                                    'roi_per_bet': roi_per_bet,
-                                    'win_rate':  wr,
-                                    'ci_low':    round(ci_low, 1),
-                                    'ci_high':   round(ci_high, 1),
-                                    'se':        round(se, 2),
-                                })
-                            if not results:
-                                return None, []
-                            res_df = pd.DataFrame(results)
-                            if "ROI per Bet" in opt_metric:
-                                best = res_df.loc[res_df['roi_per_bet'].idxmax()]
-                            elif "Total P&L" in opt_metric:
-                                best = res_df.loc[res_df['pnl'].idxmax()]
-                            else:
-                                best = res_df.loc[res_df['win_rate'].idxmax()]
-                            return best, res_df
+        for p in bet_settled:
+            p['_pnl'] = calc_bet_pnl(p)
 
-                        # หา threshold ที่ดีที่สุดสำหรับทั้ง 4 ฝั่ง
-                        best_ah_fav, ah_fav_df   = find_best(ah_fav_logs,  "AH Fav")
-                        best_ah_dog, ah_dog_df   = find_best(ah_dog_logs,  "AH Dog")
-                        best_ou_over, ou_over_df = find_best(ou_over_logs, "OU Over")
-                        best_ou_under, ou_under_df = find_best(ou_under_logs, "OU Under")
+        total_bets = len(bet_settled)
+        total_pnl = sum(p['_pnl'] for p in bet_settled)
+        total_invested = sum(p.get('recommended_bet_size', 0) for p in bet_settled)
+        wins = sum(1 for p in bet_settled if p['_pnl'] > 0)
+        wr = wins / total_bets * 100
+        roi = (total_pnl / total_invested * 100) if total_invested > 0 else 0
 
-                        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        d1, d2, d3, d4 = st.columns(4)
+        d1.metric("Total Bets", f"{total_bets}")
+        d2.metric("Win Rate", f"{wr:.1f}%")
+        d3.metric("Total PnL", f"฿{total_pnl:+,.0f}")
+        d4.metric("ROI", f"{roi:+.2f}%")
 
-                        # ══════════════════════════════════════════════════════
-                        # [v3.3 Safety Guard] Statistical assessment helpers
-                        # ══════════════════════════════════════════════════════
-                        def assess_reliability(best_data, side_df):
-                            """
-                            ประเมินความน่าเชื่อถือของผลลัพธ์
-                            Returns: (reliability_label, color, warnings_list)
-                            """
-                            if best_data is None:
-                                return "❓ No Data", "#4a7a60", []
-                            n = int(best_data['count'])
-                            roi = best_data['roi']
-                            warnings_list = []
+        # Phase 1 calibration
+        phase1_bets = [p for p in bet_settled if st.session_state.get('bet_phase', 1) == 1]
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gem-label">◈ PHASE 1 CALIBRATION CHECK</div>', unsafe_allow_html=True)
+        st.write(f"Settled bets so far: {total_bets}/50")
+        if total_bets >= 50:
+            if wr >= 53:
+                st.success(f"✅ Win Rate {wr:.1f}% ≥ 53% — พร้อมเปลี่ยนเป็น Phase 2 (Dynamic sizing) ได้")
+            else:
+                st.warning(f"⚠️ Win Rate {wr:.1f}% < 53% — ควรอยู่ Phase 1 ต่อ และทบทวน Gate thresholds")
+        else:
+            st.info(f"ℹ️ ต้องการอีก {50-total_bets} ไม้ก่อนประเมิน Phase 2")
 
-                            # 1. Sample size check
-                            if n < 10:
-                                reliability = "🔴 ไม่น่าเชื่อถือ"
-                                color = "#ff3b5c"
-                                warnings_list.append(
-                                    f"⚠️ Sample แค่ {n} ไม้ — ต้องการ ≥30 ไม้ขึ้นไปจึงพอใช้ได้ "
-                                    f"(แนะนำ ≥100 สำหรับการตัดสินใจ)"
-                                )
-                            elif n < 30:
-                                reliability = "🟠 Marginal"
-                                color = "#ff8c00"
-                                warnings_list.append(
-                                    f"⚠️ Sample {n} ไม้ — ยังเล็กไป ใช้เป็นไกด์เท่านั้น (ต้องการ ≥50 ขึ้นไปดีกว่า)"
-                                )
-                            elif n < 50:
-                                reliability = "🟡 OK but limited"
-                                color = "#ffd600"
-                            else:
-                                reliability = "🟢 Significant"
-                                color = "#00ff88"
+        # Equity curve
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gem-label">◈ EQUITY CURVE</div>', unsafe_allow_html=True)
+        cum_pnl = []
+        running = 0
+        for p in bet_settled:
+            running += p['_pnl']
+            cum_pnl.append(running)
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(y=cum_pnl, mode='lines+markers',
+                                 line=dict(color='#00ff88', width=2), marker=dict(size=5)))
+        fig.update_layout(template='plotly_dark', height=300,
+                          paper_bgcolor='#0d1e2e', plot_bgcolor='#0d1e2e',
+                          margin=dict(l=20, r=20, t=20, b=20), yaxis_title="Cumulative PnL (฿)")
+        st.plotly_chart(fig, use_container_width=True)
 
-                            # 2. Structural bias check — ทุก threshold ROI ติดลบหมด
-                            if not side_df.empty:
-                                all_negative = (side_df['roi'] < 0).all()
-                                if all_negative and len(side_df) >= 3:
-                                    warnings_list.append(
-                                        f"🚨 STRUCTURAL ISSUE — ทุก threshold ที่ทดสอบ ROI ติดลบหมด "
-                                        f"ปัญหาอาจไม่ใช่ threshold แต่ระบบ predict ฝั่งนี้ผิด bias "
-                                        f"→ แนะนำ **หลีกเลี่ยง bet ฝั่งนี้** หรือเพิ่ม threshold สูงมากๆ"
-                                    )
+        # By side breakdown
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gem-label">◈ BY SIDE</div>', unsafe_allow_html=True)
+        side_groups = {}
+        for p in bet_settled:
+            side = p['recommended_side']
+            side_groups.setdefault(side, []).append(p)
+        side_rows = []
+        for side, plist in side_groups.items():
+            n = len(plist)
+            pnl = sum(p['_pnl'] for p in plist)
+            inv = sum(p.get('recommended_bet_size', 0) for p in plist)
+            w = sum(1 for p in plist if p['_pnl'] > 0)
+            side_rows.append({
+                'Side': side, 'Bets': n, 'WR%': f"{w/n*100:.0f}",
+                'PnL': f"฿{pnl:+,.0f}", 'ROI%': f"{pnl/inv*100:+.1f}" if inv > 0 else "-"
+            })
+        st.dataframe(pd.DataFrame(side_rows), use_container_width=True, hide_index=True)
 
-                            # 3. Optimizer picked lowest threshold = symptom of all-negative
-                            if not side_df.empty:
-                                thresholds_tried = side_df['threshold'].tolist()
-                                if best_data['threshold'] == min(thresholds_tried) and best_data['roi'] < 0:
-                                    warnings_list.append(
-                                        f"⚠️ Optimizer เลือก threshold ต่ำสุด ({best_data['threshold']:.1f}%) "
-                                        f"= 'เสียน้อยที่สุด' ไม่ใช่ 'กำไร' — อย่าตามคำแนะนำตรงๆ"
-                                    )
+        # By league tier
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="gem-label">◈ BY LEAGUE TIER</div>', unsafe_allow_html=True)
+        tier_groups = {}
+        for p in bet_settled:
+            tier = p.get('league_tier', 'unknown')
+            tier_groups.setdefault(tier, []).append(p)
+        tier_rows2 = []
+        for tier, plist in tier_groups.items():
+            n = len(plist)
+            pnl = sum(p['_pnl'] for p in plist)
+            inv = sum(p.get('recommended_bet_size', 0) for p in plist)
+            tier_rows2.append({
+                'Tier': tier, 'Bets': n, 'PnL': f"฿{pnl:+,.0f}",
+                'ROI%': f"{pnl/inv*100:+.1f}" if inv > 0 else "-"
+            })
+        st.dataframe(pd.DataFrame(tier_rows2), use_container_width=True, hide_index=True)
 
-                            # 4. Confidence Interval width check
-                            ci_width = best_data['ci_high'] - best_data['ci_low']
-                            if ci_width > 30:
-                                warnings_list.append(
-                                    f"📏 95% Confidence Interval = {best_data['ci_low']:.0f}%-{best_data['ci_high']:.0f}% "
-                                    f"(กว้าง {ci_width:.0f}%) → WR จริงไม่แน่ใจ"
-                                )
+        # Full log
+        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        with st.expander("📋 Full Bet Log"):
+            full_df = pd.DataFrame([{
+                'Time': p['time'], 'Match': p['match'], 'Side': p['recommended_side'],
+                'Bet': f"฿{p.get('recommended_bet_size',0):,.0f}",
+                'Score': p.get('actual_score', '-'), 'PnL': f"฿{p['_pnl']:+,.0f}"
+            } for p in bet_settled])
+            st.dataframe(full_df, use_container_width=True, hide_index=True)
 
-                            return reliability, color, warnings_list
-
-                        # ── helper render single side ─────────────────────
-                        def render_side(label, best_data, side_df, side_logs_count, color):
-                            st.markdown(
-                                f'<div class="gem-label" style="border-color:{color};color:{color};">'
-                                f'◈ {label} — OPTIMAL THRESHOLD</div>',
-                                unsafe_allow_html=True
-                            )
-                            if best_data is not None:
-                                # ──── Reliability Assessment ────
-                                reliability, rel_color, warnings_list = assess_reliability(best_data, side_df)
-
-                                sc1, sc2, sc3, sc4 = st.columns(4)
-                                sc1.metric("Threshold", f"{best_data['threshold']:.1f}%")
-                                sc2.metric("Bets",      f"{int(best_data['count'])}")
-                                sc3.metric("P&L",       f"฿{best_data['pnl']:+,.0f}")
-                                sc4.metric("ROI",       f"{best_data['roi']:+.2f}%",
-                                           f"WR {best_data['win_rate']:.1f}%")
-
-                                # ──── Statistical Reliability Badge ────
-                                st.markdown(
-                                    f'<div style="background:#0d1e2e;border-left:3px solid {rel_color};'
-                                    f'border-radius:0 4px 4px 0;padding:8px 12px;margin-top:6px;">'
-                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:{rel_color};'
-                                    f'letter-spacing:0.08em;">RELIABILITY: {reliability}</div>'
-                                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.65rem;color:#c8e6d4;margin-top:3px;">'
-                                    f'95% CI of WR: {best_data["ci_low"]:.1f}% – {best_data["ci_high"]:.1f}% '
-                                    f'(SE: ±{best_data["se"]}%)</div>'
-                                    f'</div>',
-                                    unsafe_allow_html=True
-                                )
-
-                                # ──── Warnings ────
-                                for warn in warnings_list:
-                                    is_critical = any(t in warn for t in ['🚨', 'ไม่น่าเชื่อถือ', 'STRUCTURAL'])
-                                    bg_color = '#ff3b5c' if is_critical else '#ff8c00'
-                                    st.markdown(
-                                        f'<div style="background:rgba(255,140,0,0.08);'
-                                        f'border-left:3px solid {bg_color};border-radius:3px;'
-                                        f'padding:8px 12px;margin-top:6px;'
-                                        f'font-family:\'Rajdhani\';font-size:0.78rem;color:{bg_color};">'
-                                        f'{warn}</div>',
-                                        unsafe_allow_html=True
-                                    )
-
-                                with st.expander(f"◈ {label} — ทุก threshold ที่ทดสอบ"):
-                                    st.dataframe(side_df.style.highlight_max(
-                                        subset=['roi_per_bet','pnl','win_rate'], color='#003322'),
-                                        use_container_width=True)
-                            else:
-                                st.warning(
-                                    f"⚠️ {label}: ไม่พบ threshold ที่ใช้งานได้ "
-                                    f"(records ทั้งหมด: {side_logs_count} ไม้, "
-                                    f"ต้องการขั้นต่ำ {min_samples} ไม้/threshold)"
-                                )
-
-                        # ── ASIAN HANDICAP — แยก Fav/Dog ──────────────────
-                        st.markdown(
-                            '<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;'
-                            'color:#00ff88;margin:14px 0 8px 0;letter-spacing:0.05em;">'
-                            '🎯 ASIAN HANDICAP</div>',
-                            unsafe_allow_html=True
-                        )
-                        ah_col1, ah_col2 = st.columns(2)
-                        with ah_col1:
-                            render_side("AH FAV (ทีมต่อ)", best_ah_fav, ah_fav_df,
-                                        len(ah_fav_logs), "#ff8c00")
-                        with ah_col2:
-                            render_side("AH DOG (ทีมรอง)", best_ah_dog, ah_dog_df,
-                                        len(ah_dog_logs), "#00ff88")
-
-                        # ── OVER/UNDER — แยก Over/Under ───────────────────
-                        st.markdown(
-                            '<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;'
-                            'color:#00b4ff;margin:14px 0 8px 0;letter-spacing:0.05em;">'
-                            '⚡ OVER / UNDER</div>',
-                            unsafe_allow_html=True
-                        )
-                        ou_col1, ou_col2 = st.columns(2)
-                        with ou_col1:
-                            render_side("OU OVER (สูง)", best_ou_over, ou_over_df,
-                                        len(ou_over_logs), "#00b4ff")
-                        with ou_col2:
-                            render_side("OU UNDER (ต่ำ)", best_ou_under, ou_under_df,
-                                        len(ou_under_logs), "#ff8c00")
-
-                        # ── Conclusion / Recommendations ──────────────────
-                        # [v3.3] Smart recommendations — ใช้ ค่าเดิมถ้า data ไม่น่าเชื่อถือ
-                        def smart_recommend(best_data, side_df, current_thr_default):
-                            """
-                            คืนค่า threshold ที่ปลอดภัย:
-                            - ถ้า structural issue → 'AVOID' หรือสูงมาก
-                            - ถ้า sample < 30 → คงค่าเดิม
-                            - ถ้า OK → ใช้ค่า optimizer
-                            """
-                            if best_data is None:
-                                return (f"{current_thr_default}%", "คงค่าเดิม (no data)")
-                            n = int(best_data['count'])
-                            roi = best_data['roi']
-
-                            # Check structural issue
-                            if not side_df.empty and (side_df['roi'] < 0).all() and len(side_df) >= 3:
-                                return (f"AVOID หรือ ≥15%", "🚨 ขาดทุนทุก threshold")
-
-                            # Sample size too small
-                            if n < 10:
-                                return (f"{current_thr_default}% (เดิม)", f"❌ Sample แค่ {n}")
-                            if n < 30:
-                                return (f"{current_thr_default}% (เดิม)", f"⚠️ Sample {n} ยังเล็ก")
-
-                            # Optimizer picked floor with negative ROI
-                            if not side_df.empty:
-                                if best_data['threshold'] == side_df['threshold'].min() and roi < 0:
-                                    return (f"≥15% หรือ AVOID", "⚠️ ทุก threshold ขาดทุน")
-
-                            # Reliable suggestion
-                            return (f"{best_data['threshold']:.1f}%", f"✅ Sample {n} ไม้ ROI {roi:+.2f}%")
-
-                        rec_ah_fav  = smart_recommend(best_ah_fav,  ah_fav_df,  8.0)
-                        rec_ah_dog  = smart_recommend(best_ah_dog,  ah_dog_df,  14.0)
-                        rec_ou_over = smart_recommend(best_ou_over, ou_over_df, 5.0)
-                        rec_ou_under= smart_recommend(best_ou_under,ou_under_df,9.0)
-
-                        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-
-                        # Count how many sides have warnings
-                        all_warnings = []
-                        for label, best_d, side_df in [
-                            ('AH Fav',   best_ah_fav,  ah_fav_df),
-                            ('AH Dog',   best_ah_dog,  ah_dog_df),
-                            ('OU Over',  best_ou_over, ou_over_df),
-                            ('OU Under', best_ou_under,ou_under_df),
-                        ]:
-                            if best_d is not None:
-                                _, _, w = assess_reliability(best_d, side_df)
-                                all_warnings.extend([f"[{label}] {warn}" for warn in w])
-
-                        if all_warnings:
-                            st.warning(
-                                f"⚠️ **{len(all_warnings)} คำเตือนจาก Statistical Analysis** — "
-                                f"อย่าตัดสินใจจาก optimizer ตรงๆ ก่อนอ่าน warnings ด้านบน"
-                            )
-
-                        st.markdown(
-                            f'<div style="background:rgba(0,255,136,0.06);'
-                            f'border-left:4px solid #00ff88;border-radius:4px;'
-                            f'padding:14px 18px;margin-top:10px;">'
-                            f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;'
-                            f'color:#00ff88;letter-spacing:0.05em;margin-bottom:8px;">'
-                            f'🎯 SMART RECOMMENDATIONS (ปลอดภัย)</div>'
-                            f'<div style="font-family:\'Rajdhani\';font-size:0.88rem;color:#c8e6d4;line-height:1.7;">'
-                            f'<strong>AH Fav %:</strong> {rec_ah_fav[0]}  '
-                            f'<span style="color:#4a7a60;font-size:0.78rem;">— {rec_ah_fav[1]}</span><br>'
-                            f'<strong>AH Dog %:</strong> {rec_ah_dog[0]}  '
-                            f'<span style="color:#4a7a60;font-size:0.78rem;">— {rec_ah_dog[1]}</span><br>'
-                            f'<strong>OU Over %:</strong> {rec_ou_over[0]}  '
-                            f'<span style="color:#4a7a60;font-size:0.78rem;">— {rec_ou_over[1]}</span><br>'
-                            f'<strong>OU Under %:</strong> {rec_ou_under[0]}  '
-                            f'<span style="color:#4a7a60;font-size:0.78rem;">— {rec_ou_under[1]}</span>'
-                            f'</div></div>',
-                            unsafe_allow_html=True
-                        )
-
-                        st.caption(
-                            f"_Optimize ตาม: {opt_metric}, min sample = {min_samples} ไม้ • "
-                            f"แนะนำเก็บข้อมูลให้ครบ ≥30 ไม้/category ก่อนเชื่อ optimizer 100%_"
-                        )
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.caption(
+        "⚠️ ข้อมูลทั้งหมดเก็บใน session เท่านั้น (หายเมื่อปิดเบราว์เซอร์) — "
+        "สำหรับการใช้งานจริงต่อเนื่อง แนะนำต่อ external database"
+    )
