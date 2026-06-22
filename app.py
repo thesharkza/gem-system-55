@@ -1940,14 +1940,14 @@ with tab_dash:
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
         with st.expander("📋 Full Bet Log"):
             full_df = pd.DataFrame([{
-                'Time': p['time'], 'Match': p['match'], 'Side': p['recommended_side'],
-                'Bet': f"฿{p.get('recommended_bet_size',0):,.0f}",
-                'Score': p.get('actual_score', '-'), 'PnL': f"฿{p['_pnl']:+,.0f}"
+                'Time': pd.to_datetime(p.get('created_at', '')).strftime("%Y-%m-%d %H:%M") if p.get('created_at') else '-',
+                'Match': p.get('match_name', '-'),
+                'Side': p.get('recommended_side', '-'),
+                'Bet': f"฿{p.get('recommended_bet_size', 0) or 0:,.0f}",
+                'Score': p.get('actual_score', '-'),
+                'PnL': f"฿{p.get('_pnl', 0):+,.0f}"
             } for p in bet_settled])
             st.dataframe(full_df, use_container_width=True, hide_index=True)
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-    st.caption(
-        "⚠️ ข้อมูลทั้งหมดเก็บใน session เท่านั้น (หายเมื่อปิดเบราว์เซอร์) — "
-        "สำหรับการใช้งานจริงต่อเนื่อง แนะนำต่อ external database"
-    )
+    st.caption("ℹ️ ข้อมูลทั้งหมดเก็บถาวรใน Supabase — เปิดแอพใหม่ข้อมูลยังอยู่ครบ")
