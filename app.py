@@ -1528,26 +1528,40 @@ with tab_log:
         pending_df = log_df[log_df['actual_result'].isna()]
         settled_df_raw = log_df[log_df['actual_result'].notna()]
 
+        def nz(val, default=0):
+            """แปลง None/NaN เป็นค่า default อย่างปลอดภัย (NaN or 0 ใน Python คืน NaN ไม่ใช่ 0)"""
+            if val is None:
+                return default
+            try:
+                if pd.isna(val):
+                    return default
+            except (TypeError, ValueError):
+                pass
+            return val
+
         def render_prediction_card(p, mode='pending'):
             """render card แต่ละใบ"""
             rec_id = p['id']
             created = pd.to_datetime(p['created_at']).strftime("%d/%m %H:%M") if pd.notna(p.get('created_at')) else "-"
             match_name = p.get('match_name', '-')
             tier = p.get('league_tier', '-')
-            side = p.get('recommended_side') or 'No Signal'
-            signal = bool(p.get('all_gates_pass'))
-            div = p.get('divergence_wl', 0) or 0
+            raw_side = p.get('recommended_side')
+            side = raw_side if (isinstance(raw_side, str) and raw_side) else 'No Signal'
+            signal = bool(p.get('all_gates_pass')) and p.get('all_gates_pass') is not None
+            div = p.get('divergence_wl', 0)
+            div = div if pd.notna(div) else 0
 
             # Header color
             if mode == 'settled':
-                res = p.get('actual_result', '')
+                res = p.get('actual_result', '') or ''
                 score = p.get('actual_score', '-')
-                header_color = "#00ff88" if (
+                won = (
                     (res == 'home_win' and 'Home' in side) or
                     (res == 'away_win' and 'Away' in side) or
-                    (res != 'home_win' and res != 'away_win' and 'OU' in side)
-                ) else "#ff3b5c"
-                status_icon = "✅" if header_color == "#00ff88" else "❌"
+                    (res not in ('home_win', 'away_win') and 'OU' in side)
+                )
+                header_color = "#00ff88" if won else "#ff3b5c"
+                status_icon = "✅" if won else "❌"
                 header_right = f"{status_icon} {score}"
             else:
                 header_color = "#00ff88" if signal else "#ffd600"
@@ -1580,11 +1594,11 @@ with tab_log:
 
                 # ── แถวที่ 1: Probabilities ──
                 ca, cb, cc_col = st.columns(3)
-                ca.metric("Market P(Home)", f"{(p.get('market_p_home') or 0)*100:.0f}%")
-                cb.metric("Stat P(Home)", f"{(p.get('stat_p_home') or 0)*100:.0f}%",
+                ca.metric("Market P(Home)", f"{nz(p.get('market_p_home'))*100:.0f}%")
+                cb.metric("Stat P(Home)", f"{nz(p.get('stat_p_home'))*100:.0f}%",
                          delta=f"{div*100:+.0f}%",
                          delta_color="off")
-                cc_col.metric("Market P(Away)", f"{(p.get('market_p_away') or 0)*100:.0f}%")
+                cc_col.metric("Market P(Away)", f"{nz(p.get('market_p_away'))*100:.0f}%")
 
                 # ── Gate 5 Divergence badge ──
                 div_label = "🚨 EXTREME" if abs(div) >= 0.40 else ("⚠️ MODERATE" if abs(div) >= 0.15 else "✅ LOW")
@@ -1609,8 +1623,9 @@ with tab_log:
                 ]
                 g1, g2, g3, g4 = st.columns(4)
                 for col, (sname, wr, gp, odds) in zip([g1, g2, g3, g4], sides_info):
-                    wr_val = (wr or 0) * 100
-                    gp_val = int(gp) if pd.notna(gp) else 0
+                    wr_val = nz(wr) * 100
+                    gp_val = int(nz(gp))
+                    odds_val = nz(odds)
                     is_rec = sname == side
                     c = "#00ff88" if (gp_val >= 4 and wr_val >= 55) else "#4a7a60"
                     rec_tag = " ⭐" if is_rec else ""
@@ -1621,7 +1636,7 @@ with tab_log:
                         f'{sname}{rec_tag}</div>'
                         f'<div style="font-size:1rem;font-weight:700;color:{c};">{wr_val:.0f}%</div>'
                         f'<div style="font-size:0.6rem;color:#4a7a60;">{gp_val}/4 gates</div>'
-                        f'<div style="font-size:0.65rem;color:#c8e6d4;">@ {odds:.2f}</div>'
+                        f'<div style="font-size:0.65rem;color:#c8e6d4;">@ {odds_val:.2f}</div>'
                         f'</div>', unsafe_allow_html=True
                     )
 
@@ -1629,18 +1644,18 @@ with tab_log:
 
                 # ── แถวที่ 3: Total Goals + Stats ──
                 tg1, tg2 = st.columns(2)
-                tg1.metric("Market Total Goals Line", f"{p.get('market_total', 0):.2f}")
-                tg2.metric("Stat Total Goals", f"{p.get('stat_total', 0):.2f}",
-                          delta=f"{(p.get('divergence_goals') or 0):+.2f}")
+                tg1.metric("Market Total Goals Line", f"{nz(p.get('market_total')):.2f}")
+                tg2.metric("Stat Total Goals", f"{nz(p.get('stat_total')):.2f}",
+                          delta=f"{nz(p.get('divergence_goals')):+.2f}")
 
                 if pd.notna(p.get('home_w')):
                     st.markdown('<div class="gem-label" style="font-size:0.65rem;">◈ STATS (5 นัดล่าสุด)</div>',
                                unsafe_allow_html=True)
                     s1, s2 = st.columns(2)
                     with s1:
-                        hw = int(p.get('home_w') or 0); hd = int(p.get('home_d') or 0)
-                        hl = int(p.get('home_l') or 0)
-                        hgf = p.get('home_gf') or 0; hga = p.get('home_ga') or 0
+                        hw = int(nz(p.get('home_w'))); hd = int(nz(p.get('home_d')))
+                        hl = int(nz(p.get('home_l')))
+                        hgf = nz(p.get('home_gf')); hga = nz(p.get('home_ga'))
                         st.markdown(
                             f'<div style="background:#0d1e2e;border-left:3px solid #00ff88;'
                             f'padding:8px 10px;border-radius:0 4px 4px 0;">'
@@ -1652,9 +1667,9 @@ with tab_log:
                             unsafe_allow_html=True
                         )
                     with s2:
-                        aw = int(p.get('away_w') or 0); ad = int(p.get('away_d') or 0)
-                        al = int(p.get('away_l') or 0)
-                        agf = p.get('away_gf') or 0; aga = p.get('away_ga') or 0
+                        aw = int(nz(p.get('away_w'))); ad = int(nz(p.get('away_d')))
+                        al = int(nz(p.get('away_l')))
+                        agf = nz(p.get('away_gf')); aga = nz(p.get('away_ga'))
                         st.markdown(
                             f'<div style="background:#0d1e2e;border-left:3px solid #ff8c00;'
                             f'padding:8px 10px;border-radius:0 4px 4px 0;">'
@@ -1669,13 +1684,13 @@ with tab_log:
                 # ── Math internals (collapsible) ──
                 if pd.notna(p.get('math_lambda_home')):
                     with st.expander("🔬 Math Engine Details", expanded=False):
-                        lh_v = p.get('math_lambda_home', 0) or 0
-                        la_v = p.get('math_lambda_away', 0) or 0
+                        lh_v = nz(p.get('math_lambda_home'))
+                        la_v = nz(p.get('math_lambda_away'))
                         conv = p.get('auto_fit_converged')
                         loss = p.get('auto_fit_loss')
                         loss_str = f"{loss:.5f}" if pd.notna(loss) else "N/A"
-                        slh = p.get("stat_lambda_home") or 0
-                        sla = p.get("stat_lambda_away") or 0
+                        slh = nz(p.get("stat_lambda_home"))
+                        sla = nz(p.get("stat_lambda_away"))
                         st.markdown(
                             f'<div style="font-family:\'Share Tech Mono\';font-size:0.72rem;color:#c8e6d4;'
                             f'background:#0d1e2e;padding:8px 10px;border-radius:4px;">'
