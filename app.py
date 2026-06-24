@@ -75,11 +75,30 @@ def db_load_predictions():
                 'market_p_home', 'market_p_draw', 'market_p_away', 'stat_p_home', 'divergence_wl',
                 'market_total', 'stat_total', 'divergence_goals', 'home_wr_5g', 'away_wr_5g',
                 'ah_line', 'ah_home_odds', 'ah_away_odds', 'ou_line', 'ou_over_odds', 'ou_under_odds',
-                'gates_passed', 'recommended_bet_size', 'bet_phase', 'actual_total_goals', 'pnl',
+                'h1x2_odds', 'd1x2_odds', 'a1x2_odds', 'ah_overround', 'ou_overround',
+                'math_lambda_home', 'math_lambda_away', 'stat_lambda_home', 'stat_lambda_away',
+                'auto_fit_loss', 'stadium_temp',
+                'ah_home_win_rate', 'ah_away_win_rate', 'ou_over_win_rate', 'ou_under_win_rate',
+                'ah_home_gates_passed', 'ah_away_gates_passed',
+                'ou_over_gates_passed', 'ou_under_gates_passed',
+                'gates_passed', 'recommended_bet_size', 'bet_phase', 'bankroll_at_time',
+                'actual_total_goals', 'actual_home_goals', 'actual_away_goals', 'pnl',
+                'home_w', 'home_d', 'home_l', 'home_gf', 'home_ga',
+                'away_w', 'away_d', 'away_l', 'away_gf', 'away_ga',
             ]
             for col in numeric_cols:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors='coerce')
+            # ── Boolean columns ── Supabase คืนมาเป็น Python bool แล้ว
+            # แต่ pandas อาจเก็บเป็น object — convert ให้ชัดเจน
+            bool_cols = ['all_gates_pass', 'extreme_wr_flag', 'ranking_agrees',
+                        'auto_fit_used', 'auto_fit_converged']
+            for col in bool_cols:
+                if col in df.columns:
+                    df[col] = df[col].apply(
+                        lambda x: True if x is True or str(x).lower() == 'true'
+                        else (False if x is False or str(x).lower() == 'false' else None)
+                    )
             return df
         return pd.DataFrame()
     except Exception as e:
@@ -1499,9 +1518,7 @@ def compute_goals_winner(market_total, stat_total, actual_total_goals):
 
 
 with tab_log:
-    st.markdown('<div class="gem-label">◈ PREDICTIONS LOG — ทุกคู่ที่วิเคราะห์</div>',
-               unsafe_allow_html=True)
-    st.caption("ⓘ บันทึกทุก prediction ไม่ว่าจะลงบิลจริงหรือไม่ — ใช้สำหรับ Backtest Lab")
+    st.markdown('<div class="gem-label">◈ PREDICTIONS LOG</div>', unsafe_allow_html=True)
 
     log_df = db_load_predictions()
 
@@ -1511,64 +1528,233 @@ with tab_log:
         pending_df = log_df[log_df['actual_result'].isna()]
         settled_df_raw = log_df[log_df['actual_result'].notna()]
 
-        st.markdown(f'<div class="gem-label">◈ PENDING ({len(pending_df)})</div>', unsafe_allow_html=True)
+        def render_prediction_card(p, mode='pending'):
+            """render card แต่ละใบ"""
+            rec_id = p['id']
+            created = pd.to_datetime(p['created_at']).strftime("%d/%m %H:%M") if pd.notna(p.get('created_at')) else "-"
+            match_name = p.get('match_name', '-')
+            tier = p.get('league_tier', '-')
+            side = p.get('recommended_side') or 'No Signal'
+            signal = bool(p.get('all_gates_pass'))
+            div = p.get('divergence_wl', 0) or 0
+
+            # Header color
+            if mode == 'settled':
+                res = p.get('actual_result', '')
+                score = p.get('actual_score', '-')
+                header_color = "#00ff88" if (
+                    (res == 'home_win' and 'Home' in side) or
+                    (res == 'away_win' and 'Away' in side) or
+                    (res != 'home_win' and res != 'away_win' and 'OU' in side)
+                ) else "#ff3b5c"
+                status_icon = "✅" if header_color == "#00ff88" else "❌"
+                header_right = f"{status_icon} {score}"
+            else:
+                header_color = "#00ff88" if signal else "#ffd600"
+                header_right = "🟢 SIGNAL" if signal else "⏳ PENDING"
+
+            tier_colors = {'women': '#9b59b6', 'major': '#00b4ff', 'niche': '#4a7a60', 'cup_no_rank': '#ff8c00'}
+            tier_color = tier_colors.get(tier, '#4a7a60')
+            div_color = "#ff3b5c" if abs(div) >= 0.40 else ("#ffd600" if abs(div) >= 0.15 else "#4a7a60")
+
+            label = f"{created} | {match_name}"
+            with st.expander(label, expanded=False):
+                # ── ส่วนบน: overview ──
+                st.markdown(
+                    f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                    f'border-left:3px solid {header_color};padding:8px 12px;background:#0d1e2e;'
+                    f'border-radius:0 6px 6px 0;margin-bottom:10px;">'
+                    f'<div>'
+                    f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:1rem;color:#e8f5ee;">'
+                    f'{match_name}</div>'
+                    f'<div style="font-size:0.75rem;color:{tier_color};">'
+                    f'🏆 {p.get("league","") or "-"} [{tier}]</div>'
+                    f'</div>'
+                    f'<div style="text-align:right;">'
+                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.85rem;color:{header_color};">'
+                    f'{header_right}</div>'
+                    f'<div style="font-size:0.7rem;color:#4a7a60;">{created}</div>'
+                    f'</div></div>',
+                    unsafe_allow_html=True
+                )
+
+                # ── แถวที่ 1: Probabilities ──
+                ca, cb, cc_col = st.columns(3)
+                ca.metric("Market P(Home)", f"{(p.get('market_p_home') or 0)*100:.0f}%")
+                cb.metric("Stat P(Home)", f"{(p.get('stat_p_home') or 0)*100:.0f}%",
+                         delta=f"{div*100:+.0f}%",
+                         delta_color="off")
+                cc_col.metric("Market P(Away)", f"{(p.get('market_p_away') or 0)*100:.0f}%")
+
+                # ── Gate 5 Divergence badge ──
+                div_label = "🚨 EXTREME" if abs(div) >= 0.40 else ("⚠️ MODERATE" if abs(div) >= 0.15 else "✅ LOW")
+                st.markdown(
+                    f'<div style="border-left:3px solid {div_color};padding:6px 10px;'
+                    f'background:#0d1e2e;border-radius:0 4px 4px 0;margin:4px 0;">'
+                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.72rem;color:{div_color};">'
+                    f'Gate 5 Divergence: {div_label} (Δ{div*100:+.0f}%)</span>'
+                    f'</div>', unsafe_allow_html=True
+                )
+
+                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+
+                # ── แถวที่ 2: Gate Scanner (4 ฝั่ง) ──
+                st.markdown('<div class="gem-label" style="font-size:0.65rem;">◈ GATE SCANNER</div>',
+                           unsafe_allow_html=True)
+                sides_info = [
+                    ("AH Home", p.get('ah_home_win_rate'), p.get('ah_home_gates_passed'), p.get('ah_home_odds')),
+                    ("AH Away", p.get('ah_away_win_rate'), p.get('ah_away_gates_passed'), p.get('ah_away_odds')),
+                    ("OU Over", p.get('ou_over_win_rate'), p.get('ou_over_gates_passed'), p.get('ou_over_odds')),
+                    ("OU Under", p.get('ou_under_win_rate'), p.get('ou_under_gates_passed'), p.get('ou_under_odds')),
+                ]
+                g1, g2, g3, g4 = st.columns(4)
+                for col, (sname, wr, gp, odds) in zip([g1, g2, g3, g4], sides_info):
+                    wr_val = (wr or 0) * 100
+                    gp_val = int(gp) if pd.notna(gp) else 0
+                    is_rec = sname == side
+                    c = "#00ff88" if (gp_val >= 4 and wr_val >= 55) else "#4a7a60"
+                    rec_tag = " ⭐" if is_rec else ""
+                    col.markdown(
+                        f'<div style="border:1px solid {c};border-radius:6px;padding:6px 8px;'
+                        f'background:#060c10;text-align:center;">'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.65rem;color:{c};">'
+                        f'{sname}{rec_tag}</div>'
+                        f'<div style="font-size:1rem;font-weight:700;color:{c};">{wr_val:.0f}%</div>'
+                        f'<div style="font-size:0.6rem;color:#4a7a60;">{gp_val}/4 gates</div>'
+                        f'<div style="font-size:0.65rem;color:#c8e6d4;">@ {odds:.2f}</div>'
+                        f'</div>', unsafe_allow_html=True
+                    )
+
+                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+
+                # ── แถวที่ 3: Total Goals + Stats ──
+                tg1, tg2 = st.columns(2)
+                tg1.metric("Market Total Goals Line", f"{p.get('market_total', 0):.2f}")
+                tg2.metric("Stat Total Goals", f"{p.get('stat_total', 0):.2f}",
+                          delta=f"{(p.get('divergence_goals') or 0):+.2f}")
+
+                if pd.notna(p.get('home_w')):
+                    st.markdown('<div class="gem-label" style="font-size:0.65rem;">◈ STATS (5 นัดล่าสุด)</div>',
+                               unsafe_allow_html=True)
+                    s1, s2 = st.columns(2)
+                    with s1:
+                        hw = int(p.get('home_w') or 0); hd = int(p.get('home_d') or 0)
+                        hl = int(p.get('home_l') or 0)
+                        hgf = p.get('home_gf') or 0; hga = p.get('home_ga') or 0
+                        st.markdown(
+                            f'<div style="background:#0d1e2e;border-left:3px solid #00ff88;'
+                            f'padding:8px 10px;border-radius:0 4px 4px 0;">'
+                            f'<div style="font-size:0.7rem;color:#00ff88;">🏠 HOME</div>'
+                            f'<div style="font-size:0.78rem;color:#c8e6d4;">'
+                            f'WR: <b>{hw/5*100:.0f}%</b> ({hw}W/{hd}D/{hl}L)<br>'
+                            f'Goals: {hgf/5:.1f} scored / {hga/5:.1f} conceded<br>'
+                            f'Rank: #{p.get("home_rank") or "-"}</div></div>',
+                            unsafe_allow_html=True
+                        )
+                    with s2:
+                        aw = int(p.get('away_w') or 0); ad = int(p.get('away_d') or 0)
+                        al = int(p.get('away_l') or 0)
+                        agf = p.get('away_gf') or 0; aga = p.get('away_ga') or 0
+                        st.markdown(
+                            f'<div style="background:#0d1e2e;border-left:3px solid #ff8c00;'
+                            f'padding:8px 10px;border-radius:0 4px 4px 0;">'
+                            f'<div style="font-size:0.7rem;color:#ff8c00;">✈️ AWAY</div>'
+                            f'<div style="font-size:0.78rem;color:#c8e6d4;">'
+                            f'WR: <b>{aw/5*100:.0f}%</b> ({aw}W/{ad}D/{al}L)<br>'
+                            f'Goals: {agf/5:.1f} scored / {aga/5:.1f} conceded<br>'
+                            f'Rank: #{p.get("away_rank") or "-"}</div></div>',
+                            unsafe_allow_html=True
+                        )
+
+                # ── Math internals (collapsible) ──
+                if pd.notna(p.get('math_lambda_home')):
+                    with st.expander("🔬 Math Engine Details", expanded=False):
+                        lh_v = p.get('math_lambda_home', 0) or 0
+                        la_v = p.get('math_lambda_away', 0) or 0
+                        conv = p.get('auto_fit_converged')
+                        loss = p.get('auto_fit_loss')
+                        loss_str = f"{loss:.5f}" if pd.notna(loss) else "N/A"
+                        slh = p.get("stat_lambda_home") or 0
+                        sla = p.get("stat_lambda_away") or 0
+                        st.markdown(
+                            f'<div style="font-family:\'Share Tech Mono\';font-size:0.72rem;color:#c8e6d4;'
+                            f'background:#0d1e2e;padding:8px 10px;border-radius:4px;">'
+                            f'λ_home={lh_v:.3f} · λ_away={la_v:.3f}<br>'
+                            f'Auto-Fit: {"✅ CONVERGED" if conv else "⚠️ DIVERGED"} '
+                            f'(loss={loss_str})<br>'
+                            f'Stat λ_h={slh:.2f} · '
+                            f'Stat λ_a={sla:.2f}</div>',
+                            unsafe_allow_html=True
+                        )
+
+                # ── Settle section (pending only) ──
+                if mode == 'pending':
+                    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+                    st.markdown('<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#ffd600;">'
+                               '📝 กรอกผลการแข่งขัน</div>', unsafe_allow_html=True)
+                    rc1, rc2, rc3 = st.columns([2, 2, 3])
+                    home_goals = rc1.number_input("ประตู Home", 0, 20, key=f"hg_{rec_id}")
+                    away_goals = rc2.number_input("ประตู Away", 0, 20, key=f"ag_{rec_id}")
+                    with rc3:
+                        st.write("")
+                        st.write("")
+                        if st.button("✅ บันทึกผล", key=f"settle_{rec_id}", use_container_width=True):
+                            if home_goals > away_goals: actual_result = 'home_win'
+                            elif away_goals > home_goals: actual_result = 'away_win'
+                            else: actual_result = 'draw'
+                            actual_total = home_goals + away_goals
+                            wl_w = compute_wl_winner(p['market_p_home'], p['stat_p_home'], actual_result)
+                            goals_w = compute_goals_winner(p['market_total'], p['stat_total'], actual_total)
+                            ok = db_update_result(rec_id, {
+                                'actual_result': actual_result,
+                                'actual_score': f"{home_goals}-{away_goals}",
+                                'actual_home_goals': home_goals,
+                                'actual_away_goals': away_goals,
+                                'actual_total_goals': actual_total,
+                                'wl_winner': wl_w, 'goals_winner': goals_w,
+                            })
+                            if ok:
+                                st.cache_data.clear()
+                                st.rerun()
+
+                # ── Result summary (settled only) ──
+                if mode == 'settled':
+                    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+                    res_color = "#00ff88" if header_color == "#00ff88" else "#ff3b5c"
+                    r1, r2, r3, r4 = st.columns(4)
+                    r1.metric("ผล", p.get('actual_score', '-'))
+                    r2.metric("W/L Winner", p.get('wl_winner', '-'))
+                    r3.metric("Goals Winner", p.get('goals_winner', '-'))
+                    pnl = p.get('pnl')
+                    r4.metric("PnL", f"฿{pnl:+,.0f}" if pd.notna(pnl) else "-")
+
+        # ── PENDING SECTION ──
+        st.markdown(
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:#ffd600;'
+            f'border-left:3px solid #ffd600;padding:6px 10px;margin-bottom:8px;">'
+            f'⏳ PENDING — รอกรอกผล ({len(pending_df)} คู่)</div>',
+            unsafe_allow_html=True
+        )
         if len(pending_df) == 0:
             st.caption("ไม่มี prediction ที่รอผล")
-        for _, p in pending_df.iterrows():
-            rec_id = p['id']
-            created = pd.to_datetime(p['created_at']).strftime("%Y-%m-%d %H:%M") if pd.notna(p['created_at']) else "-"
-            with st.expander(f"{created} — {p['match_name']} ({p['league_tier']})"):
-                st.write(f"Market P(Home): {p['market_p_home']*100:.0f}% · "
-                        f"Stat P(Home): {p['stat_p_home']*100:.0f}% · "
-                        f"Divergence: {p['divergence_wl']*100:+.0f}%")
-                st.write(f"Market Total: {p['market_total']} · Stat Total: {p['stat_total']:.2f}")
-                st.write(f"Gates passed: {int(p['gates_passed'])}/4 · "
-                        f"Recommended: {p['recommended_side'] or 'No Signal'}")
-
-                rc1, rc2 = st.columns(2)
-                home_goals = rc1.number_input("ประตู Home", 0, 20, key=f"hg_{rec_id}")
-                away_goals = rc2.number_input("ประตู Away", 0, 20, key=f"ag_{rec_id}")
-
-                if st.button("✅ บันทึกผล", key=f"settle_{rec_id}"):
-                    if home_goals > away_goals:
-                        actual_result = 'home_win'
-                    elif away_goals > home_goals:
-                        actual_result = 'away_win'
-                    else:
-                        actual_result = 'draw'
-                    actual_total = home_goals + away_goals
-
-                    wl_winner = compute_wl_winner(p['market_p_home'], p['stat_p_home'], actual_result)
-                    goals_winner = compute_goals_winner(p['market_total'], p['stat_total'], actual_total)
-
-                    ok = db_update_result(rec_id, {
-                        'actual_result': actual_result,
-                        'actual_score': f"{home_goals}-{away_goals}",
-                        'actual_home_goals': home_goals,
-                        'actual_away_goals': away_goals,
-                        'actual_total_goals': actual_total,
-                        'wl_winner': wl_winner,
-                        'goals_winner': goals_winner,
-                    })
-                    if ok:
-                        st.success("✅ บันทึกผลแล้ว")
-                        st.rerun()
+        else:
+            for _, p in pending_df.iterrows():
+                render_prediction_card(p.to_dict(), mode='pending')
 
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        st.markdown(f'<div class="gem-label">◈ SETTLED ({len(settled_df_raw)})</div>', unsafe_allow_html=True)
-        if len(settled_df_raw) > 0:
-            display_df = pd.DataFrame({
-                'Time': pd.to_datetime(settled_df_raw['created_at']).dt.strftime("%Y-%m-%d %H:%M"),
-                'Match': settled_df_raw['match_name'],
-                'Tier': settled_df_raw['league_tier'],
-                'Δ WL%': settled_df_raw['divergence_wl'].apply(lambda x: f"{x*100:+.0f}" if pd.notna(x) else "-"),
-                'Score': settled_df_raw['actual_score'],
-                'WL Winner': settled_df_raw['wl_winner'],
-                'Goals Winner': settled_df_raw['goals_winner'],
-            })
-            st.dataframe(display_df, use_container_width=True, hide_index=True)
-        else:
+
+        # ── SETTLED SECTION ──
+        st.markdown(
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:#00ff88;'
+            f'border-left:3px solid #00ff88;padding:6px 10px;margin-bottom:8px;">'
+            f'✅ SETTLED — มีผลแล้ว ({len(settled_df_raw)} คู่)</div>',
+            unsafe_allow_html=True
+        )
+        if len(settled_df_raw) == 0:
             st.caption("ยังไม่มี prediction ที่ settle แล้ว")
+        else:
+            for _, p in settled_df_raw.iterrows():
+                render_prediction_card(p.to_dict(), mode='settled')
 
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
         if st.button("🗑️ ล้าง Predictions Log ทั้งหมด (ลบจากฐานข้อมูลถาวร!)"):
@@ -1579,7 +1765,7 @@ with tab_log:
             if cc1.button("✅ ยืนยันลบทั้งหมด", type="primary"):
                 if db_delete_all():
                     st.session_state['_confirm_delete_all'] = False
-                    st.success("ลบข้อมูลทั้งหมดแล้ว")
+                    st.cache_data.clear()
                     st.rerun()
             if cc2.button("❌ ยกเลิก"):
                 st.session_state['_confirm_delete_all'] = False
