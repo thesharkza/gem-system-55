@@ -1735,6 +1735,78 @@ with tab_log:
                     unsafe_allow_html=True
                 )
 
+                # ── 🎯 RECOMMENDATION PANEL — ฝั่งที่แนะนำ + เงินลง + ผลแพ้ชนะ ──
+                rec_side = side if side != 'No Signal' else None
+                bet_amt = nz(p.get('recommended_bet_size'))
+                div_label_full = ("🚨 EXTREME" if abs(div) >= 0.40
+                                  else ("⚠️ MODERATE" if abs(div) >= 0.15 else "✅ LOW"))
+                stat_favors = "Home" if div > 0 else "Away"
+
+                if rec_side:
+                    odds_map_card = {
+                        'AH Home': p.get('ah_home_odds'), 'AH Away': p.get('ah_away_odds'),
+                        'OU Over': p.get('ou_over_odds'), 'OU Under': p.get('ou_under_odds'),
+                    }
+                    rec_odds = nz(odds_map_card.get(rec_side))
+                    rec_line = ""
+                    if rec_side in ('AH Home', 'AH Away'):
+                        rec_line = f"(line {nz(p.get('ah_line')):+.2f})"
+                    elif rec_side in ('OU Over', 'OU Under'):
+                        rec_line = f"(line {nz(p.get('ou_line')):.2f})"
+                    rec_html = (
+                        f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;color:#00ff88;">'
+                        f'💰 แนะนำลง: {rec_side} {rec_line}</div>'
+                        f'<div style="font-size:0.8rem;color:#c8e6d4;margin-top:3px;">'
+                        f'เงินเดิมพัน: <b>฿{bet_amt:,.0f}</b> @ odds {rec_odds:.2f}</div>'
+                    )
+                else:
+                    rec_html = (
+                        f'<div style="font-family:\'Exo 2\';font-weight:700;font-size:0.95rem;color:#ff8c00;">'
+                        f'🔴 NO SIGNAL — ไม่แนะนำลงบิลนี้</div>'
+                    )
+
+                # ผลแพ้ชนะ (ถ้า settled)
+                result_html = ""
+                if mode == 'settled':
+                    pnl_card = p.get('pnl')
+                    if rec_side:
+                        wf_c, lf_c = settle_ah_ou(rec_side, p.get('ah_line'), p.get('ou_line'),
+                                                  p.get('actual_home_goals'), p.get('actual_away_goals'))
+                        if wf_c > lf_c:
+                            outcome_txt = "✅ ชนะเต็ม" if wf_c == 1.0 else "🟢 ชนะครึ่ง"
+                            oc_color = "#00ff88"
+                        elif lf_c > wf_c:
+                            outcome_txt = "❌ แพ้เต็ม" if lf_c == 1.0 else "🔴 แพ้ครึ่ง"
+                            oc_color = "#ff3b5c"
+                        else:
+                            outcome_txt = "➖ คืนทุน (Push)"
+                            oc_color = "#4a7a60"
+                    else:
+                        outcome_txt = "— (ไม่ได้ลงบิล)"
+                        oc_color = "#4a7a60"
+                    pnl_txt = f"฿{pnl_card:+,.0f}" if pd.notna(pnl_card) else "-"
+                    result_html = (
+                        f'<div style="border-top:1px solid #1a3a2a;margin-top:6px;padding-top:6px;">'
+                        f'<span style="font-family:\'Share Tech Mono\';font-size:0.82rem;color:{oc_color};">'
+                        f'ผลบิล: {outcome_txt}</span> '
+                        f'<span style="font-family:\'Share Tech Mono\';font-size:0.82rem;color:{oc_color};'
+                        f'float:right;">PnL: <b>{pnl_txt}</b></span></div>'
+                    )
+
+                st.markdown(
+                    f'<div style="background:#060c10;border:1px solid #1a3a2a;border-radius:8px;'
+                    f'padding:10px 14px;margin-bottom:10px;">'
+                    f'{rec_html}'
+                    f'<div style="border-top:1px solid #1a3a2a;margin-top:6px;padding-top:6px;'
+                    f'font-family:\'Share Tech Mono\';font-size:0.75rem;color:{div_color};">'
+                    f'STAT-DIVERGENCE: {div_label_full} · Δ{div*100:+.0f}% '
+                    f'<span style="color:#4a7a60;">(Stat เชียร์ {stat_favors} '
+                    f'มากกว่าตลาด)</span></div>'
+                    f'{result_html}'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
                 # ── แถวที่ 1: Probabilities ──
                 ca, cb, cc_col = st.columns(3)
                 ca.metric("Market P(Home)", f"{nz(p.get('market_p_home'))*100:.0f}%")
@@ -1742,16 +1814,6 @@ with tab_log:
                          delta=f"{div*100:+.0f}%",
                          delta_color="off")
                 cc_col.metric("Market P(Away)", f"{nz(p.get('market_p_away'))*100:.0f}%")
-
-                # ── Gate 5 Divergence badge ──
-                div_label = "🚨 EXTREME" if abs(div) >= 0.40 else ("⚠️ MODERATE" if abs(div) >= 0.15 else "✅ LOW")
-                st.markdown(
-                    f'<div style="border-left:3px solid {div_color};padding:6px 10px;'
-                    f'background:#0d1e2e;border-radius:0 4px 4px 0;margin:4px 0;">'
-                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.72rem;color:{div_color};">'
-                    f'Gate 5 Divergence: {div_label} (Δ{div*100:+.0f}%)</span>'
-                    f'</div>', unsafe_allow_html=True
-                )
 
                 st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
 
@@ -1875,16 +1937,22 @@ with tab_log:
                                 st.cache_data.clear()
                                 st.rerun()
 
-                # ── Result summary (settled only) ──
+                # ── Stat-vs-Market analysis (settled only) ──
                 if mode == 'settled':
                     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-                    res_color = "#00ff88" if header_color == "#00ff88" else "#ff3b5c"
+                    st.markdown('<div class="gem-label" style="font-size:0.65rem;">'
+                               '◈ STAT vs MARKET — ใครทำนายแม่นกว่า</div>',
+                               unsafe_allow_html=True)
                     r1, r2, r3, r4 = st.columns(4)
-                    r1.metric("ผล", p.get('actual_score', '-'))
-                    r2.metric("W/L Winner", p.get('wl_winner', '-'))
-                    r3.metric("Goals Winner", p.get('goals_winner', '-'))
+                    r1.metric("สกอร์จริง", p.get('actual_score', '-'))
+                    wl_w = p.get('wl_winner', '-')
+                    gl_w = p.get('goals_winner', '-')
+                    r2.metric("W/L ทายแม่น", "Market" if wl_w=='market' else ("Stat" if wl_w=='stat' else "เสมอ"),
+                             help="ใครทำนายผลแพ้ชนะ (1X2) ใกล้ความจริงกว่า")
+                    r3.metric("Goals ทายแม่น", "Market" if gl_w=='market' else ("Stat" if gl_w=='stat' else "เสมอ"),
+                             help="ใครทำนายจำนวนประตูรวมใกล้กว่า")
                     pnl = p.get('pnl')
-                    r4.metric("PnL", f"฿{pnl:+,.0f}" if pd.notna(pnl) else "-")
+                    r4.metric("PnL บิลนี้", f"฿{pnl:+,.0f}" if pd.notna(pnl) else "-")
 
         # ── PENDING SECTION ──
         st.markdown(
