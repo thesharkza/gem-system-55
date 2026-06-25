@@ -130,6 +130,18 @@ def db_delete_all():
         st.error(f"⚠️ ลบข้อมูลไม่สำเร็จ: {e}")
         return False
 
+
+def db_delete_one(record_id):
+    """ลบ prediction รายตัวตาม id"""
+    if not supabase:
+        return False
+    try:
+        supabase.table(DB_TABLE).delete().eq("id", record_id).execute()
+        return True
+    except Exception as e:
+        st.error(f"⚠️ ลบ record ไม่สำเร็จ: {e}")
+        return False
+
 # ──────────────────────────────────────────────────────────────────────
 # SESSION STATE INIT
 # ──────────────────────────────────────────────────────────────────────
@@ -1954,6 +1966,26 @@ with tab_log:
                     pnl = p.get('pnl')
                     r4.metric("PnL บิลนี้", f"฿{pnl:+,.0f}" if pd.notna(pnl) else "-")
 
+                # ── ปุ่มลบ log รายตัว (ทุก card) ──
+                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+                del_key = f"del_{rec_id}"
+                confirm_key = f"confirm_del_{rec_id}"
+                if not st.session_state.get(confirm_key):
+                    if st.button("🗑️ ยกเลิก/ลบ Log นี้", key=del_key, use_container_width=True):
+                        st.session_state[confirm_key] = True
+                        st.rerun()
+                else:
+                    st.warning("⚠️ ยืนยันลบ log นี้ถาวร?")
+                    dc1, dc2 = st.columns(2)
+                    if dc1.button("✅ ลบเลย", key=f"{del_key}_yes", use_container_width=True, type="primary"):
+                        if db_delete_one(rec_id):
+                            st.session_state[confirm_key] = False
+                            st.cache_data.clear()
+                            st.rerun()
+                    if dc2.button("❌ ไม่ลบ", key=f"{del_key}_no", use_container_width=True):
+                        st.session_state[confirm_key] = False
+                        st.rerun()
+
         # ── PENDING SECTION ──
         st.markdown(
             f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:#ffd600;'
@@ -2011,213 +2043,227 @@ def calc_ci_95(p_hat, n):
 
 with tab_backtest:
     st.markdown('<div class="gem-label">◈ 🧪 HYPOTHESIS LAB</div>', unsafe_allow_html=True)
-    st.caption("ⓘ ทดสอบสมมุติฐานจาก Predictions Log ที่ settle แล้ว — ต้องการอย่างน้อย "
-              "10-15 เคส settled ถึงจะเริ่มมีความหมายทางสถิติ")
+    st.caption("ทดสอบสมมุติฐาน Stat-vs-Market จากข้อมูลจริงใน Supabase (settle แล้ว)")
 
     log_df_bt = db_load_predictions()
     log = log_df_bt.to_dict('records') if not log_df_bt.empty else []
     settled = [p for p in log if p.get('actual_result') is not None]
 
     if len(settled) < 3:
-        st.warning(f"⚠️ มีแค่ {len(settled)} เคสที่ settle แล้ว — ต้องการอย่างน้อย 3 เคสเพื่อแสดงผลเบื้องต้น "
-                  f"(แนะนำ 15-20+ เพื่อความน่าเชื่อถือทางสถิติ)")
+        st.markdown(
+            f'<div style="background:#0d1e2e;border-left:3px solid #ffd600;padding:16px 20px;'
+            f'border-radius:0 8px 8px 0;">'
+            f'<div style="font-family:\'Exo 2\';font-size:1rem;color:#ffd600;font-weight:700;">'
+            f'⏳ ข้อมูลยังไม่พอ</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;margin-top:6px;">'
+            f'มี {len(settled)} เคสที่ settle แล้ว — ต้องการอย่างน้อย 15-20 เคสเพื่อเริ่มมีความหมายทางสถิติ'
+            f'</div></div>',
+            unsafe_allow_html=True
+        )
     else:
-        bt_module = st.radio(
-            "เลือก Module",
-            ["1️⃣ Gate Sensitivity", "2️⃣ Stat-Divergence Backtest",
-             "3️⃣ League Tier Backtest", "4️⃣ Combined Strategy Simulator"],
-            horizontal=False
+        for p in settled:
+            p['_abs_div'] = abs(p.get('divergence_wl') or 0)
+
+        # ── helper ──
+        def _ci95(k, n):
+            if n == 0: return (0, 0)
+            ph = k/n; se = (max(ph*(1-ph), 1e-9)/n)**0.5
+            return (max(0, ph-1.96*se), min(1, ph+1.96*se))
+
+        def _settle(side, ah, ou, hg, ag):
+            hg = hg if pd.notna(hg) else 0; ag = ag if pd.notna(ag) else 0
+            if side in ('AH Home','AH Away'):
+                if pd.isna(ah): return (0.0,0.0)
+                adj = ((hg-ag)-ah) if side=='AH Home' else ((ag-hg)+ah)
+            elif side in ('OU Over','OU Under'):
+                if pd.isna(ou): return (0.0,0.0)
+                t=hg+ag; adj=(t-ou) if side=='OU Over' else (ou-t)
+            else: return (0.0,0.0)
+            adj = round(adj*4)/4
+            if adj>=0.5: return (1.0,0.0)
+            if adj==0.25: return (0.5,0.0)
+            if adj==0: return (0.0,0.0)
+            if adj==-0.25: return (0.0,0.5)
+            return (0.0,1.0)
+
+        n_settled = len(settled)
+        n_pending = len([p for p in log if p.get('actual_result') is None])
+
+        # ═══════════ OVERVIEW STRIP ═══════════
+        st.markdown(
+            f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">'
+            f'<div style="flex:1;min-width:100px;background:#0d1e2e;border-radius:8px;padding:12px 14px;text-align:center;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:1.6rem;color:#00ff88;">{n_settled}</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.7rem;color:#7a9a88;">SETTLED</div></div>'
+            f'<div style="flex:1;min-width:100px;background:#0d1e2e;border-radius:8px;padding:12px 14px;text-align:center;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:1.6rem;color:#ffd600;">{n_pending}</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.7rem;color:#7a9a88;">PENDING</div></div>'
+            f'<div style="flex:1;min-width:100px;background:#0d1e2e;border-radius:8px;padding:12px 14px;text-align:center;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:1.6rem;color:#00b4ff;">{n_settled+n_pending}</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.7rem;color:#7a9a88;">TOTAL</div></div>'
+            f'</div>',
+            unsafe_allow_html=True
         )
 
-        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        # ═══════════ SECTION 1: DIVERGENCE BUCKETS ═══════════
+        st.markdown('<div class="gem-label">◈ STAT-DIVERGENCE — ใครทำนายแม่นกว่า</div>',
+                   unsafe_allow_html=True)
+        st.caption("เมื่อ Stat ต่างจากตลาดมากขึ้น ใครทำนายผลแพ้ชนะแม่นกว่ากัน")
 
-        # ══════════════════════════════════════════════════════════════
-        # MODULE 1: Gate Sensitivity — ลอง threshold ต่างๆ ของ Gate 2
-        # ══════════════════════════════════════════════════════════════
-        if bt_module.startswith("1"):
-            st.markdown('<div class="gem-label">◈ GATE 2 SENSITIVITY (Win Rate Threshold)</div>',
-                       unsafe_allow_html=True)
-            st.caption("ดูว่าถ้าปรับ threshold ของ Gate 2 (ปัจจุบัน ≥55%) เป็นค่าอื่น "
-                      "WR/sample size จะเปลี่ยนยังไง — ใช้ stat_p_home เป็น proxy ของ win rate ที่ทำนาย")
+        buckets = [(0, 0.15, "LOW", "<15%", "#4a7a60"),
+                   (0.15, 0.40, "MODERATE", "15-40%", "#ff8c00"),
+                   (0.40, 1.01, "EXTREME", "≥40%", "#ff3b5c")]
 
-            thresholds = [0.50, 0.53, 0.55, 0.58, 0.60, 0.62, 0.65]
-            rows = []
-            for thr in thresholds:
-                # กรองเคสที่ recommended_side มีและ market สนับสนุน threshold นี้
-                matching = [p for p in settled if p.get('recommended_side') is not None]
-                # ใช้ wl_winner เป็นตัวบอกว่า "ฝั่งที่ระบบแนะนำ" ถูกหรือไม่
-                # (simplification: นับจาก gates_passed >= บางระดับเป็น proxy)
-                n = len(matching)
-                if n == 0:
-                    continue
-                correct = sum(1 for p in matching if p['wl_winner'] in ('market', 'both_correct'))
-                wr = correct / n if n > 0 else 0
-                ci_lo, ci_hi = calc_ci_95(wr, n)
-                rows.append({
-                    'Threshold': f"{thr*100:.0f}%", 'N': n,
-                    'Market-aligned WR': f"{wr*100:.1f}%",
-                    '95% CI': f"{ci_lo*100:.0f}-{ci_hi*100:.0f}%"
-                })
-            if rows:
-                st.dataframe(pd.DataFrame(rows).drop_duplicates(), use_container_width=True, hide_index=True)
-            st.info("💡 หมายเหตุ: Module นี้ต้องการข้อมูล bet_outcome จริง (ชนะ/แพ้บิล) "
-                   "เพื่อความแม่นยำเต็มรูปแบบ — ตอนนี้ใช้ wl_winner เป็น proxy เบื้องต้น")
-
-        # ══════════════════════════════════════════════════════════════
-        # MODULE 2: Stat-Divergence Backtest — กลุ่มตาม divergence bucket
-        # ══════════════════════════════════════════════════════════════
-        elif bt_module.startswith("2"):
-            st.markdown('<div class="gem-label">◈ STAT-DIVERGENCE BUCKETS</div>', unsafe_allow_html=True)
-            st.caption("ทดสอบสมมุติฐาน: divergence ใหญ่ขึ้น -> ใครชนะบ่อยกว่า (Market vs Stat)?")
-
-            buckets = [(0, 0.15, "Low (0-15%)"), (0.15, 0.40, "Moderate (15-40%)"),
-                      (0.40, 1.0, "Extreme (≥40%)")]
-
-            bucket_rows = []
-            for lo, hi, label in buckets:
-                matching = [p for p in settled if lo <= abs(p.get('divergence_wl', 0)) < hi]
-                n = len(matching)
-                if n == 0:
-                    bucket_rows.append({'Bucket': label, 'N': 0, 'Market Win': '-',
-                                       'Stat Win': '-', 'Neutral': '-'})
-                    continue
-                market_wins = sum(1 for p in matching if p['wl_winner'] == 'market')
-                stat_wins = sum(1 for p in matching if p['wl_winner'] == 'stat')
-                neutral = n - market_wins - stat_wins
-                bucket_rows.append({
-                    'Bucket': label, 'N': n,
-                    'Market Win': f"{market_wins} ({market_wins/n*100:.0f}%)",
-                    'Stat Win': f"{stat_wins} ({stat_wins/n*100:.0f}%)",
-                    'Neutral': f"{neutral} ({neutral/n*100:.0f}%)",
-                })
-            st.dataframe(pd.DataFrame(bucket_rows), use_container_width=True, hide_index=True)
-
-            # Chart
-            chart_data = [(r['Bucket'], int(r['Market Win'].split(' ')[0]) if r['N'] != 0 else 0,
-                          int(r['Stat Win'].split(' ')[0]) if r['N'] != 0 else 0)
-                          for r in bucket_rows]
-            if any(m+s > 0 for _, m, s in chart_data):
-                fig = go.Figure()
-                fig.add_trace(go.Bar(name='Market Wins', x=[c[0] for c in chart_data],
-                                     y=[c[1] for c in chart_data], marker_color='#00b4ff'))
-                fig.add_trace(go.Bar(name='Stat Wins', x=[c[0] for c in chart_data],
-                                     y=[c[2] for c in chart_data], marker_color='#9b59b6'))
-                fig.update_layout(barmode='group', template='plotly_dark',
-                                  paper_bgcolor='#0d1e2e', plot_bgcolor='#0d1e2e', height=300)
-                st.plotly_chart(fig, use_container_width=True)
+        for lo, hi, name, rng, color in buckets:
+            sub = [p for p in settled if lo <= p['_abs_div'] < hi]
+            n = len(sub)
+            mkt = sum(1 for p in sub if p.get('wl_winner')=='market')
+            stat = sum(1 for p in sub if p.get('wl_winner')=='stat')
+            neu = sum(1 for p in sub if p.get('wl_winner')=='neutral')
+            dec = mkt + stat
+            if n == 0:
+                continue
+            mkt_pct = mkt/dec*100 if dec>0 else 0
+            stat_pct = stat/dec*100 if dec>0 else 0
+            # bar แสดงสัดส่วน market vs stat
+            winner_txt = ""
+            if dec > 0:
+                lo_c, hi_c = _ci95(max(mkt,stat), dec)
+                w_name = "Market" if mkt>=stat else "Stat"
+                sig = "✅ ชัดเจน" if (lo_c > 0.5) else "⚠️ ยังไม่ชัด"
+                winner_txt = f"{w_name} แม่นกว่า {max(mkt_pct,stat_pct):.0f}% · {sig}"
 
             st.markdown(
-                '<div style="background:#0d1e2e;border-left:3px solid #00ff88;'
-                'padding:10px 14px;border-radius:0 4px 4px 0;margin-top:10px;">'
-                '<span style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
-                '📊 <b>หลักฐานจากข้อมูลจริง 60 เคส (settled):</b><br>'
-                '• Low (&lt;15%): เล่นตาม Stat ใน AH ได้ ~57% — Stat เชื่อถือได้<br>'
-                '• <b>Moderate (15-40%): Stat มักพลาด — ตลาดถูก ~64%</b> '
-                '(เล่นตาม Stat เหลือ 36%) สัญญาณแข็งสุด แม้ p=0.13<br>'
-                '• Extreme (≥40%): n=4 น้อยเกินสรุป (เดิมคิดว่าตลาดถูก แต่ข้อมูลใหม่ 50/50)<br>'
-                '→ Gate 5 ตอนนี้ปรับ bet/skip ตามโซนเหล่านี้ (เลือกโหมดที่ Sidebar)</span></div>',
+                f'<div style="background:#0d1e2e;border-radius:10px;padding:14px 16px;margin-bottom:10px;'
+                f'border-left:3px solid {color};">'
+                f'<div style="display:flex;justify-content:space-between;margin-bottom:8px;">'
+                f'<span style="font-family:\'Exo 2\';font-weight:700;color:{color};font-size:0.9rem;">'
+                f'{name} <span style="color:#5a7a68;font-size:0.75rem;">({rng})</span></span>'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:#7a9a88;">n={n}</span>'
+                f'</div>'
+                # สัดส่วน bar
+                f'<div style="display:flex;height:26px;border-radius:5px;overflow:hidden;background:#060c10;">'
+                f'<div style="width:{mkt_pct}%;background:linear-gradient(90deg,#0088cc,#00b4ff);'
+                f'display:flex;align-items:center;justify-content:center;font-family:\'Share Tech Mono\';'
+                f'font-size:0.72rem;color:#fff;">{f"Mkt {mkt}" if mkt_pct>15 else ""}</div>'
+                f'<div style="width:{stat_pct}%;background:linear-gradient(90deg,#7d3c98,#9b59b6);'
+                f'display:flex;align-items:center;justify-content:center;font-family:\'Share Tech Mono\';'
+                f'font-size:0.72rem;color:#fff;">{f"Stat {stat}" if stat_pct>15 else ""}</div>'
+                f'</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#c8e6d4;margin-top:6px;">'
+                f'{winner_txt} · เสมอ {neu} เคส</div>'
+                f'</div>',
                 unsafe_allow_html=True
             )
 
-        # ══════════════════════════════════════════════════════════════
-        # MODULE 3: League Tier Backtest — แยก major/niche/women/cup
-        # ══════════════════════════════════════════════════════════════
-        elif bt_module.startswith("3"):
-            st.markdown('<div class="gem-label">◈ LEAGUE TIER BACKTEST</div>', unsafe_allow_html=True)
-            st.caption("ทดสอบสมมุติฐาน: ตลาด liquidity ต่ำ (women's/cup) Stat มี edge ใน Total Goals ไหม?")
+        # ═══════════ SECTION 2: STRATEGY COMPARISON ═══════════
+        st.markdown('<div class="gem-label" style="margin-top:18px;">◈ เทียบกลยุทธ์ Gate 5 (AH จริง)</div>',
+                   unsafe_allow_html=True)
+        st.caption("จำลองเล่น AH ตามแต่ละกลยุทธ์ บนข้อมูลจริง (odds 1.90, flat 100/บิล)")
 
-            tiers = ['major', 'niche', 'women', 'cup_no_rank']
-            tier_rows = []
-            for tier in tiers:
-                matching = [p for p in settled if p.get('league_tier') == tier
-                           and p.get('goals_winner') is not None]
-                n = len(matching)
-                if n == 0:
-                    tier_rows.append({'Tier': tier, 'N': 0, 'Stat Win (Goals)': '-',
-                                     'Market Win (Goals)': '-'})
-                    continue
-                stat_wins = sum(1 for p in matching if p['goals_winner'] == 'stat')
-                market_wins = sum(1 for p in matching if p['goals_winner'] == 'market')
-                tier_rows.append({
-                    'Tier': tier, 'N': n,
-                    'Stat Win (Goals)': f"{stat_wins} ({stat_wins/n*100:.0f}%)",
-                    'Market Win (Goals)': f"{market_wins} ({market_wins/n*100:.0f}%)",
-                })
-            st.dataframe(pd.DataFrame(tier_rows), use_container_width=True, hide_index=True)
+        pool = [p for p in settled if pd.notna(p.get('ah_line'))]
+        odds_a = 1.90
 
+        def run_strat(mode):
+            pnl=inv=0.0; bets=w=l=0
+            for p in pool:
+                div = p.get('divergence_wl') or 0; ad = abs(div); sh = div>0
+                if mode=='skip' and 0.15<=ad<0.40: continue
+                if mode=='low' and ad>=0.15: continue
+                side_home = (not sh) if (mode=='flip' and 0.15<=ad<0.40) else sh
+                side = 'AH Home' if side_home else 'AH Away'
+                wf,lf = _settle(side, p.get('ah_line'), p.get('ou_line'),
+                               p.get('actual_home_goals'), p.get('actual_away_goals'))
+                inv+=100; bets+=1; pnl += 100*wf*(odds_a-1) - 100*lf
+                if wf>lf: w+=1
+                elif lf>wf: l+=1
+            roi = pnl/inv*100 if inv>0 else 0
+            return bets, pnl, roi, w, l
+
+        strats = [
+            ('follow', 'A · ตาม Stat ทุกเคส', '#7a9a88'),
+            ('skip', 'B · ข้าม Moderate (SKIP) ⭐', '#00ff88'),
+            ('flip', 'C · พลิกตามตลาด (FLIP)', '#00b4ff'),
+            ('low', 'D · เล่นเฉพาะ Low', '#9b59b6'),
+        ]
+        # หา max abs ROI เพื่อ scale bar
+        results = {code: run_strat(code) for code,_,_ in strats}
+        max_roi = max(abs(r[2]) for r in results.values()) or 1
+
+        for code, label, color in strats:
+            bets, pnl, roi, w, l = results[code]
+            bar_w = abs(roi)/max_roi*50  # ครึ่งความกว้าง (center=50%)
+            roi_color = "#00ff88" if roi>=0 else "#ff3b5c"
+            # bar จาก center
+            if roi >= 0:
+                bar_html = (f'<div style="position:absolute;left:50%;width:{bar_w}%;height:100%;'
+                           f'background:linear-gradient(90deg,{roi_color}66,{roi_color});border-radius:0 4px 4px 0;"></div>')
+            else:
+                bar_html = (f'<div style="position:absolute;right:50%;width:{bar_w}%;height:100%;'
+                           f'background:linear-gradient(90deg,{roi_color},{roi_color}66);border-radius:4px 0 0 4px;"></div>')
             st.markdown(
-                '<div style="background:#0d1e2e;border-left:3px solid #9b59b6;'
-                'padding:10px 14px;border-radius:0 4px 4px 0;margin-top:10px;">'
-                '<span style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
-                '📌 Reference (12 เคสนอกระบบ): Women\'s football Stat Win Goals = 2/2 (100%), '
-                'Men\'s (mixed niche+major) Stat Win Goals = 0/8 (0%). '
-                'Sample เล็กมาก — ต้องการข้อมูลเพิ่มอย่างน้อย 5-8 เคสต่อ tier '
-                'ถึงจะเริ่มเชื่อถือได้</span></div>',
+                f'<div style="background:#0d1e2e;border-radius:8px;padding:10px 14px;margin-bottom:8px;'
+                f'border-left:3px solid {color};">'
+                f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+                f'<span style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;font-weight:600;">{label}</span>'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.9rem;color:{roi_color};font-weight:700;">'
+                f'ROI {roi:+.1f}%</span></div>'
+                f'<div style="position:relative;height:14px;background:#060c10;border-radius:4px;overflow:hidden;">'
+                f'<div style="position:absolute;left:50%;width:1px;height:100%;background:#3a5a48;"></div>'
+                f'{bar_html}</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.7rem;color:#7a9a88;margin-top:4px;">'
+                f'{bets} บิล · ชนะ {w} แพ้ {l} · PnL ฿{pnl:+,.0f}</div>'
+                f'</div>',
                 unsafe_allow_html=True
             )
 
-        # ══════════════════════════════════════════════════════════════
-        # MODULE 4: Combined Strategy Simulator
-        # ══════════════════════════════════════════════════════════════
-        else:
-            st.markdown('<div class="gem-label">◈ COMBINED STRATEGY SIMULATOR</div>', unsafe_allow_html=True)
-            st.caption("เทียบ ROI ของ 4 กลยุทธ์ Gate 5 บนข้อมูลจริง (คำนวณ AH/OU ถูกต้องตามแต้มต่อ)")
+        st.markdown(
+            '<div style="background:#0d1e2e;border-left:3px solid #00ff88;padding:10px 14px;'
+            'border-radius:0 6px 6px 0;margin-top:6px;">'
+            '<span style="font-family:\'Rajdhani\';font-size:0.78rem;color:#c8e6d4;">'
+            '💡 SKIP (⭐ default) เลือกเป็นค่าเริ่มต้นเพราะปลอดภัยสุด — ข้ามเคสที่ Stat สวนตลาด '
+            'ในโซน Moderate ที่พิสูจน์แล้วว่า Stat มักพลาด</span></div>',
+            unsafe_allow_html=True
+        )
 
-            # ใช้ทุกเคสที่ settle (ไม่ใช่แค่ที่ผ่าน gate) เพื่อ sample พอ — เล่นตามฝั่ง stat
-            sim_pool = [p for p in settled if pd.notna(p.get('ah_line'))]
-            odds_assume = 1.90
-
-            def run_strategy(mode):
-                pnl=inv=0; bets=0; wins=losses=0
-                for p in sim_pool:
-                    div = p.get('divergence_wl', 0) or 0
-                    ad = abs(div); stat_home = div>0
-                    if mode=='skip_mod' and 0.15<=ad<0.40: continue
-                    if mode=='low_only' and ad>=0.15: continue
-                    if mode=='flip_mod' and 0.15<=ad<0.40:
-                        side_home = not stat_home
-                    else:
-                        side_home = stat_home
-                    side = 'AH Home' if side_home else 'AH Away'
-                    wf, lf = settle_ah_ou(side, p.get('ah_line'), p.get('ou_line'),
-                                          p.get('actual_home_goals'), p.get('actual_away_goals'))
-                    if wf == 0 and lf == 0 and not (pd.notna(p.get('ah_line'))):
-                        continue
-                    inv+=100; bets+=1
-                    pnl += 100*wf*(odds_assume-1) - 100*lf
-                    if wf>lf: wins+=1
-                    elif lf>wf: losses+=1
-                roi = pnl/inv*100 if inv>0 else 0
-                return bets, pnl, roi
-
-            strategies = [
-                ('follow', 'A: ตาม Stat ทุกเคส'),
-                ('skip_mod', 'B: ข้าม Moderate (SKIP)'),
-                ('flip_mod', 'C: พลิก Moderate (FLIP)'),
-                ('low_only', 'D: เล่นเฉพาะ Low'),
-            ]
-            rows=[]
-            for code,name in strategies:
-                b,pnl,roi = run_strategy(code)
-                rows.append({'กลยุทธ์': name, 'บิล': b, 'PnL': f"฿{pnl:+,.0f}",
-                            'ROI': f"{roi:+.1f}%"})
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-            st.caption(f"สมมุติ odds 1.90 ต่อบิล, flat 100/บิล, เล่นตามฝั่งที่ Stat เชียร์ "
-                      f"(n={len(sim_pool)} เคสที่มี ah_line)")
-            st.info("💡 ผลปัจจุบันชี้ว่า Moderate zone คือจุดที่ Stat พลาดหนักสุด — "
-                   "โหมด SKIP/FLIP ช่วยได้ แต่ FLIP ยังเสี่ยง overfit (sample เล็ก)")
+        # ═══════════ SECTION 3: GOALS BY TIER ═══════════
+        st.markdown('<div class="gem-label" style="margin-top:18px;">◈ Total Goals — Stat มี edge ในลีกไหน</div>',
+                   unsafe_allow_html=True)
+        tier_colors = {'women':'#9b59b6','major':'#00b4ff','niche':'#4a7a60','cup_no_rank':'#ff8c00'}
+        any_tier = False
+        for tier in ['women','cup_no_rank','niche','major']:
+            sub = [p for p in settled if p.get('league_tier')==tier and p.get('goals_winner')]
+            n=len(sub)
+            if n==0: continue
+            any_tier=True
+            stat=sum(1 for p in sub if p.get('goals_winner')=='stat')
+            mkt=sum(1 for p in sub if p.get('goals_winner')=='market')
+            dec=stat+mkt
+            stat_pct = stat/dec*100 if dec>0 else 0
+            tc = tier_colors.get(tier,'#4a7a60')
+            edge = "Stat มี edge" if stat_pct>55 else ("ตลาดดีกว่า" if stat_pct<45 else "เสมอตัว")
+            st.markdown(
+                f'<div style="background:#0d1e2e;border-radius:8px;padding:10px 14px;margin-bottom:8px;'
+                f'border-left:3px solid {tc};">'
+                f'<div style="display:flex;justify-content:space-between;">'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.82rem;color:{tc};">{tier}</span>'
+                f'<span style="font-family:\'Rajdhani\';font-size:0.75rem;color:#c8e6d4;">'
+                f'Stat {stat_pct:.0f}% · {edge}</span></div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.7rem;color:#7a9a88;margin-top:3px;">'
+                f'n={n} · Stat ชนะ {stat} / Market ชนะ {mkt}</div></div>',
+                unsafe_allow_html=True
+            )
+        if not any_tier:
+            st.caption("ยังไม่มีข้อมูล goals_winner เพียงพอ")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown(
-        '<div style="font-family:\'Rajdhani\';font-size:0.75rem;color:#4a7a60;">'
-        'ⓘ Backtest Lab อ่านข้อมูลจาก Supabase (ถาวร) — ผลอัปเดตอัตโนมัติเมื่อมีเคส settle เพิ่ม</div>',
+        '<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#4a7a60;">'
+        'ⓘ อ่านจาก Supabase (ถาวร) — อัปเดตอัตโนมัติเมื่อมีเคส settle เพิ่ม</div>',
         unsafe_allow_html=True
     )
 
 
-# ════════════════════════════════════════════════════════════════════════
-# 📊 TAB 4: DASHBOARD — ROI / PnL / Bankroll Tracking
-# ════════════════════════════════════════════════════════════════════════
 with tab_dash:
     st.markdown('<div class="gem-label">◈ BETTING PERFORMANCE</div>', unsafe_allow_html=True)
     st.caption("ⓘ เฉพาะ predictions ที่ผ่าน Gate 1-4 (มี recommended_side) และ settle แล้ว")
@@ -2270,27 +2316,62 @@ with tab_dash:
         wr = (wins / decisive * 100) if decisive > 0 else 0
         roi = (total_pnl / total_invested * 100) if total_invested > 0 else 0
 
-        d1, d2, d3, d4 = st.columns(4)
-        d1.metric("Total Bets", f"{total_bets}", help=f"ชนะ {wins} · แพ้ {losses} · เสมอ(push) {pushes}")
-        d2.metric("Win Rate", f"{wr:.1f}%", help="ไม่นับ push ในตัวหาร")
-        d3.metric("Total PnL", f"฿{total_pnl:+,.0f}")
-        d4.metric("ROI", f"{roi:+.2f}%")
+        # ── HERO STAT CARDS (HTML) ──
+        pnl_color = "#00ff88" if total_pnl >= 0 else "#ff3b5c"
+        roi_color = "#00ff88" if roi >= 0 else "#ff3b5c"
+        wr_color = "#00ff88" if wr >= 53 else ("#ffd600" if wr >= 48 else "#ff3b5c")
 
-        # Phase 1 calibration
-        phase1_bets = [p for p in bet_settled if st.session_state.get('bet_phase', 1) == 1]
-        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="gem-label">◈ PHASE 1 CALIBRATION CHECK</div>', unsafe_allow_html=True)
-        st.write(f"Settled bets so far: {total_bets}/50")
+        def stat_card(label, value, sub, accent):
+            return (
+                f'<div style="flex:1;min-width:140px;background:linear-gradient(135deg,#0d1e2e 0%,#0a1722 100%);'
+                f'border:1px solid {accent}44;border-top:3px solid {accent};border-radius:10px;'
+                f'padding:16px 18px;box-shadow:0 4px 14px rgba(0,0,0,0.3);">'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#7a9a88;'
+                f'text-transform:uppercase;letter-spacing:1px;">{label}</div>'
+                f'<div style="font-family:\'Share Tech Mono\';font-size:1.9rem;font-weight:700;'
+                f'color:{accent};line-height:1.3;margin:4px 0;">{value}</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#5a7a68;">{sub}</div>'
+                f'</div>'
+            )
+
+        st.markdown(
+            '<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px;">'
+            + stat_card("Total PnL", f"฿{total_pnl:+,.0f}",
+                       f"จาก {total_bets} บิล · ลงทุน ฿{total_invested:,.0f}", pnl_color)
+            + stat_card("ROI", f"{roi:+.1f}%",
+                       "ผลตอบแทนต่อเงินลงทุน", roi_color)
+            + stat_card("Win Rate", f"{wr:.0f}%",
+                       f"ชนะ {wins} · แพ้ {losses} · เสมอ {pushes}", wr_color)
+            + '</div>', unsafe_allow_html=True
+        )
+
+        # ── PHASE 1 CALIBRATION (progress bar HTML) ──
+        progress_pct = min(total_bets / 50 * 100, 100)
         if total_bets >= 50:
-            if wr >= 53:
-                st.success(f"✅ Win Rate {wr:.1f}% ≥ 53% — พร้อมเปลี่ยนเป็น Phase 2 (Dynamic sizing) ได้")
-            else:
-                st.warning(f"⚠️ Win Rate {wr:.1f}% < 53% — ควรอยู่ Phase 1 ต่อ และทบทวน Gate thresholds")
+            phase_msg = (f"✅ ครบ 50 บิล! Win Rate {wr:.0f}% — "
+                        + ("พร้อมเข้า Phase 2 (Dynamic sizing)" if wr >= 53
+                           else "WR ต่ำกว่า 53% ควรอยู่ Phase 1 ต่อ"))
+            phase_color = "#00ff88" if wr >= 53 else "#ffd600"
         else:
-            st.info(f"ℹ️ ต้องการอีก {50-total_bets} ไม้ก่อนประเมิน Phase 2")
+            phase_msg = f"เก็บข้อมูล Phase 1 — อีก {50-total_bets} บิลก่อนประเมิน Phase 2"
+            phase_color = "#00b4ff"
+        st.markdown(
+            f'<div style="background:#0d1e2e;border-radius:10px;padding:14px 18px;margin:10px 0;'
+            f'border:1px solid {phase_color}33;">'
+            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+            f'<span style="font-family:\'Rajdhani\';font-size:0.8rem;color:#c8e6d4;font-weight:600;">'
+            f'📊 PHASE 1 CALIBRATION</span>'
+            f'<span style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:{phase_color};">'
+            f'{total_bets}/50</span></div>'
+            f'<div style="background:#060c10;border-radius:6px;height:10px;overflow:hidden;">'
+            f'<div style="width:{progress_pct}%;height:100%;background:linear-gradient(90deg,{phase_color}88,{phase_color});'
+            f'border-radius:6px;"></div></div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#7a9a88;margin-top:8px;">'
+            f'{phase_msg}</div></div>',
+            unsafe_allow_html=True
+        )
 
-        # Equity curve
-        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+        # ── EQUITY CURVE ──
         st.markdown('<div class="gem-label">◈ EQUITY CURVE</div>', unsafe_allow_html=True)
         cum_pnl = []
         running = 0
@@ -2298,62 +2379,91 @@ with tab_dash:
             running += p['_pnl']
             cum_pnl.append(running)
         fig = go.Figure()
-        fig.add_trace(go.Scatter(y=cum_pnl, mode='lines+markers',
-                                 line=dict(color='#00ff88', width=2), marker=dict(size=5)))
-        fig.update_layout(template='plotly_dark', height=300,
-                          paper_bgcolor='#0d1e2e', plot_bgcolor='#0d1e2e',
-                          margin=dict(l=20, r=20, t=20, b=20), yaxis_title="Cumulative PnL (฿)")
+        fig.add_trace(go.Scatter(
+            y=cum_pnl, mode='lines+markers',
+            line=dict(color='#00ff88', width=2.5, shape='spline'),
+            marker=dict(size=6, color='#00ff88', line=dict(width=1, color='#0d1e2e')),
+            fill='tozeroy', fillcolor='rgba(0,255,136,0.08)'
+        ))
+        fig.add_hline(y=0, line_dash="dash", line_color="#4a7a60", line_width=1)
+        fig.update_layout(
+            template='plotly_dark', height=280,
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(13,30,46,0.5)',
+            margin=dict(l=20, r=20, t=10, b=20),
+            yaxis_title="Cumulative PnL (฿)", xaxis_title="ลำดับบิล",
+            font=dict(family="Rajdhani")
+        )
         st.plotly_chart(fig, use_container_width=True)
 
-        # By side breakdown
-        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="gem-label">◈ BY SIDE</div>', unsafe_allow_html=True)
+        # ── BY SIDE (HTML bars) ──
+        st.markdown('<div class="gem-label">◈ ผลตามประเภทเดิมพัน</div>', unsafe_allow_html=True)
         side_groups = {}
         for p in bet_settled:
-            side = p['recommended_side']
-            side_groups.setdefault(side, []).append(p)
-        side_rows = []
-        for side, plist in side_groups.items():
+            side_groups.setdefault(p['recommended_side'], []).append(p)
+        side_html = '<div style="display:flex;flex-direction:column;gap:8px;">'
+        for side, plist in sorted(side_groups.items()):
             n = len(plist)
             pnl = sum(p['_pnl'] for p in plist)
-            inv = sum(p.get('recommended_bet_size', 0) for p in plist)
+            inv = sum(p.get('recommended_bet_size', 0) or 0 for p in plist)
             w = sum(1 for p in plist if p['_pnl'] > 0)
-            side_rows.append({
-                'Side': side, 'Bets': n, 'WR%': f"{w/n*100:.0f}",
-                'PnL': f"฿{pnl:+,.0f}", 'ROI%': f"{pnl/inv*100:+.1f}" if inv > 0 else "-"
-            })
-        st.dataframe(pd.DataFrame(side_rows), use_container_width=True, hide_index=True)
+            wrp = w/n*100 if n>0 else 0
+            roip = pnl/inv*100 if inv>0 else 0
+            bar_color = "#00ff88" if pnl >= 0 else "#ff3b5c"
+            side_html += (
+                f'<div style="background:#0d1e2e;border-radius:8px;padding:10px 14px;'
+                f'border-left:3px solid {bar_color};">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.85rem;color:#c8e6d4;">{side}</span>'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.95rem;color:{bar_color};font-weight:700;">'
+                f'฿{pnl:+,.0f}</span></div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#7a9a88;margin-top:2px;">'
+                f'{n} บิล · WR {wrp:.0f}% · ROI {roip:+.1f}%</div></div>'
+            )
+        side_html += '</div>'
+        st.markdown(side_html, unsafe_allow_html=True)
 
-        # By league tier
-        st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="gem-label">◈ BY LEAGUE TIER</div>', unsafe_allow_html=True)
+        # ── BY TIER (HTML bars) ──
+        st.markdown('<div class="gem-label" style="margin-top:14px;">◈ ผลตามระดับลีก</div>',
+                   unsafe_allow_html=True)
         tier_groups = {}
         for p in bet_settled:
-            tier = p.get('league_tier', 'unknown')
-            tier_groups.setdefault(tier, []).append(p)
-        tier_rows2 = []
-        for tier, plist in tier_groups.items():
+            tier_groups.setdefault(p.get('league_tier', 'unknown'), []).append(p)
+        tier_colors = {'women':'#9b59b6','major':'#00b4ff','niche':'#4a7a60','cup_no_rank':'#ff8c00'}
+        tier_html = '<div style="display:flex;flex-direction:column;gap:8px;">'
+        for tier, plist in sorted(tier_groups.items()):
             n = len(plist)
             pnl = sum(p['_pnl'] for p in plist)
-            inv = sum(p.get('recommended_bet_size', 0) for p in plist)
-            tier_rows2.append({
-                'Tier': tier, 'Bets': n, 'PnL': f"฿{pnl:+,.0f}",
-                'ROI%': f"{pnl/inv*100:+.1f}" if inv > 0 else "-"
-            })
-        st.dataframe(pd.DataFrame(tier_rows2), use_container_width=True, hide_index=True)
+            inv = sum(p.get('recommended_bet_size', 0) or 0 for p in plist)
+            w = sum(1 for p in plist if p['_pnl'] > 0)
+            tc = tier_colors.get(tier, '#4a7a60')
+            pnl_c = "#00ff88" if pnl >= 0 else "#ff3b5c"
+            tier_html += (
+                f'<div style="background:#0d1e2e;border-radius:8px;padding:10px 14px;'
+                f'border-left:3px solid {tc};">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.82rem;color:{tc};">{tier}</span>'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.9rem;color:{pnl_c};font-weight:700;">'
+                f'฿{pnl:+,.0f}</span></div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#7a9a88;margin-top:2px;">'
+                f'{n} บิล · ชนะ {w}/{n} · ROI {pnl/inv*100 if inv>0 else 0:+.1f}%</div></div>'
+            )
+        tier_html += '</div>'
+        st.markdown(tier_html, unsafe_allow_html=True)
 
-        # Full log
+        # Full log (เก็บเป็น expander แบบ minimal)
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
-        with st.expander("📋 Full Bet Log"):
-            full_df = pd.DataFrame([{
-                'Time': pd.to_datetime(p.get('created_at', '')).strftime("%Y-%m-%d %H:%M") if p.get('created_at') else '-',
-                'Match': p.get('match_name', '-'),
-                'Side': p.get('recommended_side', '-'),
-                'Bet': f"฿{p.get('recommended_bet_size', 0) or 0:,.0f}",
-                'Score': p.get('actual_score', '-'),
-                'PnL': f"฿{p.get('_pnl', 0):+,.0f}"
-            } for p in bet_settled])
-            st.dataframe(full_df, use_container_width=True, hide_index=True)
+        with st.expander("📋 ดู Bet Log ทั้งหมด"):
+            for p in bet_settled:
+                t = pd.to_datetime(p.get('created_at','')).strftime("%d/%m %H:%M") if p.get('created_at') else '-'
+                pc = "#00ff88" if p.get('_pnl',0) >= 0 else "#ff3b5c"
+                st.markdown(
+                    f'<div style="display:flex;justify-content:space-between;padding:6px 10px;'
+                    f'border-bottom:1px solid #1a2e3e;font-family:\'Rajdhani\';font-size:0.8rem;">'
+                    f'<span style="color:#c8e6d4;">{t} · {p.get("match_name","-")[:28]} '
+                    f'<span style="color:#5a7a68;">({p.get("recommended_side","-")} · {p.get("actual_score","-")})</span></span>'
+                    f'<span style="color:{pc};font-family:\'Share Tech Mono\';">฿{p.get("_pnl",0):+,.0f}</span></div>',
+                    unsafe_allow_html=True
+                )
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.caption("ℹ️ ข้อมูลทั้งหมดเก็บถาวรใน Supabase — เปิดแอพใหม่ข้อมูลยังอยู่ครบ")
