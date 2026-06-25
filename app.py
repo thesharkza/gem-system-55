@@ -1522,14 +1522,28 @@ with tab_pre:
                 )
                 best = None  # ยกเลิก best bet
             # FLIP mode: พลิกไปฝั่งตรงข้าม (ตามตลาด) ในโซน moderate
+            # ⚠️ ต้องพลิกไปฝั่งที่ผ่าน Gate 1-4 ครบเท่านั้น ไม่งั้น skip
             elif gate5_mode_active == GATE5_MODE_FLIP and in_moderate and best_aligns_stat:
                 flipped = [s for s in sides_data
                           if s['is_home'] != best['is_home']
-                          and s['name'].split()[0] == best['name'].split()[0]]
+                          and s['name'].split()[0] == best['name'].split()[0]
+                          and s['gates']['all_pass']]  # ← ฝั่งตรงข้ามต้องผ่าน gate ครบด้วย
                 if flipped:
                     mode_action_msg = (f"⚡ FLIP: พลิกจาก {best['name']} → {flipped[0]['name']} "
                                       f"(เชื่อตลาดแทน Stat ในโซน Moderate)")
                     best = flipped[0]
+                else:
+                    # ฝั่งตรงข้ามไม่ผ่าน gate → ไม่เล่น (ดีกว่าเล่นฝั่งอ่อน)
+                    st.markdown(
+                        f'<div class="signal-invalid">'
+                        f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.1rem;color:#ff8c00;">'
+                        f'🛡️ GATE 5 FLIP — ข้ามคู่นี้</div>'
+                        f'<div style="font-family:\'Rajdhani\';font-size:0.88rem;color:#c8e6d4;margin-top:8px;">'
+                        f'ควรพลิกจาก {best["name"]} ไปเล่นตามตลาด แต่ฝั่งตรงข้ามไม่ผ่าน Gate 1-4 ครบ '
+                        f'— จึงข้ามเพื่อเลี่ยงการเล่นฝั่งที่อ่อนแอ</div>'
+                        f'</div>', unsafe_allow_html=True
+                    )
+                    best = None
 
         if best is not None:
             conf_label, conf_color, conf_mult = gate5_confidence_adjustment(
