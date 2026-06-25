@@ -1882,7 +1882,76 @@ with tab_log:
 
                 st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
 
-                # ── แถวที่ 3: Total Goals + Stats ──
+                # ── 🏆 BEST BET RANKING — จัดอันดับ 4 ฝั่ง + ฟันธงฝั่งที่ดีที่สุด ──
+                st.markdown('<div class="gem-label" style="font-size:0.65rem;">🏆 ข้อสรุป: ฝั่งไหนน่าลงที่สุด</div>',
+                           unsafe_allow_html=True)
+                # ให้คะแนนแต่ละฝั่ง = (gates_passed * 100) + win_rate% เพื่อจัดอันดับ
+                ranked = []
+                for sname, wr, gp, odds in sides_info:
+                    wr_v = nz(wr) * 100
+                    gp_v = int(nz(gp))
+                    od_v = nz(odds)
+                    pass_all = gp_v >= 4
+                    in_odds = 1.72 <= od_v <= 2.20
+                    score = gp_v * 1000 + wr_v
+                    ranked.append({
+                        'side': sname, 'wr': wr_v, 'gp': gp_v, 'odds': od_v,
+                        'pass_all': pass_all, 'in_odds': in_odds, 'score': score
+                    })
+                ranked.sort(key=lambda x: x['score'], reverse=True)
+
+                # ฝั่งที่ผ่านครบ 4 gates (ลงได้จริง)
+                qualified = [r for r in ranked if r['pass_all'] and r['wr'] >= 55]
+                thai_name = {'AH Home': 'ต่อ/รอง เจ้าบ้าน (AH Home)',
+                            'AH Away': 'ต่อ/รอง ทีมเยือน (AH Away)',
+                            'OU Over': 'สูง (Over)', 'OU Under': 'ต่ำ (Under)'}
+
+                if qualified:
+                    best = qualified[0]
+                    # เช็ค Gate 5 mode กับ divergence
+                    g5_note = ""
+                    is_home_side = 'Home' in best['side']
+                    stat_home = div > 0
+                    aligns = (stat_home == is_home_side) if best['side'] in ('AH Home','AH Away') else None
+                    if abs(div) >= 0.15 and abs(div) < 0.40 and aligns:
+                        g5_note = ("<br><span style='color:#ff8c00;'>⚠️ Gate 5: ฝั่งนี้ตรงกับ Stat "
+                                  "ในโซน Moderate ที่ตลาดมักถูกกว่า — พิจารณาลดเงินหรือข้าม</span>")
+                    elif abs(div) >= 0.40 and aligns:
+                        g5_note = ("<br><span style='color:#ff3b5c;'>🚨 Gate 5: Divergence สูงมาก "
+                                  "(ข้อมูลน้อย) — ระวัง</span>")
+
+                    verdict_html = (
+                        f'<div style="background:linear-gradient(135deg,#0a2a18,#0d1e2e);'
+                        f'border:1px solid #00ff8855;border-left:4px solid #00ff88;border-radius:8px;'
+                        f'padding:12px 16px;margin-bottom:8px;">'
+                        f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.05rem;color:#00ff88;">'
+                        f'✅ ลงฝั่งนี้: {thai_name.get(best["side"], best["side"])}</div>'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.8rem;color:#c8e6d4;margin-top:4px;">'
+                        f'Win Rate {best["wr"]:.0f}% · ผ่าน {best["gp"]}/4 gates · @ {best["odds"]:.2f}'
+                        f'{g5_note}</div></div>'
+                    )
+                    if len(qualified) > 1:
+                        alts = " · ".join(f"{r['side']} ({r['wr']:.0f}%)" for r in qualified[1:])
+                        verdict_html += (
+                            f'<div style="font-family:\'Rajdhani\';font-size:0.72rem;color:#7a9a88;'
+                            f'margin-bottom:8px;">ทางเลือกรอง: {alts}</div>'
+                        )
+                else:
+                    # ไม่มีฝั่งไหนผ่านครบ — แสดงฝั่งที่ใกล้สุด
+                    top = ranked[0]
+                    verdict_html = (
+                        f'<div style="background:#1e0d0d;border:1px solid #ff3b5c55;'
+                        f'border-left:4px solid #ff3b5c;border-radius:8px;padding:12px 16px;margin-bottom:8px;">'
+                        f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.05rem;color:#ff3b5c;">'
+                        f'🔴 ไม่แนะนำลงคู่นี้ (No Signal)</div>'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:#c8e6d4;margin-top:4px;">'
+                        f'ไม่มีฝั่งไหนผ่านครบ 4 gates + WR≥55%<br>'
+                        f'ใกล้สุด: {top["side"]} ({top["wr"]:.0f}%, {top["gp"]}/4 gates)</div></div>'
+                    )
+                st.markdown(verdict_html, unsafe_allow_html=True)
+
+                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+
                 tg1, tg2 = st.columns(2)
                 tg1.metric("Market Total Goals Line", f"{nz(p.get('market_total')):.2f}")
                 tg2.metric("Stat Total Goals", f"{nz(p.get('stat_total')):.2f}",
@@ -1988,6 +2057,34 @@ with tab_log:
                              help="ใครทำนายจำนวนประตูรวมใกล้กว่า")
                     pnl = p.get('pnl')
                     r4.metric("PnL บิลนี้", f"฿{pnl:+,.0f}" if pd.notna(pnl) else "-")
+
+                    # ── ปุ่มยกเลิกผล (un-settle) — กลับไปเป็น pending เพื่อแก้ผลที่กรอกพลาด ──
+                    unsettle_key = f"unsettle_{rec_id}"
+                    confirm_unsettle = f"confirm_unsettle_{rec_id}"
+                    if not st.session_state.get(confirm_unsettle):
+                        if st.button("↩️ ยกเลิกผล (กลับเป็น Pending)", key=unsettle_key,
+                                    use_container_width=True):
+                            st.session_state[confirm_unsettle] = True
+                            st.rerun()
+                    else:
+                        st.warning("⚠️ ยกเลิกผลคู่นี้ กลับไปสถานะรอกรอกผล?")
+                        uc1, uc2 = st.columns(2)
+                        if uc1.button("✅ ยืนยัน", key=f"{unsettle_key}_yes",
+                                     use_container_width=True, type="primary"):
+                            ok = db_update_result(rec_id, {
+                                'actual_result': None, 'actual_score': None,
+                                'actual_home_goals': None, 'actual_away_goals': None,
+                                'actual_total_goals': None, 'wl_winner': None,
+                                'goals_winner': None, 'pnl': None, 'bet_outcome': None,
+                            })
+                            if ok:
+                                st.session_state[confirm_unsettle] = False
+                                st.cache_data.clear()
+                                st.rerun()
+                        if uc2.button("❌ ไม่ยกเลิก", key=f"{unsettle_key}_no",
+                                     use_container_width=True):
+                            st.session_state[confirm_unsettle] = False
+                            st.rerun()
 
                 # ── ปุ่มลบ log รายตัว (ทุก card) ──
                 st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
@@ -2504,11 +2601,17 @@ with tab_dash:
             for p in bet_settled:
                 t = pd.to_datetime(p.get('created_at','')).strftime("%d/%m %H:%M") if p.get('created_at') else '-'
                 pc = "#00ff88" if p.get('_pnl',0) >= 0 else "#ff3b5c"
+                # สร้างสกอร์จาก goals โดยตรง (กัน actual_score ที่อาจเป็น nan)
+                hg = p.get('actual_home_goals'); ag = p.get('actual_away_goals')
+                if pd.notna(hg) and pd.notna(ag):
+                    score_str = f"{int(hg)}-{int(ag)}"
+                else:
+                    score_str = "-"
                 st.markdown(
                     f'<div style="display:flex;justify-content:space-between;padding:6px 10px;'
                     f'border-bottom:1px solid #1a2e3e;font-family:\'Rajdhani\';font-size:0.8rem;">'
                     f'<span style="color:#c8e6d4;">{t} · {p.get("match_name","-")[:28]} '
-                    f'<span style="color:#5a7a68;">({p.get("recommended_side","-")} · {p.get("actual_score","-")})</span></span>'
+                    f'<span style="color:#5a7a68;">({p.get("recommended_side","-")} · {score_str})</span></span>'
                     f'<span style="color:{pc};font-family:\'Share Tech Mono\';">฿{p.get("_pnl",0):+,.0f}</span></div>',
                     unsafe_allow_html=True
                 )
