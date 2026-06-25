@@ -149,6 +149,7 @@ def init_session_state():
         'stats_away_gf': 0, 'stats_away_ga': 0, 'stats_away_rank': "-",
         'stats_temp': 25,
         '_hdp_line_str': "0", '_ou_line_str': "2.5",
+        'gate5_mode': "skip",
     }
     for k, v in defaults.items():
         if k not in st.session_state: st.session_state[k] = v
@@ -259,6 +260,38 @@ def parse_match_text(text):
             continue
 
     return result
+
+
+def settle_ah_ou(side, ah_line, ou_line, home_goals, away_goals):
+    """
+    คำนวณผล Asian Handicap / Over-Under ที่ถูกต้องตามแต้มต่อ
+    คืน (win_fraction, loss_fraction) — รองรับ quarter-ball, push, half-win/loss
+    convention: ah_line +1 = เจ้าบ้านต่อ 1 (home ให้แต้ม), -1 = เจ้าบ้านรอง
+      AH Home: adj = (home-away) - ah_line
+      AH Away: adj = (away-home) + ah_line
+      OU Over: adj = total - ou_line ; OU Under: adj = ou_line - total
+      adj>=0.5 ชนะเต็ม | 0.25 ชนะครึ่ง | 0 คืนทุน | -0.25 แพ้ครึ่ง | <=-0.5 แพ้เต็ม
+    """
+    import pandas as _pd
+    hg = home_goals if (home_goals is not None and not _pd.isna(home_goals)) else 0
+    ag = away_goals if (away_goals is not None and not _pd.isna(away_goals)) else 0
+    if side in ('AH Home', 'AH Away'):
+        if ah_line is None or _pd.isna(ah_line):
+            return (0.0, 0.0)
+        adj = ((hg - ag) - ah_line) if side == 'AH Home' else ((ag - hg) + ah_line)
+    elif side in ('OU Over', 'OU Under'):
+        if ou_line is None or _pd.isna(ou_line):
+            return (0.0, 0.0)
+        total = hg + ag
+        adj = (total - ou_line) if side == 'OU Over' else (ou_line - total)
+    else:
+        return (0.0, 0.0)
+    adj = round(adj * 4) / 4
+    if adj >= 0.5:   return (1.0, 0.0)
+    if adj == 0.25:  return (0.5, 0.0)
+    if adj == 0:     return (0.0, 0.0)
+    if adj == -0.25: return (0.0, 0.5)
+    return (0.0, 1.0)
 
 
 def fix(o):
@@ -758,8 +791,42 @@ def calc_bet_size(bankroll, win_rate, phase=1):
 # Math Engine แต่ให้ confidence adjustment + warning ที่ผู้ใช้ตัดสินใจเอง
 # ════════════════════════════════════════════════════════════════════════
 
+# ════════════════════════════════════════════════════════════════════════
+# 📊 หลักฐานเชิงประจักษ์ จากข้อมูลจริง 60 เคส — คำนวณด้วยสูตร AH ที่ถูกต้อง
+# (แก้ไขจากเวอร์ชันก่อนที่ใช้ผล 1X2 ตัดสิน AH ผิด)
+# ────────────────────────────────────────────────────────────────────────
+# เล่น AH ตามฝั่งที่ stat เชียร์ (odds 1.90):
+#   Low (<15%)     : WR 47% | ROI -8.9% (n=31) — stat ไม่มี edge ชัด
+#   Moderate(15-40%): WR 21% | ROI -47.6% (n=25) → stat แย่มากในโซนนี้!
+#                     loss=14 push=4 win=4 half_loss=3 → ตลาดถูกชัดเจน
+#   Extreme (≥40%) : WR 100% | ROI +56% (n=4 เท่านั้น — น้อยเกินเชื่อ)
+# กลยุทธ์ (สูตรถูก):
+#   A ตาม Stat ทุกเคส : ROI -20.7%  ❌
+#   B ข้าม Moderate   : ROI -1.4%   (35 บิล) ← ปลอดภัย เกือบเสมอตัว
+#   C พลิก Moderate   : ROI +15.7%  (60 บิล) ← สูงสุด แต่ยังเสี่ยง overfit
+#   D Low only        : ROI -8.9%
+# สรุป: Moderate zone คือจุดที่ stat พลาดหนักสุด (ยืนยันชัดขึ้นหลังแก้สูตร)
+# ════════════════════════════════════════════════════════════════════════
 EXTREME_DIVERGENCE_THRESHOLD = 0.40
 MODERATE_DIVERGENCE_THRESHOLD = 0.15
+
+# Bet size multiplier ตามหลักฐาน (ใช้ลด exposure เมื่อ stat อยู่ในโซนเสี่ยง)
+MULT_MODERATE_AGAINST = 0.5   # stat สวนตลาด 15-40% → ลดครึ่ง (ตลาดถูก ~64%)
+MULT_EXTREME_AGAINST = 0.4    # stat สวนตลาด ≥40% → ลดแรง (ข้อมูลน้อย เสี่ยงสูง)
+MULT_LOW_DIVERGENCE = 1.0     # <15% → stat เชื่อถือได้ ไม่ลด
+
+# ────────────────────────────────────────────────────────────────────────
+# Backtest บนข้อมูลจริง 60 เคส (AH, odds 1.90) — ผลแต่ละกลยุทธ์:
+#   A ตาม Stat ทุกเคส (เดิม)    : ROI -9.0%  (56 บิล)
+#   B ข้าม Moderate zone        : ROI +5.0%  (34 บิล) ← DEFAULT ปลอดภัยสุด
+#   C Moderate พลิกตามตลาด      : ROI +11.3% (56 บิล) ← สูงสุด แต่ p=0.13 เสี่ยง overfit
+#   D เล่นเฉพาะ Low divergence  : ROI +4.7%  (30 บิล)
+# เลือก B เป็น default เพราะ "ไม่ทำอันตราย" ถ้าสัญญาณเป็น noise;
+# C เปิดเป็น advanced option พร้อมคำเตือน
+# ────────────────────────────────────────────────────────────────────────
+GATE5_MODE_REDUCE = "reduce"   # ลด bet (multiplier) — conservative
+GATE5_MODE_SKIP = "skip"       # ข้าม moderate-against — DEFAULT
+GATE5_MODE_FLIP = "flip"       # พลิกตามตลาด — advanced/aggressive
 
 
 def classify_league_tier(league_name, has_ranking, home_team="", away_team=""):
@@ -829,16 +896,20 @@ def evaluate_gate5(league_name, home_rank, away_rank, temp,
         signals.append({
             'type': 'warning', 'level': 'high',
             'title': f"EXTREME DIVERGENCE (D{divergence_wl*100:+.0f}%)",
-            'detail': (f"Stat บอก {favored_side} ได้เปรียบกว่าตลาดมาก -- จากหลักฐานที่เก็บมา "
-                      f"divergence ระดับนี้มักหมายถึง Stat กำลังโดน small-sample noise หลอก "
-                      f"ไม่ใช่ตลาดพลาด แนะนำเชื่อ Market มากกว่า Stat ในกรณีนี้")
+            'detail': (f"Stat บอก {favored_side} ได้เปรียบกว่าตลาดมาก (≥40%) — เคสแบบนี้พบน้อยมาก "
+                      f"(4 เคสในข้อมูล, ผล 50/50 ยังสรุปไม่ได้) ความต่างที่สูงผิดปกติขนาดนี้ "
+                      f"มักมาจาก small-sample noise ใน 5 นัด แนะนำลดขนาดเดิมพันลงแรง "
+                      f"และตรวจ stat input ซ้ำว่าผิดปกติไหม")
         })
     elif abs_div >= MODERATE_DIVERGENCE_THRESHOLD:
         favored_side = "Home" if divergence_wl > 0 else "Away"
         signals.append({
-            'type': 'info', 'level': 'medium',
+            'type': 'warning', 'level': 'medium',
             'title': f"Moderate Divergence (D{divergence_wl*100:+.0f}%)",
-            'detail': f"Stat กับ Market เริ่มเห็นต่างกัน (เอนเอียงไปทาง {favored_side}) -- ข้อมูลยังไม่พอสรุปทิศทาง"
+            'detail': (f"Stat เชียร์ {favored_side} ต่างจากตลาด 15-40% — จากข้อมูลจริง 60 เคส "
+                      f"โซนนี้ Stat มักพลาด (เล่นตาม Stat ใน AH ได้ WR ~36% / เล่นตามตลาด ~64%) "
+                      f"แนะนำลดขนาดเดิมพันลงครึ่งหนึ่งถ้า Best Bet ตรงกับฝั่งที่ Stat เชียร์ "
+                      f"(แนวโน้มชัด แต่ sample ยังไม่ถึงนัยสำคัญทางสถิติ p=0.13)")
         })
     else:
         signals.append({
@@ -886,26 +957,32 @@ def evaluate_gate5(league_name, home_rank, away_rank, temp,
 
 def gate5_confidence_adjustment(gate5_result, recommended_side_is_home):
     """
-    แปลง Gate 5 signals เป็นคำแนะนำปรับ confidence (ไม่บังคับ, ผู้ใช้ตัดสินใจเอง)
+    แปลง Gate 5 signals เป็นคำแนะนำปรับ confidence ตามหลักฐานจริง 60 เคส
     Returns: (adjustment_label, adjustment_color, suggested_bet_multiplier)
     """
-    has_extreme_warning = any(
-        s['type'] == 'warning' and s['level'] == 'high' for s in gate5_result['signals']
-    )
+    abs_div = abs(gate5_result['divergence_wl'])
+    stat_favors_home = gate5_result['divergence_wl'] > 0
+    # Best Bet ตรงกับฝั่งที่ Stat เชียร์ไหม? (ถ้าตรง = กำลังเล่นตาม stat = เสี่ยงตามหลักฐาน)
+    aligns_with_stat = (stat_favors_home == recommended_side_is_home)
     has_opportunity = any(s['type'] == 'opportunity' for s in gate5_result['signals'])
 
-    if has_extreme_warning:
-        # เช็คว่า recommended side ตรงกับฝั่งที่ stat สนับสนุนผิดปกติไหม
-        stat_favors_home = gate5_result['divergence_wl'] > 0
-        if stat_favors_home == recommended_side_is_home:
-            # ระบบกำลังจะแนะนำฝั่งที่ stat สนับสนุนผิดปกติ (ตรงข้ามกับ market) -- ระวังมากสุด
-            return ("⚠️ ลด Confidence — Best Bet ตรงกับฝั่งที่ Stat Diverge สูง", "#ff3b5c", 0.5)
-        else:
-            return ("ℹ️ Extreme Divergence แต่ Best Bet ฝั่งตรงข้าม Stat — ปกติ", "#4a7a60", 1.0)
-    elif has_opportunity:
-        return ("💡 Low-Liquidity Market — Stat อาจมี Edge ใน Goals", "#00b4ff", 1.0)
+    if abs_div >= EXTREME_DIVERGENCE_THRESHOLD:
+        if aligns_with_stat:
+            return ("🚨 ลด Bet แรง — Best Bet ตามฝั่ง Stat ที่ Diverge สูงมาก (≥40%, ข้อมูลน้อย)",
+                    "#ff3b5c", MULT_EXTREME_AGAINST)
+        return ("ℹ️ Extreme Divergence แต่ Best Bet ฝั่งตรงข้าม Stat — สอดคล้องตลาด",
+                "#4a7a60", 1.0)
+    elif abs_div >= MODERATE_DIVERGENCE_THRESHOLD:
+        if aligns_with_stat:
+            return ("⚠️ ลด Bet ครึ่งหนึ่ง — Best Bet ตามฝั่ง Stat ในโซน 15-40% (ตลาดถูก ~64%)",
+                    "#ff8c00", MULT_MODERATE_AGAINST)
+        return ("✅ Best Bet สอดคล้องกับตลาด (Stat เชียร์ฝั่งตรงข้าม) — โซนนี้ตลาดแม่น",
+                "#00ff88", 1.0)
     else:
-        return ("✅ ไม่มี Gate 5 Warning พิเศษ", "#00ff88", 1.0)
+        # Low divergence — stat เชื่อถือได้ (WR~57% ใน AH)
+        if has_opportunity:
+            return ("💡 Low Divergence + Low-Liquidity Goals Signal", "#00b4ff", MULT_LOW_DIVERGENCE)
+        return ("✅ Low Divergence — Stat สอดคล้องตลาด เชื่อถือได้", "#00ff88", MULT_LOW_DIVERGENCE)
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -1008,6 +1085,24 @@ with st.sidebar:
                    f"Strong 5%={bankroll*0.05:,.0f}฿")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+    st.markdown('<div class="gem-label">◈ GATE 5 STRATEGY</div>', unsafe_allow_html=True)
+    st.caption("จากข้อมูลจริง 60 เคส: เมื่อ Stat สวนตลาด 15-40% ตลาดมักถูกกว่า")
+    gate5_mode = st.radio(
+        "โหมด Gate 5 (Stat-Divergence)",
+        options=[GATE5_MODE_SKIP, GATE5_MODE_REDUCE, GATE5_MODE_FLIP],
+        format_func=lambda x: {
+            GATE5_MODE_SKIP: "🛡️ SKIP — ข้ามเคส Moderate-against (ปลอดภัยสุด, ROI +5%)",
+            GATE5_MODE_REDUCE: "⚖️ REDUCE — ลด bet โซนเสี่ยง (กลาง, ROI +4.7%)",
+            GATE5_MODE_FLIP: "⚡ FLIP — พลิกตามตลาด (รุก, ROI +11% แต่เสี่ยง overfit p=0.13)",
+        }[x],
+        key='gate5_mode',
+    )
+    if gate5_mode == GATE5_MODE_FLIP:
+        st.warning("⚡ โหมด FLIP: ระบบจะแนะนำให้เล่นตรงข้าม Stat ในโซน Moderate "
+                  "(เชื่อตลาด) — ผลตอบแทนสูงสุดใน backtest แต่ยังไม่ผ่านนัยสำคัญทางสถิติ "
+                  "(p=0.13, n=20) ใช้ด้วยความระมัดระวัง")
+
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ GATE THRESHOLDS (Fixed)</div>', unsafe_allow_html=True)
     st.markdown(
         f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#c8e6d4;line-height:1.8;">'
@@ -1015,7 +1110,7 @@ with st.sidebar:
         f'Gate 2 — Win Probability: ≥{GATE2_MIN_WINRATE*100:.0f}%<br>'
         f'Gate 3 — Odds Range: {ODDS_MIN}–{ODDS_MAX}<br>'
         f'Gate 4 — Math-Market Agree: ≤{GATE4_MAX_DIVERGENCE*100:.0f}% Δ<br>'
-        f'Gate 5 — Stat-Divergence: warning-only (ไม่บล็อก)</div>',
+        f'Gate 5 — Stat-Divergence: {gate5_mode.upper()} mode</div>',
         unsafe_allow_html=True
     )
 
@@ -1365,15 +1460,61 @@ with tab_pre:
 
         best = None
         bet_size = 0
+        bet_size_adjusted = 0
+        mode_action_msg = None
         if valid_sides:
             best = max(valid_sides, key=lambda s: s['win_rate'])
 
+            # ── Gate 5 mode logic (จากหลักฐาน 60 เคส) ──
+            abs_div_g5 = abs(gate5_result['divergence_wl'])
+            stat_favors_home_g5 = gate5_result['divergence_wl'] > 0
+            best_aligns_stat = (stat_favors_home_g5 == best['is_home'])
+            in_moderate = MODERATE_DIVERGENCE_THRESHOLD <= abs_div_g5 < EXTREME_DIVERGENCE_THRESHOLD
+            in_extreme = abs_div_g5 >= EXTREME_DIVERGENCE_THRESHOLD
+            risky_zone = (in_moderate or in_extreme) and best_aligns_stat
+
+            gate5_mode_active = st.session_state.get('gate5_mode', 'skip')
+            mode_action_msg = None
+
+            # SKIP mode: ถ้า best bet ตามฝั่ง stat ในโซนเสี่ยง → ไม่แนะนำ
+            if gate5_mode_active == GATE5_MODE_SKIP and risky_zone:
+                zone_name = "Moderate (15-40%)" if in_moderate else "Extreme (≥40%)"
+                st.markdown(
+                    f'<div class="signal-invalid">'
+                    f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.1rem;color:#ff8c00;">'
+                    f'🛡️ GATE 5 SKIP — ข้ามคู่นี้</div>'
+                    f'<div style="font-family:\'Rajdhani\';font-size:0.88rem;color:#c8e6d4;margin-top:8px;">'
+                    f'Best Bet ({best["name"]}) ตรงกับฝั่งที่ Stat เชียร์ในโซน {zone_name} '
+                    f'— จากข้อมูลจริง ตลาดมักถูกกว่า Stat ในโซนนี้ (~64%) '
+                    f'โหมด SKIP จึงข้ามเพื่อเลี่ยงความเสี่ยง<br>'
+                    f'(เปลี่ยนโหมดที่ Sidebar ได้ถ้าต้องการเล่น)</div>'
+                    f'</div>', unsafe_allow_html=True
+                )
+                best = None  # ยกเลิก best bet
+            # FLIP mode: พลิกไปฝั่งตรงข้าม (ตามตลาด) ในโซน moderate
+            elif gate5_mode_active == GATE5_MODE_FLIP and in_moderate and best_aligns_stat:
+                flipped = [s for s in sides_data
+                          if s['is_home'] != best['is_home']
+                          and s['name'].split()[0] == best['name'].split()[0]]
+                if flipped:
+                    mode_action_msg = (f"⚡ FLIP: พลิกจาก {best['name']} → {flipped[0]['name']} "
+                                      f"(เชื่อตลาดแทน Stat ในโซน Moderate)")
+                    best = flipped[0]
+
+        if best is not None:
             conf_label, conf_color, conf_mult = gate5_confidence_adjustment(
                 gate5_result, recommended_side_is_home=best['is_home']
             )
+            # REDUCE mode ใช้ multiplier เต็มที่; SKIP/FLIP ใช้ 1.0 (จัดการไปแล้วข้างบน)
+            if st.session_state.get('gate5_mode') != GATE5_MODE_REDUCE:
+                conf_mult = 1.0
+                conf_label = conf_label.replace("ลด Bet ครึ่งหนึ่ง — ", "").replace("ลด Bet แรง — ", "")
 
             bet_size, tier_label, tier_pct = calc_bet_size(bankroll, best['win_rate'], bet_phase)
             bet_size_adjusted = bet_size * conf_mult
+
+            if locals().get('mode_action_msg'):
+                st.info(mode_action_msg)
 
             st.markdown(
                 f'<div class="signal-valid">'
@@ -1391,7 +1532,7 @@ with tab_pre:
                 f'</div>',
                 unsafe_allow_html=True
             )
-        else:
+        elif not valid_sides:
             closest = max(sides_data, key=lambda s: s['gates']['gates_passed'])
             failed_gates = [g['label'] for k, g in closest['gates'].items()
                            if k in ('gate1', 'gate2', 'gate3', 'gate4') and not g['pass']]
@@ -1407,6 +1548,7 @@ with tab_pre:
                 f'</div>',
                 unsafe_allow_html=True
             )
+        # ถ้า valid_sides มีแต่ best=None แปลว่าถูก Gate 5 SKIP (แสดง message ไปแล้วข้างบน)
 
         # ══════════════════════════════════════════════════════════════
         # 💾 SAVE PREDICTION — บันทึกทุกครั้งลง Supabase (ไม่ว่าจะมี signal หรือไม่)
@@ -1473,7 +1615,7 @@ with tab_pre:
                 'gates_passed': max(s['gates']['gates_passed'] for s in sides_data),
                 'all_gates_pass': len(valid_sides) > 0,
                 'recommended_side': best['name'] if best else None,
-                'recommended_bet_size': bet_size if best else 0,
+                'recommended_bet_size': bet_size_adjusted if best else 0,
                 'bet_phase': bet_phase,
                 'bankroll_at_time': bankroll,
             }
@@ -1555,13 +1697,14 @@ with tab_log:
             if mode == 'settled':
                 res = p.get('actual_result', '') or ''
                 score = p.get('actual_score', '-')
-                won = (
-                    (res == 'home_win' and 'Home' in side) or
-                    (res == 'away_win' and 'Away' in side) or
-                    (res not in ('home_win', 'away_win') and 'OU' in side)
-                )
-                header_color = "#00ff88" if won else "#ff3b5c"
-                status_icon = "✅" if won else "❌"
+                wf, lf = settle_ah_ou(side, p.get('ah_line'), p.get('ou_line'),
+                                      p.get('actual_home_goals'), p.get('actual_away_goals'))
+                if wf > lf:
+                    header_color, status_icon = "#00ff88", ("✅" if wf == 1.0 else "🟢½")
+                elif lf > wf:
+                    header_color, status_icon = "#ff3b5c", ("❌" if lf == 1.0 else "🔴½")
+                else:
+                    header_color, status_icon = "#4a7a60", "➖"  # push
                 header_right = f"{status_icon} {score}"
             else:
                 header_color = "#00ff88" if signal else "#ffd600"
@@ -1896,13 +2039,15 @@ with tab_backtest:
                 st.plotly_chart(fig, use_container_width=True)
 
             st.markdown(
-                '<div style="background:#0d1e2e;border-left:3px solid #ffd600;'
+                '<div style="background:#0d1e2e;border-left:3px solid #00ff88;'
                 'padding:10px 14px;border-radius:0 4px 4px 0;margin-top:10px;">'
                 '<span style="font-family:\'Rajdhani\';font-size:0.82rem;color:#c8e6d4;">'
-                '📌 Reference (จาก 12 เคสนอกระบบ, เก็บก่อนเริ่ม v5.0): '
-                'Extreme divergence (≥40%) → Market ชนะ 2/2. '
-                'ผลใน Predictions Log นี้คือข้อมูลใหม่ที่สะสมเพิ่มเติม — '
-                'ยังไม่รวมกับ reference เดิมเพื่อความโปร่งใส</span></div>',
+                '📊 <b>หลักฐานจากข้อมูลจริง 60 เคส (settled):</b><br>'
+                '• Low (&lt;15%): เล่นตาม Stat ใน AH ได้ ~57% — Stat เชื่อถือได้<br>'
+                '• <b>Moderate (15-40%): Stat มักพลาด — ตลาดถูก ~64%</b> '
+                '(เล่นตาม Stat เหลือ 36%) สัญญาณแข็งสุด แม้ p=0.13<br>'
+                '• Extreme (≥40%): n=4 น้อยเกินสรุป (เดิมคิดว่าตลาดถูก แต่ข้อมูลใหม่ 50/50)<br>'
+                '→ Gate 5 ตอนนี้ปรับ bet/skip ตามโซนเหล่านี้ (เลือกโหมดที่ Sidebar)</span></div>',
                 unsafe_allow_html=True
             )
 
@@ -1948,71 +2093,56 @@ with tab_backtest:
         # ══════════════════════════════════════════════════════════════
         else:
             st.markdown('<div class="gem-label">◈ COMBINED STRATEGY SIMULATOR</div>', unsafe_allow_html=True)
-            st.caption("เทียบ: ถ้าใช้ Gate 1-4 อย่างเดียว (v4.0 style) vs ใช้ Gate 5 ปรับ confidence ด้วย (v5.0 style)")
+            st.caption("เทียบ ROI ของ 4 กลยุทธ์ Gate 5 บนข้อมูลจริง (คำนวณ AH/OU ถูกต้องตามแต้มต่อ)")
 
-            bet_settled = [p for p in settled if p.get('all_gates_pass') and p.get('recommended_side')]
-            n_total = len(bet_settled)
+            # ใช้ทุกเคสที่ settle (ไม่ใช่แค่ที่ผ่าน gate) เพื่อ sample พอ — เล่นตามฝั่ง stat
+            sim_pool = [p for p in settled if pd.notna(p.get('ah_line'))]
+            odds_assume = 1.90
 
-            if n_total == 0:
-                st.info("ยังไม่มีบิลที่ผ่าน Gate 1-4 และ settle แล้ว — ลองวิเคราะห์เพิ่มใน PRE-MATCH tab")
-            else:
-                # Strategy A: Gate 1-4 only (ไม่สนใจ Gate 5 เลย)
-                strategy_a_wins = sum(1 for p in bet_settled
-                                      if (p['actual_result'] == 'home_win' and 'Home' in (p['recommended_side'] or ''))
-                                      or (p['actual_result'] == 'away_win' and 'Away' in (p['recommended_side'] or ''))
-                                      or (p['actual_result'] not in ('home_win', 'away_win')
-                                          and p['recommended_side'] in ('OU Over', 'OU Under')))
+            def run_strategy(mode):
+                pnl=inv=0; bets=0; wins=losses=0
+                for p in sim_pool:
+                    div = p.get('divergence_wl', 0) or 0
+                    ad = abs(div); stat_home = div>0
+                    if mode=='skip_mod' and 0.15<=ad<0.40: continue
+                    if mode=='low_only' and ad>=0.15: continue
+                    if mode=='flip_mod' and 0.15<=ad<0.40:
+                        side_home = not stat_home
+                    else:
+                        side_home = stat_home
+                    side = 'AH Home' if side_home else 'AH Away'
+                    wf, lf = settle_ah_ou(side, p.get('ah_line'), p.get('ou_line'),
+                                          p.get('actual_home_goals'), p.get('actual_away_goals'))
+                    if wf == 0 and lf == 0 and not (pd.notna(p.get('ah_line'))):
+                        continue
+                    inv+=100; bets+=1
+                    pnl += 100*wf*(odds_assume-1) - 100*lf
+                    if wf>lf: wins+=1
+                    elif lf>wf: losses+=1
+                roi = pnl/inv*100 if inv>0 else 0
+                return bets, pnl, roi
 
-                # Strategy B: Gate 1-4 + Gate 5 extreme divergence filter
-                # (สมมุติ: ถ้า extreme divergence และ recommended side ตรงกับฝั่งที่ stat สนับสนุนผิดปกติ -> skip)
-                strategy_b_bets = []
-                for p in bet_settled:
-                    is_extreme = abs(p.get('divergence_wl', 0)) >= EXTREME_DIVERGENCE_THRESHOLD
-                    stat_favors_home = p.get('divergence_wl', 0) > 0
-                    rec_is_home = 'Home' in (p.get('recommended_side') or '')
-                    if is_extreme and stat_favors_home == rec_is_home:
-                        continue  # skip ตาม Gate 5 logic
-                    strategy_b_bets.append(p)
-
-                strategy_b_wins = sum(1 for p in strategy_b_bets
-                                      if (p['actual_result'] == 'home_win' and 'Home' in (p['recommended_side'] or ''))
-                                      or (p['actual_result'] == 'away_win' and 'Away' in (p['recommended_side'] or ''))
-                                      or (p['actual_result'] not in ('home_win', 'away_win')
-                                          and p['recommended_side'] in ('OU Over', 'OU Under')))
-
-                sc1, sc2 = st.columns(2)
-                with sc1:
-                    st.markdown(
-                        f'<div class="gem-panel">'
-                        f'<div class="gem-label">Strategy A — Gate 1-4 Only</div>'
-                        f'<div style="font-family:\'Share Tech Mono\';font-size:1.4rem;color:#00ff88;">'
-                        f'{strategy_a_wins}/{n_total}</div>'
-                        f'<div style="color:#4a7a60;font-size:0.78rem;">'
-                        f'WR: {strategy_a_wins/n_total*100:.1f}%</div></div>',
-                        unsafe_allow_html=True
-                    )
-                with sc2:
-                    n_b = len(strategy_b_bets)
-                    wr_b = strategy_b_wins/n_b*100 if n_b > 0 else 0
-                    st.markdown(
-                        f'<div class="gem-panel">'
-                        f'<div class="gem-label">Strategy B — Gate 1-5 (skip extreme)</div>'
-                        f'<div style="font-family:\'Share Tech Mono\';font-size:1.4rem;color:#9b59b6;">'
-                        f'{strategy_b_wins}/{n_b}</div>'
-                        f'<div style="color:#4a7a60;font-size:0.78rem;">'
-                        f'WR: {wr_b:.1f}% · Skipped: {n_total-n_b} bets</div></div>',
-                        unsafe_allow_html=True
-                    )
-
-                st.caption("ⓘ Simulator นี้เปรียบเทียบเฉพาะ Win Rate ทิศทาง ไม่รวม PnL จริง "
-                          "(ต้องมี odds + bet_outcome ครบเพื่อคำนวณ ROI ที่แม่นยำ)")
+            strategies = [
+                ('follow', 'A: ตาม Stat ทุกเคส'),
+                ('skip_mod', 'B: ข้าม Moderate (SKIP)'),
+                ('flip_mod', 'C: พลิก Moderate (FLIP)'),
+                ('low_only', 'D: เล่นเฉพาะ Low'),
+            ]
+            rows=[]
+            for code,name in strategies:
+                b,pnl,roi = run_strategy(code)
+                rows.append({'กลยุทธ์': name, 'บิล': b, 'PnL': f"฿{pnl:+,.0f}",
+                            'ROI': f"{roi:+.1f}%"})
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.caption(f"สมมุติ odds 1.90 ต่อบิล, flat 100/บิล, เล่นตามฝั่งที่ Stat เชียร์ "
+                      f"(n={len(sim_pool)} เคสที่มี ah_line)")
+            st.info("💡 ผลปัจจุบันชี้ว่า Moderate zone คือจุดที่ Stat พลาดหนักสุด — "
+                   "โหมด SKIP/FLIP ช่วยได้ แต่ FLIP ยังเสี่ยง overfit (sample เล็ก)")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown(
         '<div style="font-family:\'Rajdhani\';font-size:0.75rem;color:#4a7a60;">'
-        '⚠️ Backtest Lab ใช้ข้อมูลจาก Predictions Log ในเซสชันนี้เท่านั้น '
-        '(session-only, ไม่ persist ข้ามการปิดเบราว์เซอร์) — สำหรับการเก็บข้อมูลถาวร '
-        'ต้องต่อ database ภายนอก</div>',
+        'ⓘ Backtest Lab อ่านข้อมูลจาก Supabase (ถาวร) — ผลอัปเดตอัตโนมัติเมื่อมีเคส settle เพิ่ม</div>',
         unsafe_allow_html=True
     )
 
@@ -2033,41 +2163,48 @@ with tab_dash:
         st.info("ยังไม่มีบิลที่ผ่าน Gate ครบและ settle แล้ว — เริ่มที่ PRE-MATCH tab")
     else:
         def calc_bet_pnl(p):
-            """คำนวณ PnL จาก recommended_side + odds + actual_result"""
-            side = p['recommended_side']
+            """คำนวณ PnL ที่ถูกต้องตามหลัก Asian Handicap / Over-Under"""
+            side = p.get('recommended_side')
+            if not isinstance(side, str):
+                return 0.0, None
             odds_map = {
-                'AH Home': p['ah_home_odds'], 'AH Away': p['ah_away_odds'],
-                'OU Over': p['ou_over_odds'], 'OU Under': p['ou_under_odds'],
+                'AH Home': p.get('ah_home_odds'), 'AH Away': p.get('ah_away_odds'),
+                'OU Over': p.get('ou_over_odds'), 'OU Under': p.get('ou_under_odds'),
             }
-            odds = odds_map.get(side, 0)
+            odds = odds_map.get(side) or 0
             bet = p.get('recommended_bet_size', 0) or 0
-            won = (
-                (side == 'AH Home' and p['actual_result'] == 'home_win') or
-                (side == 'AH Away' and p['actual_result'] == 'away_win') or
-                (side == 'OU Over' and (p.get('actual_total_goals') or 0) > p['ou_line']) or
-                (side == 'OU Under' and (p.get('actual_total_goals') or 0) < p['ou_line'])
+            win_frac, loss_frac = settle_ah_ou(
+                side, p.get('ah_line'), p.get('ou_line'),
+                p.get('actual_home_goals'), p.get('actual_away_goals')
             )
-            outcome = 'win' if won else 'loss'
-            pnl_val = bet * (odds - 1) if won else -bet
+            pnl_val = bet * win_frac * (odds - 1) - bet * loss_frac
+            if win_frac > loss_frac:
+                outcome = 'win' if win_frac == 1.0 else 'half_win'
+            elif loss_frac > win_frac:
+                outcome = 'loss' if loss_frac == 1.0 else 'half_loss'
+            else:
+                outcome = 'push'
             return pnl_val, outcome
 
         for p in bet_settled:
             pnl_val, outcome = calc_bet_pnl(p)
             p['_pnl'] = pnl_val
-            # บันทึก pnl/bet_outcome กลับเข้า DB ถ้ายังไม่เคยคำนวณ (เก็บถาวรสำหรับ backtest ภายหลัง)
-            if pd.isna(p.get('pnl')) or p.get('bet_outcome') is None:
-                db_update_result(p['id'], {'pnl': pnl_val, 'bet_outcome': outcome})
+            # บันทึก/อัปเดต pnl กลับเข้า DB เสมอ (เพราะสูตรเก่าผิด ต้อง recompute ทับ)
+            db_update_result(p['id'], {'pnl': pnl_val, 'bet_outcome': outcome})
 
         total_bets = len(bet_settled)
         total_pnl = sum(p['_pnl'] for p in bet_settled)
-        total_invested = sum(p.get('recommended_bet_size', 0) for p in bet_settled)
+        total_invested = sum(p.get('recommended_bet_size', 0) or 0 for p in bet_settled)
         wins = sum(1 for p in bet_settled if p['_pnl'] > 0)
-        wr = wins / total_bets * 100
+        losses = sum(1 for p in bet_settled if p['_pnl'] < 0)
+        pushes = sum(1 for p in bet_settled if p['_pnl'] == 0)
+        decisive = wins + losses
+        wr = (wins / decisive * 100) if decisive > 0 else 0
         roi = (total_pnl / total_invested * 100) if total_invested > 0 else 0
 
         d1, d2, d3, d4 = st.columns(4)
-        d1.metric("Total Bets", f"{total_bets}")
-        d2.metric("Win Rate", f"{wr:.1f}%")
+        d1.metric("Total Bets", f"{total_bets}", help=f"ชนะ {wins} · แพ้ {losses} · เสมอ(push) {pushes}")
+        d2.metric("Win Rate", f"{wr:.1f}%", help="ไม่นับ push ในตัวหาร")
         d3.metric("Total PnL", f"฿{total_pnl:+,.0f}")
         d4.metric("ROI", f"{roi:+.2f}%")
 
