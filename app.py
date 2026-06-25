@@ -1952,6 +1952,58 @@ with tab_log:
 
                 st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
 
+                # ── 📊 ราคาตลาด: ASIAN HANDICAP + TOTAL GOALS (O/U) ──
+                ah_line_v = nz(p.get('ah_line'))
+                ah_h_odds = nz(p.get('ah_home_odds'))
+                ah_a_odds = nz(p.get('ah_away_odds'))
+                ou_line_v = nz(p.get('ou_line'))
+                ou_o_odds = nz(p.get('ou_over_odds'))
+                ou_u_odds = nz(p.get('ou_under_odds'))
+                # แสดง line ในรูปแบบที่อ่านง่าย (+ เจ้าบ้านต่อ / - เจ้าบ้านรอง)
+                if ah_line_v > 0:
+                    ah_line_txt = f"เจ้าบ้านต่อ {abs(ah_line_v):g}"
+                elif ah_line_v < 0:
+                    ah_line_txt = f"เจ้าบ้านรอง {abs(ah_line_v):g}"
+                else:
+                    ah_line_txt = "เสมอ (0)"
+                rec = side  # ฝั่งที่แนะนำ เพื่อ highlight
+                ah_h_hl = "#00ff88" if rec == 'AH Home' else "#c8e6d4"
+                ah_a_hl = "#00ff88" if rec == 'AH Away' else "#c8e6d4"
+                ou_o_hl = "#00ff88" if rec == 'OU Over' else "#c8e6d4"
+                ou_u_hl = "#00ff88" if rec == 'OU Under' else "#c8e6d4"
+
+                st.markdown(
+                    f'<div style="display:flex;gap:10px;flex-wrap:wrap;">'
+                    # ASIAN HANDICAP card
+                    f'<div style="flex:1;min-width:160px;background:#0d1e2e;border-radius:8px;'
+                    f'padding:10px 14px;border-top:2px solid #00b4ff;">'
+                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#00b4ff;'
+                    f'letter-spacing:1px;margin-bottom:6px;">⚖️ ASIAN HANDICAP</div>'
+                    f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#7a9a88;margin-bottom:6px;">'
+                    f'{ah_line_txt}</div>'
+                    f'<div style="display:flex;justify-content:space-between;font-family:\'Share Tech Mono\';'
+                    f'font-size:0.82rem;">'
+                    f'<span style="color:{ah_h_hl};">เจ้าบ้าน {ah_h_odds:.2f}{" ⭐" if rec=="AH Home" else ""}</span>'
+                    f'<span style="color:{ah_a_hl};">เยือน {ah_a_odds:.2f}{" ⭐" if rec=="AH Away" else ""}</span>'
+                    f'</div></div>'
+                    # TOTAL GOALS card
+                    f'<div style="flex:1;min-width:160px;background:#0d1e2e;border-radius:8px;'
+                    f'padding:10px 14px;border-top:2px solid #ff8c00;">'
+                    f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#ff8c00;'
+                    f'letter-spacing:1px;margin-bottom:6px;">🥅 TOTAL GOALS (O/U)</div>'
+                    f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#7a9a88;margin-bottom:6px;">'
+                    f'เส้น {ou_line_v:g}</div>'
+                    f'<div style="display:flex;justify-content:space-between;font-family:\'Share Tech Mono\';'
+                    f'font-size:0.82rem;">'
+                    f'<span style="color:{ou_o_hl};">สูง {ou_o_odds:.2f}{" ⭐" if rec=="OU Over" else ""}</span>'
+                    f'<span style="color:{ou_u_hl};">ต่ำ {ou_u_odds:.2f}{" ⭐" if rec=="OU Under" else ""}</span>'
+                    f'</div></div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
+                st.markdown('<div style="height:10px;"></div>', unsafe_allow_html=True)
+
                 tg1, tg2 = st.columns(2)
                 tg1.metric("Market Total Goals Line", f"{nz(p.get('market_total')):.2f}")
                 tg2.metric("Stat Total Goals", f"{nz(p.get('stat_total')):.2f}",
