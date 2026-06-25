@@ -142,6 +142,24 @@ def db_delete_one(record_id):
         st.error(f"⚠️ ลบ record ไม่สำเร็จ: {e}")
         return False
 
+
+def is_settled(p):
+    """เช็คว่า prediction settle แล้วไหม — เข้มงวด: ต้องมี actual_result เป็นค่า valid จริง
+    (รองรับ None, NaN, empty string ทั้งหมดถือว่ายังไม่ settle)
+    สำคัญ: หลัง DataFrame.to_dict('records') ค่า NULL จะเป็น NaN ไม่ใช่ None"""
+    val = p.get('actual_result')
+    if val is None:
+        return False
+    try:
+        if pd.isna(val):
+            return False
+    except (TypeError, ValueError):
+        pass
+    # ต้องเป็น string ที่มีค่าจริง (home_win/draw/away_win) เท่านั้น
+    if not isinstance(val, str) or not val.strip():
+        return False
+    return val in ('home_win', 'draw', 'away_win')
+
 # ──────────────────────────────────────────────────────────────────────
 # SESSION STATE INIT
 # ──────────────────────────────────────────────────────────────────────
@@ -1679,8 +1697,13 @@ with tab_log:
     if log_df.empty:
         st.info("ยังไม่มี prediction ที่บันทึกไว้ — ไปที่ PRE-MATCH tab เพื่อวิเคราะห์และบันทึกคู่แรก")
     else:
-        pending_df = log_df[log_df['actual_result'].isna()]
-        settled_df_raw = log_df[log_df['actual_result'].notna()]
+        # ใช้เกณฑ์เดียวกับ is_settled (actual_result ต้องเป็น home_win/draw/away_win)
+        # เพื่อให้ PENDING/SETTLED ตรงกันทุก tab
+        valid_results = ['home_win', 'draw', 'away_win']
+        _ar = log_df['actual_result']
+        settled_mask = _ar.isin(valid_results)
+        pending_df = log_df[~settled_mask]
+        settled_df_raw = log_df[settled_mask]
 
         def nz(val, default=0):
             """แปลง None/NaN เป็นค่า default อย่างปลอดภัย (NaN or 0 ใน Python คืน NaN ไม่ใช่ 0)"""
@@ -2047,7 +2070,7 @@ with tab_backtest:
 
     log_df_bt = db_load_predictions()
     log = log_df_bt.to_dict('records') if not log_df_bt.empty else []
-    settled = [p for p in log if p.get('actual_result') is not None]
+    settled = [p for p in log if is_settled(p)]
 
     if len(settled) < 3:
         st.markdown(
@@ -2087,7 +2110,7 @@ with tab_backtest:
             return (0.0,1.0)
 
         n_settled = len(settled)
-        n_pending = len([p for p in log if p.get('actual_result') is None])
+        n_pending = len([p for p in log if not is_settled(p)])
 
         # ═══════════ OVERVIEW STRIP ═══════════
         st.markdown(
@@ -2270,8 +2293,32 @@ with tab_dash:
 
     log_df_dash = db_load_predictions()
     log = log_df_dash.to_dict('records') if not log_df_dash.empty else []
-    bet_candidates = [p for p in log if p.get('all_gates_pass') and p.get('recommended_side')]
-    bet_settled = [p for p in bet_candidates if p.get('actual_result') is not None]
+    def _truthy(v):
+        """True เฉพาะค่าจริง — กัน NaN ที่ bool(NaN)=True"""
+        if v is None: return False
+        try:
+            if pd.isna(v): return False
+        except (TypeError, ValueError):
+            pass
+        return bool(v)
+    bet_candidates = [p for p in log
+                      if _truthy(p.get('all_gates_pass'))
+                      and isinstance(p.get('recommended_side'), str)
+                      and p.get('recommended_side')]
+    def _has_goals(p):
+        hg = p.get('actual_home_goals'); ag = p.get('actual_away_goals')
+        if hg is None or ag is None: return False
+        try:
+            return not (pd.isna(hg) or pd.isna(ag))
+        except (TypeError, ValueError):
+            return True
+    bet_settled = [p for p in bet_candidates if is_settled(p) and _has_goals(p)]
+
+    # ── ล้าง pnl/bet_outcome ค้างของเคสที่ยังไม่ settle สมบูรณ์ (แก้ phantom PnL เก่าใน DB) ──
+    for p in bet_candidates:
+        if not (is_settled(p) and _has_goals(p)):
+            if p.get('pnl') is not None and not (isinstance(p.get('pnl'), float) and pd.isna(p.get('pnl'))):
+                db_update_result(p['id'], {'pnl': None, 'bet_outcome': None})
 
     if len(bet_settled) == 0:
         st.info("ยังไม่มีบิลที่ผ่าน Gate ครบและ settle แล้ว — เริ่มที่ PRE-MATCH tab")
@@ -2281,16 +2328,17 @@ with tab_dash:
             side = p.get('recommended_side')
             if not isinstance(side, str):
                 return 0.0, None
+            hg = p.get('actual_home_goals')
+            ag = p.get('actual_away_goals')
+            if hg is None or ag is None or pd.isna(hg) or pd.isna(ag):
+                return None, None
             odds_map = {
                 'AH Home': p.get('ah_home_odds'), 'AH Away': p.get('ah_away_odds'),
                 'OU Over': p.get('ou_over_odds'), 'OU Under': p.get('ou_under_odds'),
             }
             odds = odds_map.get(side) or 0
             bet = p.get('recommended_bet_size', 0) or 0
-            win_frac, loss_frac = settle_ah_ou(
-                side, p.get('ah_line'), p.get('ou_line'),
-                p.get('actual_home_goals'), p.get('actual_away_goals')
-            )
+            win_frac, loss_frac = settle_ah_ou(side, p.get('ah_line'), p.get('ou_line'), hg, ag)
             pnl_val = bet * win_frac * (odds - 1) - bet * loss_frac
             if win_frac > loss_frac:
                 outcome = 'win' if win_frac == 1.0 else 'half_win'
