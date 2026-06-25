@@ -160,6 +160,27 @@ def is_settled(p):
         return False
     return val in ('home_win', 'draw', 'away_win')
 
+
+def compute_best_side(p):
+    """คำนวณ Best Bet สดจาก gate scanner data (win_rate + gates_passed ของ 4 ฝั่ง)
+    แทนการพึ่ง recommended_side ใน DB ที่อาจผิดจากโค้ดเวอร์ชันเก่า (เช่น FLIP bug)
+    คืน side name ('AH Home'/'AH Away'/'OU Over'/'OU Under') หรือ None ถ้าไม่มีฝั่งผ่าน"""
+    def _nz(v, d=0):
+        if v is None: return d
+        try:
+            if pd.isna(v): return d
+        except (TypeError, ValueError): pass
+        return v
+    sides = [
+        ('AH Home', _nz(p.get('ah_home_win_rate'))*100, int(_nz(p.get('ah_home_gates_passed')))),
+        ('AH Away', _nz(p.get('ah_away_win_rate'))*100, int(_nz(p.get('ah_away_gates_passed')))),
+        ('OU Over', _nz(p.get('ou_over_win_rate'))*100, int(_nz(p.get('ou_over_gates_passed')))),
+        ('OU Under', _nz(p.get('ou_under_win_rate'))*100, int(_nz(p.get('ou_under_gates_passed')))),
+    ]
+    qualified = sorted([s for s in sides if s[2] >= 4 and s[1] >= 55],
+                       key=lambda x: x[1], reverse=True)
+    return qualified[0][0] if qualified else None
+
 # ──────────────────────────────────────────────────────────────────────
 # SESSION STATE INIT
 # ──────────────────────────────────────────────────────────────────────
@@ -1736,9 +1757,34 @@ with tab_log:
             created = pd.to_datetime(p['created_at']).strftime("%d/%m %H:%M") if pd.notna(p.get('created_at')) else "-"
             match_name = p.get('match_name', '-')
             tier = p.get('league_tier', '-')
+
+            # ── คำนวณ Best Bet สดจาก gate scanner (แทน recommended_side ใน DB
+            #    ที่อาจผิดจากโค้ดเวอร์ชันเก่า เช่น FLIP bug) ──
+            def _nz_local(v, d=0):
+                if v is None: return d
+                try:
+                    if pd.isna(v): return d
+                except (TypeError, ValueError): pass
+                return v
+            _sides_calc = [
+                ('AH Home', _nz_local(p.get('ah_home_win_rate'))*100, int(_nz_local(p.get('ah_home_gates_passed')))),
+                ('AH Away', _nz_local(p.get('ah_away_win_rate'))*100, int(_nz_local(p.get('ah_away_gates_passed')))),
+                ('OU Over', _nz_local(p.get('ou_over_win_rate'))*100, int(_nz_local(p.get('ou_over_gates_passed')))),
+                ('OU Under', _nz_local(p.get('ou_under_win_rate'))*100, int(_nz_local(p.get('ou_under_gates_passed')))),
+            ]
+            _qualified = sorted([s for s in _sides_calc if s[2] >= 4 and s[1] >= 55],
+                               key=lambda x: x[1], reverse=True)
+            computed_best_side = _qualified[0][0] if _qualified else None
+
+            # ใช้ best ที่คำนวณสดเป็นหลัก; ถ้าไม่มี qualified → No Signal
+            # (recommended_side ใน DB เก็บไว้เทียบ แต่ไม่ใช้ตัดสิน)
             raw_side = p.get('recommended_side')
-            side = raw_side if (isinstance(raw_side, str) and raw_side) else 'No Signal'
-            signal = bool(p.get('all_gates_pass')) and p.get('all_gates_pass') is not None
+            db_side = raw_side if (isinstance(raw_side, str) and raw_side) else None
+            side = computed_best_side if computed_best_side else 'No Signal'
+            # แจ้งเตือนถ้า DB เก็บฝั่งต่างจากที่คำนวณสด (ข้อมูลเก่าจาก bug)
+            side_mismatch = (db_side is not None and computed_best_side is not None
+                            and db_side != computed_best_side)
+            signal = computed_best_side is not None
             div = p.get('divergence_wl', 0)
             div = div if pd.notna(div) else 0
 
@@ -1814,13 +1860,19 @@ with tab_log:
                         f'🔴 NO SIGNAL — ไม่แนะนำลงบิลนี้</div>'
                     )
 
-                # ผลแพ้ชนะ (ถ้า settled)
+                # ผลแพ้ชนะ (ถ้า settled) — คำนวณสดจากฝั่งที่ถูกต้อง
                 result_html = ""
                 if mode == 'settled':
-                    pnl_card = p.get('pnl')
                     if rec_side:
                         wf_c, lf_c = settle_ah_ou(rec_side, p.get('ah_line'), p.get('ou_line'),
                                                   p.get('actual_home_goals'), p.get('actual_away_goals'))
+                        # คำนวณ PnL สดจากฝั่งที่ถูก (ไม่ใช้ pnl ใน DB ที่อาจผิด)
+                        _odds_for_pnl = nz({
+                            'AH Home': p.get('ah_home_odds'), 'AH Away': p.get('ah_away_odds'),
+                            'OU Over': p.get('ou_over_odds'), 'OU Under': p.get('ou_under_odds'),
+                        }.get(rec_side))
+                        _bet = nz(p.get('recommended_bet_size'))
+                        pnl_card = _bet * wf_c * (_odds_for_pnl - 1) - _bet * lf_c
                         if wf_c > lf_c:
                             outcome_txt = "✅ ชนะเต็ม" if wf_c == 1.0 else "🟢 ชนะครึ่ง"
                             oc_color = "#00ff88"
@@ -1830,16 +1882,27 @@ with tab_log:
                         else:
                             outcome_txt = "➖ คืนทุน (Push)"
                             oc_color = "#4a7a60"
+                        pnl_txt = f"฿{pnl_card:+,.0f}"
                     else:
                         outcome_txt = "— (ไม่ได้ลงบิล)"
                         oc_color = "#4a7a60"
-                    pnl_txt = f"฿{pnl_card:+,.0f}" if pd.notna(pnl_card) else "-"
+                        pnl_txt = "-"
                     result_html = (
                         f'<div style="border-top:1px solid #1a3a2a;margin-top:6px;padding-top:6px;">'
                         f'<span style="font-family:\'Share Tech Mono\';font-size:0.82rem;color:{oc_color};">'
                         f'ผลบิล: {outcome_txt}</span> '
                         f'<span style="font-family:\'Share Tech Mono\';font-size:0.82rem;color:{oc_color};'
                         f'float:right;">PnL: <b>{pnl_txt}</b></span></div>'
+                    )
+
+                # แถบเตือนถ้าข้อมูลใน DB เก็บฝั่งผิด (จาก bug เก่า)
+                mismatch_html = ""
+                if side_mismatch:
+                    mismatch_html = (
+                        f'<div style="background:#2a1a0d;border-radius:5px;padding:6px 10px;margin-top:6px;">'
+                        f'<span style="font-family:\'Rajdhani\';font-size:0.72rem;color:#ff8c00;">'
+                        f'⚠️ ข้อมูลเก่าใน DB เคยบันทึกเป็น <b>{db_side}</b> (จาก bug) '
+                        f'— การ์ดนี้แสดงฝั่งที่ถูกต้อง <b>{computed_best_side}</b> และคำนวณผล/PnL ใหม่แล้ว</span></div>'
                     )
 
                 st.markdown(
@@ -1852,6 +1915,7 @@ with tab_log:
                     f'<span style="color:#4a7a60;">(Stat เชียร์ {stat_favors} '
                     f'มากกว่าตลาด)</span></div>'
                     f'{result_html}'
+                    f'{mismatch_html}'
                     f'</div>',
                     unsafe_allow_html=True
                 )
@@ -2464,10 +2528,7 @@ with tab_dash:
         except (TypeError, ValueError):
             pass
         return bool(v)
-    bet_candidates = [p for p in log
-                      if _truthy(p.get('all_gates_pass'))
-                      and isinstance(p.get('recommended_side'), str)
-                      and p.get('recommended_side')]
+    bet_candidates = [p for p in log if compute_best_side(p) is not None]
     def _has_goals(p):
         hg = p.get('actual_home_goals'); ag = p.get('actual_away_goals')
         if hg is None or ag is None: return False
@@ -2487,8 +2548,8 @@ with tab_dash:
         st.info("ยังไม่มีบิลที่ผ่าน Gate ครบและ settle แล้ว — เริ่มที่ PRE-MATCH tab")
     else:
         def calc_bet_pnl(p):
-            """คำนวณ PnL ที่ถูกต้องตามหลัก Asian Handicap / Over-Under"""
-            side = p.get('recommended_side')
+            """คำนวณ PnL ที่ถูกต้อง — ใช้ Best Bet ที่คำนวณสด (ไม่ใช่ recommended_side ใน DB ที่อาจผิด)"""
+            side = compute_best_side(p)
             if not isinstance(side, str):
                 return 0.0, None
             hg = p.get('actual_home_goals')
@@ -2610,7 +2671,7 @@ with tab_dash:
         st.markdown('<div class="gem-label">◈ ผลตามประเภทเดิมพัน</div>', unsafe_allow_html=True)
         side_groups = {}
         for p in bet_settled:
-            side_groups.setdefault(p['recommended_side'], []).append(p)
+            side_groups.setdefault(compute_best_side(p) or '-', []).append(p)
         side_html = '<div style="display:flex;flex-direction:column;gap:8px;">'
         for side, plist in sorted(side_groups.items()):
             n = len(plist)
@@ -2677,7 +2738,7 @@ with tab_dash:
                     f'<div style="display:flex;justify-content:space-between;padding:6px 10px;'
                     f'border-bottom:1px solid #1a2e3e;font-family:\'Rajdhani\';font-size:0.8rem;">'
                     f'<span style="color:#c8e6d4;">{t} · {p.get("match_name","-")[:28]} '
-                    f'<span style="color:#5a7a68;">({p.get("recommended_side","-")} · {score_str})</span></span>'
+                    f'<span style="color:#5a7a68;">({compute_best_side(p) or "-"} · {score_str})</span></span>'
                     f'<span style="color:{pc};font-family:\'Share Tech Mono\';">฿{p.get("_pnl",0):+,.0f}</span></div>',
                     unsafe_allow_html=True
                 )
