@@ -2110,6 +2110,8 @@ with tab_log:
                     st.markdown(edge_html, unsafe_allow_html=True)
 
                 st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+                # ── 📊 ราคาตลาด: ASIAN HANDICAP + TOTAL GOALS (O/U) ──
+                ah_line_v = nz(p.get('ah_line'))
                 ah_h_odds = nz(p.get('ah_home_odds'))
                 ah_a_odds = nz(p.get('ah_away_odds'))
                 ou_line_v = nz(p.get('ou_line'))
