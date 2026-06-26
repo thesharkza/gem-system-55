@@ -2188,6 +2188,48 @@ with tab_log:
                     pnl = p.get('pnl')
                     r4.metric("PnL บิลนี้", f"฿{pnl:+,.0f}" if pd.notna(pnl) else "-")
 
+                    # ── 🔍 ตรวจสอบผลทุกฝั่ง — เช็คว่าโปรแกรมคำนวณถูกไหม ──
+                    st.markdown('<div class="gem-label" style="font-size:0.65rem;margin-top:8px;">'
+                               '🔍 ผลจริงทุกฝั่ง (ตรวจสอบการคำนวณ)</div>',
+                               unsafe_allow_html=True)
+                    hg_v = p.get('actual_home_goals')
+                    ag_v = p.get('actual_away_goals')
+                    if pd.notna(hg_v) and pd.notna(ag_v):
+                        all_sides = [
+                            ('AH Home', 'ต่อ/รอง เจ้าบ้าน', p.get('ah_home_odds')),
+                            ('AH Away', 'ต่อ/รอง ทีมเยือน', p.get('ah_away_odds')),
+                            ('OU Over', 'สูง (Over)', p.get('ou_over_odds')),
+                            ('OU Under', 'ต่ำ (Under)', p.get('ou_under_odds')),
+                        ]
+                        verify_html = '<div style="display:flex;flex-direction:column;gap:5px;">'
+                        for side_key, side_th, side_odds in all_sides:
+                            wf_v, lf_v = settle_ah_ou(side_key, p.get('ah_line'), p.get('ou_line'), hg_v, ag_v)
+                            if wf_v == 1.0:
+                                res_txt, res_color = "✅ ชนะเต็ม", "#00ff88"
+                            elif wf_v == 0.5:
+                                res_txt, res_color = "🟢 ชนะครึ่ง", "#7dd87d"
+                            elif wf_v == lf_v:
+                                res_txt, res_color = "➖ คืนทุน", "#7a9a88"
+                            elif lf_v == 0.5:
+                                res_txt, res_color = "🔴 แพ้ครึ่ง", "#d87d7d"
+                            else:
+                                res_txt, res_color = "❌ แพ้เต็ม", "#ff3b5c"
+                            # ไฮไลต์ฝั่งที่ระบบแนะนำ
+                            is_rec = (side_key == side)
+                            border = "2px solid #00ff88" if is_rec else "1px solid #1a2e3e"
+                            star = " ⭐" if is_rec else ""
+                            verify_html += (
+                                f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                                f'background:#0d1e2e;border:{border};border-radius:6px;padding:6px 12px;">'
+                                f'<span style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:#c8e6d4;">'
+                                f'{side_key} <span style="color:#5a7a68;">· {side_th}</span>{star}</span>'
+                                f'<span style="font-family:\'Rajdhani\';font-size:0.8rem;color:{res_color};'
+                                f'font-weight:600;">{res_txt}</span></div>'
+                            )
+                        verify_html += '</div>'
+                        st.markdown(verify_html, unsafe_allow_html=True)
+                        st.caption("⭐ = ฝั่งที่ระบบแนะนำ · ใช้ตรวจว่า PnL ด้านบนตรงกับผลฝั่งที่แนะนำไหม")
+
                     # ── ปุ่มยกเลิกผล (un-settle) — กลับไปเป็น pending เพื่อแก้ผลที่กรอกพลาด ──
                     unsettle_key = f"unsettle_{rec_id}"
                     confirm_unsettle = f"confirm_unsettle_{rec_id}"
