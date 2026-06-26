@@ -315,8 +315,14 @@ def parse_match_text(text):
             break
 
     def extract_value(line, keyword):
-        m = re.match(rf'^{re.escape(keyword)}\s+([\d.]+)\s*$', line)
-        return float(m.group(1)) if m else None
+        # ใช้ regex ที่จับเฉพาะเลขทศนิยมรูปแบบถูกต้อง (มีจุดได้ไม่เกิน 1 จุด)
+        m = re.match(rf'^{re.escape(keyword)}\s+(\d+(?:\.\d+)?)\s*$', line)
+        if not m:
+            return None
+        try:
+            return float(m.group(1))
+        except (ValueError, TypeError):
+            return None
 
     home_count = 0
     away_count = 0
@@ -327,9 +333,10 @@ def parse_match_text(text):
             result['ah_line_raw'] = ah_match.group(1).strip()
             continue
 
-        ou_line_match = re.match(r'^สูง\s*/\s*ต่ำ\s+([\d.]+)\s*$', line)
+        ou_line_match = re.match(r'^สูง\s*/\s*ต่ำ\s+([\d./]+)\s*$', line)
         if ou_line_match:
-            result['ou_line_raw'] = float(ou_line_match.group(1))
+            # รองรับเส้นควบ เช่น "2.5/3" → 2.75 (ใช้ parse_line เหมือน AH)
+            result['ou_line_raw'] = parse_line(ou_line_match.group(1))
             continue
 
         v = extract_value(line, 'เหย้า')
