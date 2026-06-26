@@ -63,6 +63,54 @@ def db_save_prediction(record: dict):
         return None
 
 
+def db_find_pending_by_match(match_name):
+    """หา prediction ที่ match_name เดียวกันและยังไม่ได้กรอกผล (pending)
+    คืน id ถ้าเจอ, None ถ้าไม่เจอ — ใช้สำหรับเซฟทับคู่ซ้ำ"""
+    if not supabase or not match_name:
+        return None
+    try:
+        resp = (supabase.table(DB_TABLE)
+                .select("id, actual_result")
+                .eq("match_name", match_name)
+                .execute())
+        if resp.data:
+            # หาเฉพาะที่ยังไม่ settle (actual_result เป็น null)
+            for row in resp.data:
+                if row.get('actual_result') is None:
+                    return row['id']
+        return None
+    except Exception:
+        return None
+
+
+def db_save_or_update_prediction(record: dict):
+    """บันทึก prediction — ถ้ามีคู่เดียวกัน (match_name) ที่ยัง pending อยู่ ให้ทับอันเดิม
+    คืน (id, was_updated: bool)"""
+    if not supabase:
+        st.error("⚠️ ไม่สามารถเชื่อมต่อฐานข้อมูล Supabase ได้")
+        return None, False
+    match_name = record.get('match_name')
+    existing_id = db_find_pending_by_match(match_name)
+    payload = {k: v for k, v in record.items() if not k.startswith('_')}
+    try:
+        if existing_id is not None:
+            # ทับอันเดิม (update ทุก field การวิเคราะห์ใหม่)
+            # reset field ผลให้สะอาด (เผื่อมี pnl/outcome ค้างจากการแก้ก่อนหน้า)
+            payload.setdefault('pnl', None)
+            payload.setdefault('bet_outcome', None)
+            supabase.table(DB_TABLE).update(payload).eq("id", existing_id).execute()
+            return existing_id, True
+        else:
+            resp = supabase.table(DB_TABLE).insert(payload).execute()
+            if resp.data:
+                return resp.data[0].get('id'), False
+            return None, False
+    except Exception as e:
+        st.error(f"⚠️ บันทึกลงฐานข้อมูลไม่สำเร็จ: {e}")
+        return None, False
+
+
+
 def db_load_predictions():
     """โหลด predictions ทั้งหมดจาก Supabase เรียงล่าสุดก่อน — คืน DataFrame ว่างถ้าพัง"""
     if not supabase:
@@ -1746,10 +1794,14 @@ with tab_pre:
                 'bet_phase': bet_phase,
                 'bankroll_at_time': bankroll,
             }
-            new_id = db_save_prediction(pred_record)
+            new_id, was_updated = db_save_or_update_prediction(pred_record)
             if new_id is not None:
-                st.success(f"✅ บันทึก Prediction ลงฐานข้อมูลแล้ว (id={new_id}) — "
-                          f"ดูที่ tab 📝 PREDICTIONS LOG เพื่อกรอกผลภายหลัง")
+                if was_updated:
+                    st.success(f"♻️ พบคู่นี้อยู่แล้ว (ยังไม่กรอกผล) — เซฟทับข้อมูลเดิมแล้ว (id={new_id}) "
+                              f"· ดูที่ tab 📝 PREDICTIONS LOG")
+                else:
+                    st.success(f"✅ บันทึก Prediction ใหม่ลงฐานข้อมูลแล้ว (id={new_id}) — "
+                              f"ดูที่ tab 📝 PREDICTIONS LOG เพื่อกรอกผลภายหลัง")
                 st.cache_data.clear()
 
 
