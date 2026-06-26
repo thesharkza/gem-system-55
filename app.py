@@ -181,6 +181,61 @@ def compute_best_side(p):
                        key=lambda x: x[1], reverse=True)
     return qualified[0][0] if qualified else None
 
+
+# ════════════════════════════════════════════════════════════════════════
+# 🧪 EDGE SIGNALS (ทดลอง) — สัญญาณเสริมจากข้อมูลที่ "ดูมีแนวโน้ม" แต่ยังไม่ยืนยัน
+# ────────────────────────────────────────────────────────────────────────
+# จากวิเคราะห์ 94 เคส: 2 สัญญาณนี้ดู predictive แต่ยังไม่ผ่าน robustness test
+# (Bonferroni + split-half) → แสดงเป็นข้อมูลให้คนตัดสินใจเอง ไม่บังคับ
+#   1. ah_overround สูง (>104.7%) → WR 61% vs 29% (p=0.008 แต่ split-half ไม่นิ่ง)
+#   2. away_wr_5g ต่ำ (≤40%) → WR 57% vs 29% (p=0.018)
+# ⚠️ ห้ามใช้เป็น Gate บังคับจนกว่าจะเก็บข้อมูลพอ + ผ่าน robustness
+# ════════════════════════════════════════════════════════════════════════
+OVERROUND_EDGE_THRESHOLD = 104.7   # ah_overround สูงกว่านี้ = สัญญาณบวก (ทดลอง)
+AWAY_FORM_EDGE_THRESHOLD = 0.40    # away_wr_5g ต่ำกว่าหรือเท่านี้ = สัญญาณบวก (ทดลอง)
+
+def compute_edge_signals(p):
+    """คืน list ของสัญญาณเสริม (ทดลอง) — แต่ละตัวเป็น dict
+    {label, status: 'positive'/'neutral'/'caution', detail}"""
+    def _nz(v, d=None):
+        if v is None: return d
+        try:
+            if pd.isna(v): return d
+        except (TypeError, ValueError): pass
+        return v
+    signals = []
+    # 1. AH Overround
+    ah_or = _nz(p.get('ah_overround'))
+    if ah_or is not None:
+        if ah_or > OVERROUND_EDGE_THRESHOLD:
+            signals.append({
+                'label': f'ค่าน้ำ AH สูง ({ah_or:.1f}%)',
+                'status': 'positive',
+                'detail': 'ตลาดอาจไม่ efficient → Stat มี edge มากขึ้น (ทดลอง)'
+            })
+        else:
+            signals.append({
+                'label': f'ค่าน้ำ AH ต่ำ ({ah_or:.1f}%)',
+                'status': 'caution',
+                'detail': 'ตลาด efficient → Stat edge น้อยลง (ทดลอง)'
+            })
+    # 2. Away form
+    away_wr = _nz(p.get('away_wr_5g'))
+    if away_wr is not None:
+        if away_wr <= AWAY_FORM_EDGE_THRESHOLD:
+            signals.append({
+                'label': f'ทีมเยือนฟอร์มแย่ ({away_wr*100:.0f}%)',
+                'status': 'positive',
+                'detail': 'เจ้าบ้านได้เปรียบชัด → ทายง่ายขึ้น (ทดลอง)'
+            })
+        else:
+            signals.append({
+                'label': f'ทีมเยือนฟอร์มดี ({away_wr*100:.0f}%)',
+                'status': 'neutral',
+                'detail': 'คู่สูสี → ระวังมากขึ้น (ทดลอง)'
+            })
+    return signals
+
 # ──────────────────────────────────────────────────────────────────────
 # SESSION STATE INIT
 # ──────────────────────────────────────────────────────────────────────
@@ -2028,10 +2083,33 @@ with tab_log:
                     )
                 st.markdown(verdict_html, unsafe_allow_html=True)
 
-                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+                # ── 🧪 สัญญาณเสริม (ทดลอง) — แสดงข้อมูล ไม่บังคับ ──
+                edge_signals = compute_edge_signals(p)
+                if edge_signals:
+                    sig_color = {'positive': '#00ff88', 'neutral': '#7a9a88', 'caution': '#ff8c00'}
+                    sig_icon = {'positive': '🟢', 'neutral': '⚪', 'caution': '🟠'}
+                    pos_count = sum(1 for s in edge_signals if s['status'] == 'positive')
+                    edge_html = (
+                        f'<div style="background:#0a1520;border:1px dashed #2a4a5a;border-radius:8px;'
+                        f'padding:10px 14px;margin-bottom:8px;">'
+                        f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#5a8a9a;'
+                        f'margin-bottom:6px;">🧪 สัญญาณเสริม (ทดลอง · ยังไม่ใช้ตัดสินใจอัตโนมัติ) '
+                        f'· บวก {pos_count}/{len(edge_signals)}</div>'
+                    )
+                    for s in edge_signals:
+                        c = sig_color[s['status']]
+                        edge_html += (
+                            f'<div style="display:flex;align-items:center;gap:8px;margin:3px 0;">'
+                            f'<span>{sig_icon[s["status"]]}</span>'
+                            f'<span style="font-family:\'Rajdhani\';font-size:0.78rem;color:{c};'
+                            f'font-weight:600;min-width:160px;">{s["label"]}</span>'
+                            f'<span style="font-family:\'Rajdhani\';font-size:0.7rem;color:#5a7a68;">'
+                            f'{s["detail"]}</span></div>'
+                        )
+                    edge_html += '</div>'
+                    st.markdown(edge_html, unsafe_allow_html=True)
 
-                # ── 📊 ราคาตลาด: ASIAN HANDICAP + TOTAL GOALS (O/U) ──
-                ah_line_v = nz(p.get('ah_line'))
+                st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
                 ah_h_odds = nz(p.get('ah_home_odds'))
                 ah_a_odds = nz(p.get('ah_away_odds'))
                 ou_line_v = nz(p.get('ou_line'))
@@ -2547,6 +2625,75 @@ with tab_backtest:
             )
         if not any_tier:
             st.caption("ยังไม่มีข้อมูล goals_winner เพียงพอ")
+
+        # ═══════════ SECTION 4: EDGE SIGNAL TRACKING (ทดลอง) ═══════════
+        st.markdown('<div class="gem-label" style="margin-top:18px;">🧪 ติดตามสัญญาณเสริม (ทดลอง)</div>',
+                   unsafe_allow_html=True)
+        st.caption("ดูว่าสัญญาณที่ 'ดูมีแนวโน้ม' ยัง hold ไหมเมื่อข้อมูลมากขึ้น — ยังไม่ใช้ตัดสินใจอัตโนมัติ")
+
+        # คำนวณ WR ของบิล (เล่นตามฝั่ง stat) แยกตามว่ามีสัญญาณบวกไหม
+        def _ah_outcome(p):
+            div = p.get('divergence_wl') or 0
+            side = 'AH Home' if div > 0 else 'AH Away'
+            wf, lf = settle_ah_ou(side, p.get('ah_line'), p.get('ou_line'),
+                                  p.get('actual_home_goals'), p.get('actual_away_goals'))
+            if wf > lf: return 1
+            if lf > wf: return 0
+            return None
+
+        edge_defs = [
+            ('ค่าน้ำ AH สูง (>104.7%)', lambda p: (p.get('ah_overround') or 0) > OVERROUND_EDGE_THRESHOLD),
+            ('ทีมเยือนฟอร์มแย่ (≤40%)', lambda p: (p.get('away_wr_5g') is not None
+                                                  and not pd.isna(p.get('away_wr_5g'))
+                                                  and p.get('away_wr_5g') <= AWAY_FORM_EDGE_THRESHOLD)),
+        ]
+        for label, cond in edge_defs:
+            with_sig = []
+            without_sig = []
+            for p in settled:
+                if pd.isna(p.get('ah_line')): continue
+                oc = _ah_outcome(p)
+                if oc is None: continue
+                if cond(p):
+                    with_sig.append(oc)
+                else:
+                    without_sig.append(oc)
+            n_with = len(with_sig)
+            n_without = len(without_sig)
+            wr_with = sum(with_sig)/n_with*100 if n_with > 0 else 0
+            wr_without = sum(without_sig)/n_without*100 if n_without > 0 else 0
+            diff = wr_with - wr_without
+            # bar เทียบ
+            diff_color = "#00ff88" if diff > 5 else ("#ff8c00" if diff < -5 else "#7a9a88")
+            stable_note = ""
+            if n_with >= 30:
+                stable_note = "✅ ข้อมูลพอเริ่มเชื่อได้"
+            elif n_with >= 15:
+                stable_note = "⚠️ ข้อมูลปานกลาง"
+            else:
+                stable_note = "🔸 ข้อมูลยังน้อย"
+            st.markdown(
+                f'<div style="background:#0d1e2e;border-radius:8px;padding:12px 16px;margin-bottom:8px;'
+                f'border-left:3px solid {diff_color};">'
+                f'<div style="display:flex;justify-content:space-between;margin-bottom:6px;">'
+                f'<span style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;font-weight:600;">'
+                f'{label}</span>'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.85rem;color:{diff_color};">'
+                f'{diff:+.0f}%</span></div>'
+                f'<div style="display:flex;gap:14px;font-family:\'Rajdhani\';font-size:0.74rem;color:#7a9a88;">'
+                f'<span>มีสัญญาณ: <b style="color:#00ff88;">{wr_with:.0f}%</b> (n={n_with})</span>'
+                f'<span>ไม่มี: <b style="color:#ff8c00;">{wr_without:.0f}%</b> (n={n_without})</span>'
+                f'<span>· {stable_note}</span></div></div>',
+                unsafe_allow_html=True
+            )
+        st.markdown(
+            '<div style="background:#1e1505;border-left:3px solid #ff8c00;padding:8px 12px;'
+            'border-radius:0 6px 6px 0;margin-top:4px;">'
+            '<span style="font-family:\'Rajdhani\';font-size:0.72rem;color:#c8e6d4;">'
+            '⚠️ สัญญาณเหล่านี้ยังไม่ผ่าน robustness test (split-half ไม่นิ่ง) '
+            'รอข้อมูล 30+ บิลต่อกลุ่มก่อนพิจารณาใช้จริง</span></div>',
+            unsafe_allow_html=True
+        )
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown(
