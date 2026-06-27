@@ -231,20 +231,24 @@ def compute_best_side(p):
 
 
 # ════════════════════════════════════════════════════════════════════════
-# 🧪 EDGE SIGNALS (ทดลอง) — สัญญาณเสริมจากข้อมูลที่ "ดูมีแนวโน้ม" แต่ยังไม่ยืนยัน
+# 🧪 EDGE SIGNALS — อัปเดตจากการวิเคราะห์ 150 เคส (settled)
 # ────────────────────────────────────────────────────────────────────────
-# จากวิเคราะห์ 94 เคส: 2 สัญญาณนี้ดู predictive แต่ยังไม่ผ่าน robustness test
-# (Bonferroni + split-half) → แสดงเป็นข้อมูลให้คนตัดสินใจเอง ไม่บังคับ
-#   1. ah_overround สูง (>104.7%) → WR 61% vs 29% (p=0.008 แต่ split-half ไม่นิ่ง)
-#   2. away_wr_5g ต่ำ (≤40%) → WR 57% vs 29% (p=0.018)
-# ⚠️ ห้ามใช้เป็น Gate บังคับจนกว่าจะเก็บข้อมูลพอ + ผ่าน robustness
+# บทเรียนสำคัญ: สัญญาณเดี่ยวที่เคยดูดีตอน 94 เคส อ่อนลงเมื่อข้อมูลโต
+#   • ah_overround เดี่ยว: 61%→57% (p 0.008→0.17) อ่อนลงชัด
+#   • away_wr_5g เดี่ยว: ยัง 58% (p=0.036) แต่ไม่ผ่าน Bonferroni + split-half ผันผวน
+# ⭐ การค้นพบใหม่ที่แข็งแกร่งสุด — COMBO 2 เงื่อนไข:
+#   "OU overround สูง (>104.8%) + ทีมเยือนฟอร์มแย่ (≤40%)" → เล่นตาม Stat
+#   WR 71% (n=42, ROI +32%) · split-half นิ่ง (74%/70%) · เทียบไม่เข้า combo แค่ 40%
+#   ⚠️ p=0.004 เกือบผ่าน Bonferroni(0.0025), 5-fold ±17% → ยังต้องเฝ้าดู
+# หลักการ: แสดงเป็นสัญญาณให้คนตัดสินใจ ไม่บังคับเป็น Gate จนกว่าจะ 30+ บิล/กลุ่ม
 # ════════════════════════════════════════════════════════════════════════
-OVERROUND_EDGE_THRESHOLD = 104.7   # ah_overround สูงกว่านี้ = สัญญาณบวก (ทดลอง)
-AWAY_FORM_EDGE_THRESHOLD = 0.40    # away_wr_5g ต่ำกว่าหรือเท่านี้ = สัญญาณบวก (ทดลอง)
+OVERROUND_EDGE_THRESHOLD = 104.7    # ah_overround (สัญญาณเดี่ยว — อ่อนลงแล้ว)
+OU_OVERROUND_EDGE_THRESHOLD = 104.8 # ou_overround (ใช้ใน combo ที่แข็งกว่า)
+AWAY_FORM_EDGE_THRESHOLD = 0.40     # away_wr_5g ต่ำกว่าหรือเท่านี้ = ฟอร์มแย่
 
 def compute_edge_signals(p):
-    """คืน list ของสัญญาณเสริม (ทดลอง) — แต่ละตัวเป็น dict
-    {label, status: 'positive'/'neutral'/'caution', detail}"""
+    """คืน list ของสัญญาณเสริม — แต่ละตัวเป็น dict
+    {label, status: 'strong'/'positive'/'neutral'/'caution', detail}"""
     def _nz(v, d=None):
         if v is None: return d
         try:
@@ -252,35 +256,59 @@ def compute_edge_signals(p):
         except (TypeError, ValueError): pass
         return v
     signals = []
-    # 1. AH Overround
+
+    ou_or = _nz(p.get('ou_overround'))
     ah_or = _nz(p.get('ah_overround'))
+    away_wr = _nz(p.get('away_wr_5g'))
+
+    # ⭐ COMBO SIGNAL (แข็งแกร่งสุด) — OU overround สูง + ทีมเยือนฟอร์มแย่
+    if ou_or is not None and away_wr is not None:
+        if ou_or > OU_OVERROUND_EDGE_THRESHOLD and away_wr <= AWAY_FORM_EDGE_THRESHOLD:
+            signals.append({
+                'label': '⭐ AH COMBO: ค่าน้ำ O/U สูง + เยือนฟอร์มแย่',
+                'status': 'strong',
+                'detail': f'อดีต WR 71% (เทียบไม่เข้า combo 40%) → เล่น AH ตาม Stat น่าสนใจ'
+            })
+
+    # ⭐ OU OVER COMBO — OU overround สูง + ทั้งคู่เสียประตูเยอะ → เล่น Over
+    home_ga = _nz(p.get('home_ga'))
+    away_ga = _nz(p.get('away_ga'))
+    if ou_or is not None and home_ga is not None and away_ga is not None:
+        avg_conceded = (home_ga + away_ga) / 10  # เฉลี่ยเสีย/นัด รวมสองทีม
+        if ou_or > OU_OVERROUND_EDGE_THRESHOLD and avg_conceded > 1.3:
+            signals.append({
+                'label': '⭐ OU COMBO: ค่าน้ำ O/U สูง + ทั้งคู่เสียเยอะ',
+                'status': 'strong',
+                'detail': f'อดีต Over WR 65% (เทียบ Over ทั่วไป 52%) → เล่น สูง (Over) น่าสนใจ'
+            })
+
+    # สัญญาณเดี่ยว (อ่อนลงแล้ว — แสดงเป็นข้อมูลประกอบ)
     if ah_or is not None:
         if ah_or > OVERROUND_EDGE_THRESHOLD:
             signals.append({
                 'label': f'ค่าน้ำ AH สูง ({ah_or:.1f}%)',
-                'status': 'positive',
-                'detail': 'ตลาดอาจไม่ efficient → Stat มี edge มากขึ้น (ทดลอง)'
+                'status': 'neutral',
+                'detail': 'เคยเป็นสัญญาณบวก แต่อ่อนลงเมื่อข้อมูลมากขึ้น (เฝ้าดู)'
             })
         else:
             signals.append({
                 'label': f'ค่าน้ำ AH ต่ำ ({ah_or:.1f}%)',
                 'status': 'caution',
-                'detail': 'ตลาด efficient → Stat edge น้อยลง (ทดลอง)'
+                'detail': 'ตลาด efficient → ระวัง'
             })
-    # 2. Away form
-    away_wr = _nz(p.get('away_wr_5g'))
+
     if away_wr is not None:
         if away_wr <= AWAY_FORM_EDGE_THRESHOLD:
             signals.append({
                 'label': f'ทีมเยือนฟอร์มแย่ ({away_wr*100:.0f}%)',
                 'status': 'positive',
-                'detail': 'เจ้าบ้านได้เปรียบชัด → ทายง่ายขึ้น (ทดลอง)'
+                'detail': 'เจ้าบ้านได้เปรียบ — แข็งขึ้นเมื่อรวมกับค่าน้ำ O/U สูง'
             })
         else:
             signals.append({
                 'label': f'ทีมเยือนฟอร์มดี ({away_wr*100:.0f}%)',
                 'status': 'neutral',
-                'detail': 'คู่สูสี → ระวังมากขึ้น (ทดลอง)'
+                'detail': 'คู่สูสี → ระวัง'
             })
     return signals
 
@@ -1299,8 +1327,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-tab_pre, tab_log, tab_backtest, tab_dash = st.tabs(
-    ["📋 PRE-MATCH", "📝 PREDICTIONS LOG", "🧪 BACKTEST LAB", "📊 DASHBOARD"]
+tab_pre, tab_scan, tab_log, tab_backtest, tab_dash = st.tabs(
+    ["📋 PRE-MATCH", "🎯 COMBO SCAN", "📝 PREDICTIONS LOG", "🧪 BACKTEST LAB", "📊 DASHBOARD"]
 )
 
 # ════════════════════════════════════════════════════════════════════════
@@ -1838,6 +1866,115 @@ def compute_goals_winner(market_total, stat_total, actual_total_goals):
     return 'market' if market_dist < stat_dist else 'stat'
 
 
+with tab_scan:
+    st.markdown('<div class="gem-label">◈ 🎯 COMBO SCAN — คู่ที่เข้าสัญญาณเด่น</div>',
+               unsafe_allow_html=True)
+    st.caption("สแกน predictions ที่ยังไม่จบ (pending) หาคู่ที่เข้า ⭐ COMBO signal — เพื่อหาบิลน่าเล่นเร็วๆ")
+
+    scan_df = db_load_predictions()
+    scan_log = scan_df.to_dict('records') if not scan_df.empty else []
+    scan_pending = [p for p in scan_log if not is_settled(p)]
+
+    def nz_global(v, d=0):
+        if v is None: return d
+        try:
+            if pd.isna(v): return d
+        except (TypeError, ValueError): pass
+        return v
+
+    # คัดเฉพาะคู่ที่มี strong combo signal
+    combo_hits = []
+    for p in scan_pending:
+        sigs = compute_edge_signals(p)
+        strong = [s for s in sigs if s['status'] == 'strong']
+        if strong:
+            combo_hits.append((p, strong, compute_best_side(p)))
+
+    if not scan_pending:
+        st.info("ยังไม่มีคู่ที่รอผล (pending) — วิเคราะห์คู่ใหม่ที่ tab 📋 PRE-MATCH ก่อน")
+    elif not combo_hits:
+        st.markdown(
+            f'<div style="background:#0d1e2e;border-left:3px solid #7a9a88;padding:14px 18px;'
+            f'border-radius:0 8px 8px 0;">'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.9rem;color:#c8e6d4;">'
+            f'มี {len(scan_pending)} คู่รอผล แต่ยังไม่มีคู่ไหนเข้า ⭐ COMBO signal</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.76rem;color:#7a9a88;margin-top:6px;">'
+            f'COMBO ต้องมี: ค่าน้ำ O/U สูง (>104.8%) + (เยือนฟอร์มแย่ หรือ ทั้งคู่เสียเยอะ)</div></div>',
+            unsafe_allow_html=True
+        )
+    else:
+        # สรุปบนสุด
+        st.markdown(
+            f'<div style="display:flex;gap:10px;margin-bottom:14px;">'
+            f'<div style="flex:1;background:linear-gradient(135deg,#2a2410,#0d1e2e);border:1px solid #ffd70055;'
+            f'border-top:3px solid #ffd700;border-radius:10px;padding:14px 18px;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:2rem;color:#ffd700;">{len(combo_hits)}</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#c8e6d4;">'
+            f'คู่ที่เข้า ⭐ COMBO (จาก {len(scan_pending)} คู่รอผล)</div></div></div>',
+            unsafe_allow_html=True
+        )
+
+        # การ์ดแต่ละคู่
+        for p, strong_sigs, best in combo_hits:
+            match = p.get('match_name', '-')
+            league = p.get('league', '-')
+            tier = p.get('league_tier', '-')
+
+            # สรุปคำแนะนำจาก combo
+            recs = []
+            for s in strong_sigs:
+                if 'AH COMBO' in s['label']:
+                    bs = best or ('AH Home' if (p.get('divergence_wl') or 0) > 0 else 'AH Away')
+                    recs.append(('AH ตาม Stat', bs, '71%'))
+                elif 'OU COMBO' in s['label']:
+                    recs.append(('Total Goals', 'OU Over (สูง)', '65%'))
+
+            rec_html = ""
+            for rtype, rside, rwr in recs:
+                rec_html += (
+                    f'<div style="display:flex;justify-content:space-between;align-items:center;'
+                    f'background:#0a1520;border-radius:6px;padding:8px 12px;margin:4px 0;">'
+                    f'<span style="font-family:\'Rajdhani\';font-size:0.82rem;color:#ffd700;font-weight:600;">'
+                    f'💡 {rtype}: <span style="color:#00ff88;">{rside}</span></span>'
+                    f'<span style="font-family:\'Share Tech Mono\';font-size:0.76rem;color:#7a9a88;">'
+                    f'อดีต WR {rwr}</span></div>'
+                )
+
+            # ค่าประกอบ
+            ou_or = nz_global(p.get('ou_overround'))
+            away_wr = nz_global(p.get('away_wr_5g'))
+            ah_or = nz_global(p.get('ah_overround'))
+
+            sig_labels = " · ".join(s['label'].replace('⭐ ', '') for s in strong_sigs)
+
+            st.markdown(
+                f'<div style="background:linear-gradient(135deg,#1a1505,#0d1e2e);'
+                f'border:1px solid #ffd70044;border-left:4px solid #ffd700;border-radius:10px;'
+                f'padding:14px 18px;margin-bottom:12px;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:start;">'
+                f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.05rem;color:#ffd700;">'
+                f'⭐ {match}</div></div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#7a9a88;margin-bottom:8px;">'
+                f'🏆 {league} [{tier}]</div>'
+                f'{rec_html}'
+                f'<div style="font-family:\'Share Tech Mono\';font-size:0.7rem;color:#5a7a68;'
+                f'margin-top:8px;border-top:1px solid #2a3a2a;padding-top:6px;">'
+                f'สัญญาณ: {sig_labels}<br>'
+                f'ค่าน้ำ O/U {ou_or:.1f}% · เยือนฟอร์ม {away_wr*100:.0f}% · ค่าน้ำ AH {ah_or:.1f}%</div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+        st.markdown(
+            '<div style="background:#1e1505;border-left:3px solid #ff8c00;padding:10px 14px;'
+            'border-radius:0 6px 6px 0;margin-top:8px;">'
+            '<span style="font-family:\'Rajdhani\';font-size:0.74rem;color:#c8e6d4;">'
+            '⚠️ COMBO signals ยังเป็นสัญญาณทดลอง (split-half นิ่งแต่ยังไม่ผ่าน Bonferroni เต็ม) '
+            'ใช้ประกอบการตัดสินใจ ไม่ใช่รับประกัน — เก็บข้อมูลเพิ่มเพื่อยืนยัน</span></div>',
+            unsafe_allow_html=True
+        )
+
+
 with tab_log:
     st.markdown('<div class="gem-label">◈ PREDICTIONS LOG</div>', unsafe_allow_html=True)
 
@@ -2145,9 +2282,10 @@ with tab_log:
                 # ── 🧪 สัญญาณเสริม (ทดลอง) — แสดงข้อมูล ไม่บังคับ ──
                 edge_signals = compute_edge_signals(p)
                 if edge_signals:
-                    sig_color = {'positive': '#00ff88', 'neutral': '#7a9a88', 'caution': '#ff8c00'}
-                    sig_icon = {'positive': '🟢', 'neutral': '⚪', 'caution': '🟠'}
-                    pos_count = sum(1 for s in edge_signals if s['status'] == 'positive')
+                    sig_color = {'strong': '#ffd700', 'positive': '#00ff88', 'neutral': '#7a9a88', 'caution': '#ff8c00'}
+                    sig_icon = {'strong': '⭐', 'positive': '🟢', 'neutral': '⚪', 'caution': '🟠'}
+                    pos_count = sum(1 for s in edge_signals if s['status'] in ('strong', 'positive'))
+                    has_combo = any(s['status'] == 'strong' for s in edge_signals)
                     edge_html = (
                         f'<div style="background:#0a1520;border:1px dashed #2a4a5a;border-radius:8px;'
                         f'padding:10px 14px;margin-bottom:8px;">'
@@ -2702,18 +2840,45 @@ with tab_backtest:
             if lf > wf: return 0
             return None
 
+        def _over_outcome(p):
+            wf, lf = settle_ah_ou('OU Over', p.get('ah_line'), p.get('ou_line'),
+                                  p.get('actual_home_goals'), p.get('actual_away_goals'))
+            if wf > lf: return 1
+            if lf > wf: return 0
+            return None
+
+        def _safe_num(v):
+            if v is None: return None
+            try:
+                return None if pd.isna(v) else float(v)
+            except (TypeError, ValueError): return None
+
+        # (label, condition, outcome_fn) — แต่ละ edge เล่นทิศทางต่างกัน
         edge_defs = [
-            ('ค่าน้ำ AH สูง (>104.7%)', lambda p: (p.get('ah_overround') or 0) > OVERROUND_EDGE_THRESHOLD),
-            ('ทีมเยือนฟอร์มแย่ (≤40%)', lambda p: (p.get('away_wr_5g') is not None
-                                                  and not pd.isna(p.get('away_wr_5g'))
-                                                  and p.get('away_wr_5g') <= AWAY_FORM_EDGE_THRESHOLD)),
+            ('⭐ AH COMBO: O/U สูง + เยือนแย่', lambda p: (
+                _safe_num(p.get('ou_overround')) is not None
+                and _safe_num(p.get('ou_overround')) > OU_OVERROUND_EDGE_THRESHOLD
+                and _safe_num(p.get('away_wr_5g')) is not None
+                and _safe_num(p.get('away_wr_5g')) <= AWAY_FORM_EDGE_THRESHOLD), _ah_outcome),
+            ('⭐ OU COMBO: O/U สูง + เสียเยอะ → Over', lambda p: (
+                _safe_num(p.get('ou_overround')) is not None
+                and _safe_num(p.get('ou_overround')) > OU_OVERROUND_EDGE_THRESHOLD
+                and _safe_num(p.get('home_ga')) is not None
+                and _safe_num(p.get('away_ga')) is not None
+                and (_safe_num(p.get('home_ga')) + _safe_num(p.get('away_ga')))/10 > 1.3), _over_outcome),
+            ('ค่าน้ำ AH สูง (>104.7%) [เดี่ยว]', lambda p: (
+                _safe_num(p.get('ah_overround')) is not None
+                and _safe_num(p.get('ah_overround')) > OVERROUND_EDGE_THRESHOLD), _ah_outcome),
+            ('ทีมเยือนฟอร์มแย่ (≤40%) [เดี่ยว]', lambda p: (
+                _safe_num(p.get('away_wr_5g')) is not None
+                and _safe_num(p.get('away_wr_5g')) <= AWAY_FORM_EDGE_THRESHOLD), _ah_outcome),
         ]
-        for label, cond in edge_defs:
+        for label, cond, outcome_fn in edge_defs:
             with_sig = []
             without_sig = []
             for p in settled:
                 if pd.isna(p.get('ah_line')): continue
-                oc = _ah_outcome(p)
+                oc = outcome_fn(p)
                 if oc is None: continue
                 if cond(p):
                     with_sig.append(oc)
