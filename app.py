@@ -1046,8 +1046,8 @@ EXTREME_DIVERGENCE_THRESHOLD = 0.40
 MODERATE_DIVERGENCE_THRESHOLD = 0.15
 
 # Bet size multiplier ตามหลักฐาน (ใช้ลด exposure เมื่อ stat อยู่ในโซนเสี่ยง)
-MULT_MODERATE_AGAINST = 0.5   # stat สวนตลาด 15-40% → ลดครึ่ง (ตลาดถูก ~64%)
-MULT_EXTREME_AGAINST = 0.4    # stat สวนตลาด ≥40% → ลดแรง (ข้อมูลน้อย เสี่ยงสูง)
+MULT_MODERATE_AGAINST = 0.5   # stat สวนตลาด 15-40% → ลดครึ่ง (เดิมคิดตลาดถูก แต่ล่าสุด 48% เกือบ 50/50)
+MULT_EXTREME_AGAINST = 0.7    # stat สวนตลาด ≥40% → ลดเล็กน้อย (9 เคสล่าสุดเล่นตาม stat 62% แต่ยังเล็ก)
 MULT_LOW_DIVERGENCE = 1.0     # <15% → stat เชื่อถือได้ ไม่ลด
 
 # ────────────────────────────────────────────────────────────────────────
@@ -1131,20 +1131,20 @@ def evaluate_gate5(league_name, home_rank, away_rank, temp,
         signals.append({
             'type': 'warning', 'level': 'high',
             'title': f"EXTREME DIVERGENCE (D{divergence_wl*100:+.0f}%)",
-            'detail': (f"Stat บอก {favored_side} ได้เปรียบกว่าตลาดมาก (≥40%) — เคสแบบนี้พบน้อยมาก "
-                      f"(4 เคสในข้อมูล, ผล 50/50 ยังสรุปไม่ได้) ความต่างที่สูงผิดปกติขนาดนี้ "
-                      f"มักมาจาก small-sample noise ใน 5 นัด แนะนำลดขนาดเดิมพันลงแรง "
-                      f"และตรวจ stat input ซ้ำว่าผิดปกติไหม")
+            'detail': (f"Stat บอก {favored_side} ได้เปรียบกว่าตลาดมาก (≥40%) — เคสแบบนี้พบน้อย "
+                      f"(9 เคสในข้อมูลล่าสุด, เล่นตาม Stat ชนะ ~62% แต่ sample ยังเล็กเกินสรุป) "
+                      f"ความต่างที่สูงผิดปกติอาจมาจาก small-sample noise ใน 5 นัด "
+                      f"แนะนำลดขนาดเดิมพันและตรวจ stat input ซ้ำว่าผิดปกติไหม")
         })
     elif abs_div >= MODERATE_DIVERGENCE_THRESHOLD:
         favored_side = "Home" if divergence_wl > 0 else "Away"
         signals.append({
             'type': 'warning', 'level': 'medium',
             'title': f"Moderate Divergence (D{divergence_wl*100:+.0f}%)",
-            'detail': (f"Stat เชียร์ {favored_side} ต่างจากตลาด 15-40% — จากข้อมูลจริง 60 เคส "
-                      f"โซนนี้ Stat มักพลาด (เล่นตาม Stat ใน AH ได้ WR ~36% / เล่นตามตลาด ~64%) "
-                      f"แนะนำลดขนาดเดิมพันลงครึ่งหนึ่งถ้า Best Bet ตรงกับฝั่งที่ Stat เชียร์ "
-                      f"(แนวโน้มชัด แต่ sample ยังไม่ถึงนัยสำคัญทางสถิติ p=0.13)")
+            'detail': (f"Stat เชียร์ {favored_side} ต่างจากตลาด 15-40% — จากข้อมูลล่าสุด 59 เคส "
+                      f"โซนนี้เล่นตาม Stat ใน AH ได้ WR ~48% (เกือบ 50/50, ไม่มี edge ชัด) "
+                      f"สัญญาณ 'ตลาดถูกกว่า' ที่เคยเห็นตอน sample เล็กได้จางหายไปแล้ว "
+                      f"แนะนำใช้สัญญาณอื่น (COMBO/AH Home confidence) ประกอบการตัดสินใจแทน")
         })
     else:
         signals.append({
@@ -1203,8 +1203,8 @@ def gate5_confidence_adjustment(gate5_result, recommended_side_is_home):
 
     if abs_div >= EXTREME_DIVERGENCE_THRESHOLD:
         if aligns_with_stat:
-            return ("🚨 ลด Bet แรง — Best Bet ตามฝั่ง Stat ที่ Diverge สูงมาก (≥40%, ข้อมูลน้อย)",
-                    "#ff3b5c", MULT_EXTREME_AGAINST)
+            return ("⚠️ ลด Bet เล็กน้อย — Diverge สูง (≥40%) ข้อมูลล่าสุด 9 เคสเล่นตาม Stat 62% (ยังเล็ก)",
+                    "#ff8c00", MULT_EXTREME_AGAINST)
         return ("ℹ️ Extreme Divergence แต่ Best Bet ฝั่งตรงข้าม Stat — สอดคล้องตลาด",
                 "#4a7a60", 1.0)
     elif abs_div >= MODERATE_DIVERGENCE_THRESHOLD:
@@ -1326,16 +1326,16 @@ with st.sidebar:
         "โหมด Gate 5 (Stat-Divergence)",
         options=[GATE5_MODE_SKIP, GATE5_MODE_REDUCE, GATE5_MODE_FLIP],
         format_func=lambda x: {
-            GATE5_MODE_SKIP: "🛡️ SKIP — ข้ามเคส Moderate-against (ปลอดภัยสุด, ROI +5%)",
-            GATE5_MODE_REDUCE: "⚖️ REDUCE — ลด bet โซนเสี่ยง (กลาง, ROI +4.7%)",
-            GATE5_MODE_FLIP: "⚡ FLIP — พลิกตามตลาด (รุก, ROI +11% แต่เสี่ยง overfit p=0.13)",
+            GATE5_MODE_SKIP: "🛡️ SKIP — ข้ามเคส Moderate-against (ปลอดภัยสุด, แนะนำ)",
+            GATE5_MODE_REDUCE: "⚖️ REDUCE — ลด bet โซนเสี่ยง (กลาง)",
+            GATE5_MODE_FLIP: "⚡ FLIP — พลิกตามตลาด (รุก — สัญญาณจางแล้ว ไม่แนะนำ)",
         }[x],
         key='gate5_mode',
     )
     if gate5_mode == GATE5_MODE_FLIP:
-        st.warning("⚡ โหมด FLIP: ระบบจะแนะนำให้เล่นตรงข้าม Stat ในโซน Moderate "
-                  "(เชื่อตลาด) — ผลตอบแทนสูงสุดใน backtest แต่ยังไม่ผ่านนัยสำคัญทางสถิติ "
-                  "(p=0.13, n=20) ใช้ด้วยความระมัดระวัง")
+        st.warning("⚡ โหมด FLIP: เคยให้ ROI ดีตอน sample เล็ก แต่ข้อมูลล่าสุด 59 เคส "
+                  "โซน Moderate กลับมาเกือบ 50/50 (เล่นตาม Stat 48%) — สัญญาณ 'ตลาดถูกกว่า' "
+                  "จางหายแล้ว ไม่แนะนำ FLIP อีกต่อไป ใช้ SKIP จะปลอดภัยกว่า")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ GATE THRESHOLDS (Fixed)</div>', unsafe_allow_html=True)
@@ -2750,6 +2750,19 @@ with tab_backtest:
                 sig = "✅ ชัดเจน" if (lo_c > 0.5) else "⚠️ ยังไม่ชัด"
                 winner_txt = f"{w_name} แม่นกว่า {max(mkt_pct,stat_pct):.0f}% · {sig}"
 
+            # AH bet จริง (เล่นตามฝั่ง stat) ในแต่ละ bucket — ต่างจาก wl_winner
+            ah_w = ah_l = 0
+            for p in sub:
+                div = p.get('divergence_wl') or 0
+                bet_side = 'AH Home' if div > 0 else 'AH Away'
+                wf, lf = settle_ah_ou(bet_side, p.get('ah_line'), p.get('ou_line'),
+                                      p.get('actual_home_goals'), p.get('actual_away_goals'))
+                if wf > lf: ah_w += 1
+                elif lf > wf: ah_l += 1
+            ah_dec = ah_w + ah_l
+            ah_wr = ah_w / ah_dec * 100 if ah_dec > 0 else 0
+            ah_txt = f"เล่น AH ตาม Stat: {ah_wr:.0f}% (W{ah_w}-L{ah_l})" if ah_dec > 0 else ""
+
             st.markdown(
                 f'<div style="background:#0d1e2e;border-radius:10px;padding:14px 16px;margin-bottom:10px;'
                 f'border-left:3px solid {color};">'
@@ -2768,7 +2781,9 @@ with tab_backtest:
                 f'font-size:0.72rem;color:#fff;">{f"Stat {stat}" if stat_pct>15 else ""}</div>'
                 f'</div>'
                 f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#c8e6d4;margin-top:6px;">'
-                f'{winner_txt} · เสมอ {neu} เคส</div>'
+                f'<span style="color:#9b8bb5;">[Calibration]</span> {winner_txt} · เสมอ {neu}</div>'
+                f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#7dd87d;margin-top:2px;">'
+                f'<span style="color:#5a9a6a;">[เดิมพันจริง]</span> {ah_txt}</div>'
                 f'</div>',
                 unsafe_allow_html=True
             )
