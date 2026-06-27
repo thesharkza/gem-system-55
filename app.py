@@ -1934,7 +1934,15 @@ with tab_scan:
         sigs = compute_edge_signals(p)
         strong = [s for s in sigs if s['status'] == 'strong']
         if strong:
-            combo_hits.append((p, strong, compute_best_side(p)))
+            # ตรวจ Double Opportunity: เข้าทั้ง AH (Home conf หรือ AH combo) + OU Over combo
+            has_ah = any(('AH HOME' in s['label'] or 'AH COMBO' in s['label']) for s in strong)
+            has_ou = any('OU COMBO' in s['label'] for s in strong)
+            is_double = has_ah and has_ou
+            combo_hits.append((p, strong, compute_best_side(p), is_double))
+
+    # เรียง Double Opportunity ขึ้นบนสุด
+    combo_hits.sort(key=lambda x: not x[3])
+    n_double = sum(1 for h in combo_hits if h[3])
 
     if not scan_pending:
         st.info("ยังไม่มีคู่ที่รอผล (pending) — วิเคราะห์คู่ใหม่ที่ tab 📋 PRE-MATCH ก่อน")
@@ -1949,19 +1957,27 @@ with tab_scan:
             unsafe_allow_html=True
         )
     else:
-        # สรุปบนสุด
+        # สรุปบนสุด — 2 การ์ด: รวม + double opportunity
+        dbl_card = (
+            f'<div style="flex:1;background:linear-gradient(135deg,#2a1010,#0d1e2e);border:1px solid #ff6b9d55;'
+            f'border-top:3px solid #ff6b9d;border-radius:10px;padding:14px 18px;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:2rem;color:#ff6b9d;">{n_double}</div>'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#c8e6d4;">'
+            f'⭐⭐ DOUBLE (เล่นได้ทั้ง AH + Over)</div></div>'
+        ) if n_double > 0 else ''
         st.markdown(
             f'<div style="display:flex;gap:10px;margin-bottom:14px;">'
             f'<div style="flex:1;background:linear-gradient(135deg,#2a2410,#0d1e2e);border:1px solid #ffd70055;'
             f'border-top:3px solid #ffd700;border-radius:10px;padding:14px 18px;">'
             f'<div style="font-family:\'Share Tech Mono\';font-size:2rem;color:#ffd700;">{len(combo_hits)}</div>'
             f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#c8e6d4;">'
-            f'คู่ที่เข้า ⭐ COMBO (จาก {len(scan_pending)} คู่รอผล)</div></div></div>',
+            f'คู่ที่เข้า ⭐ COMBO (จาก {len(scan_pending)} คู่รอผล)</div></div>'
+            f'{dbl_card}</div>',
             unsafe_allow_html=True
         )
 
         # การ์ดแต่ละคู่
-        for p, strong_sigs, best in combo_hits:
+        for p, strong_sigs, best, is_double in combo_hits:
             match = p.get('match_name', '-')
             league = p.get('league', '-')
             tier = p.get('league_tier', '-')
@@ -1995,13 +2011,27 @@ with tab_scan:
 
             sig_labels = " · ".join(s['label'].replace('⭐ ', '') for s in strong_sigs)
 
+            # การ์ด double opportunity = สีชมพู-ทอง + badge
+            if is_double:
+                card_border = "#ff6b9d"
+                card_bg = "linear-gradient(135deg,#2a1010,#1a1505)"
+                title_color = "#ff6b9d"
+                badge = ('<span style="background:#ff6b9d;color:#0a0a0a;font-family:\'Share Tech Mono\';'
+                        'font-size:0.62rem;font-weight:800;padding:2px 8px;border-radius:10px;'
+                        'margin-left:8px;">⭐⭐ DOUBLE</span>')
+            else:
+                card_border = "#ffd700"
+                card_bg = "linear-gradient(135deg,#1a1505,#0d1e2e)"
+                title_color = "#ffd700"
+                badge = ""
+
             st.markdown(
-                f'<div style="background:linear-gradient(135deg,#1a1505,#0d1e2e);'
-                f'border:1px solid #ffd70044;border-left:4px solid #ffd700;border-radius:10px;'
+                f'<div style="background:{card_bg};'
+                f'border:1px solid {card_border}44;border-left:4px solid {card_border};border-radius:10px;'
                 f'padding:14px 18px;margin-bottom:12px;">'
                 f'<div style="display:flex;justify-content:space-between;align-items:start;">'
-                f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.05rem;color:#ffd700;">'
-                f'⭐ {match}</div></div>'
+                f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.05rem;color:{title_color};">'
+                f'⭐ {match}{badge}</div></div>'
                 f'<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#7a9a88;margin-bottom:8px;">'
                 f'🏆 {league} [{tier}]</div>'
                 f'{rec_html}'
