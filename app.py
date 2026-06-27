@@ -2018,7 +2018,16 @@ with tab_scan:
             recs = []
             for s in strong_sigs:
                 if 'AH HOME' in s['label']:
-                    recs.append(('AH Home (เจ้าบ้าน)', 'AH Home', '63-65%'))
+                    # ⚠️ เช็คว่า AH Home ผ่าน Gate ไหม — ถ้า best_side เป็นฝั่งอื่น ให้เตือน
+                    if best == 'AH Home':
+                        recs.append(('AH Home (เจ้าบ้าน)', 'AH Home ✓ ผ่าน Gate', '63-65%'))
+                    elif best is not None:
+                        # signal บอก home แต่ gate บอกฝั่งอื่น → เตือน
+                        recs.append(('⚠️ AH Home (signal) ขัดกับ Gate',
+                                    f'Gate แนะนำ {best} — เชื่อ Gate ก่อน', 'ดู LOG'))
+                    else:
+                        # ไม่มีฝั่งไหนผ่าน gate — signal เป็นข้อมูลเสริมล้วน
+                        recs.append(('AH Home (signal เท่านั้น)', 'AH Home — ยังไม่ผ่าน Gate', '63-65%'))
                 elif 'AH COMBO' in s['label']:
                     bs = best or ('AH Home' if (p.get('divergence_wl') or 0) > 0 else 'AH Away')
                     recs.append(('AH ตาม Stat', bs, '71%'))
