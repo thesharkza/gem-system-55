@@ -1708,11 +1708,39 @@ with tab_pre:
             in_extreme = abs_div_g5 >= EXTREME_DIVERGENCE_THRESHOLD
             risky_zone = (in_moderate or in_extreme) and best_aligns_stat
 
+            # ── AH HOME CONFIDENCE OVERRIDE ──
+            # ถ้า Best Bet = AH Home และมีสัญญาณหนุนเจ้าบ้านสูง (≥3/4)
+            # → ไม่ skip แม้อยู่โซน moderate (home advantage แข็งกว่าความเสี่ยง moderate)
+            # หลักฐาน: AH Home conf≥3 → WR 63-64% (5-fold ±6% นิ่งสุด)
+            ah_conf_score = 0
+            if best['name'] == 'AH Home':
+                ah_conf_score = sum([
+                    ou_or > OU_OVERROUND_EDGE_THRESHOLD,
+                    gate5_result['divergence_wl'] > 0,
+                    (home_w / 5) >= 0.40,
+                    gate5_result['stat_lh'] >= 1.5,
+                ])
+            ah_home_override = (best['name'] == 'AH Home' and ah_conf_score >= 3)
+
             gate5_mode_active = st.session_state.get('gate5_mode', 'skip')
             mode_action_msg = None
 
+            # AH Home confidence สูง → ข้าม Gate 5 (เล่นได้เลย)
+            if ah_home_override and risky_zone:
+                st.markdown(
+                    f'<div style="background:linear-gradient(135deg,#0a2a18,#0d1e2e);'
+                    f'border:1px solid #00ff8855;border-left:4px solid #00ff88;border-radius:8px;'
+                    f'padding:12px 16px;margin:8px 0;">'
+                    f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.05rem;color:#00ff88;">'
+                    f'🏠 GATE 5 OVERRIDE — เล่น AH Home ได้</div>'
+                    f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;margin-top:6px;">'
+                    f'แม้อยู่โซนเสี่ยง แต่ AH Home มีสัญญาณหนุนเจ้าบ้าน {ah_conf_score}/4 '
+                    f'(home advantage แข็ง — อดีต WR 63-64%, 5-fold นิ่งสุด) '
+                    f'จึงไม่ข้ามคู่นี้</div></div>',
+                    unsafe_allow_html=True
+                )
             # SKIP mode: ถ้า best bet ตามฝั่ง stat ในโซนเสี่ยง → ไม่แนะนำ
-            if gate5_mode_active == GATE5_MODE_SKIP and risky_zone:
+            elif gate5_mode_active == GATE5_MODE_SKIP and risky_zone:
                 zone_name = "Moderate (15-40%)" if in_moderate else "Extreme (≥40%)"
                 st.markdown(
                     f'<div class="signal-invalid">'
@@ -1720,7 +1748,7 @@ with tab_pre:
                     f'🛡️ GATE 5 SKIP — ข้ามคู่นี้</div>'
                     f'<div style="font-family:\'Rajdhani\';font-size:0.88rem;color:#c8e6d4;margin-top:8px;">'
                     f'Best Bet ({best["name"]}) ตรงกับฝั่งที่ Stat เชียร์ในโซน {zone_name} '
-                    f'— จากข้อมูลจริง ตลาดมักถูกกว่า Stat ในโซนนี้ (~64%) '
+                    f'— โซนนี้จากข้อมูลล่าสุดเล่นตาม Stat ได้ ~48-50% (ไม่มี edge ชัด) '
                     f'โหมด SKIP จึงข้ามเพื่อเลี่ยงความเสี่ยง<br>'
                     f'(เปลี่ยนโหมดที่ Sidebar ได้ถ้าต้องการเล่น)</div>'
                     f'</div>', unsafe_allow_html=True
@@ -1755,7 +1783,11 @@ with tab_pre:
                 gate5_result, recommended_side_is_home=best['is_home']
             )
             # REDUCE mode ใช้ multiplier เต็มที่; SKIP/FLIP ใช้ 1.0 (จัดการไปแล้วข้างบน)
-            if st.session_state.get('gate5_mode') != GATE5_MODE_REDUCE:
+            # AH Home override → bet เต็ม (ไม่ลด เพราะ confidence สูง)
+            if locals().get('ah_home_override'):
+                conf_mult = 1.0
+                conf_label = "🏠 AH Home confidence สูง — เล่นเต็ม"
+            elif st.session_state.get('gate5_mode') != GATE5_MODE_REDUCE:
                 conf_mult = 1.0
                 conf_label = conf_label.replace("ลด Bet ครึ่งหนึ่ง — ", "").replace("ลด Bet แรง — ", "")
 
@@ -2717,21 +2749,10 @@ with tab_backtest:
             ph = k/n; se = (max(ph*(1-ph), 1e-9)/n)**0.5
             return (max(0, ph-1.96*se), min(1, ph+1.96*se))
 
+        # ใช้ settle_ah_ou ตัวจริง (single source of truth) ไม่ทำ logic ซ้ำ
+        # เพื่อกันการ drift — ถ้าแก้กฎ settlement จะแก้ที่เดียว
         def _settle(side, ah, ou, hg, ag):
-            hg = hg if pd.notna(hg) else 0; ag = ag if pd.notna(ag) else 0
-            if side in ('AH Home','AH Away'):
-                if pd.isna(ah): return (0.0,0.0)
-                adj = ((hg-ag)-ah) if side=='AH Home' else ((ag-hg)+ah)
-            elif side in ('OU Over','OU Under'):
-                if pd.isna(ou): return (0.0,0.0)
-                t=hg+ag; adj=(t-ou) if side=='OU Over' else (ou-t)
-            else: return (0.0,0.0)
-            adj = round(adj*4)/4
-            if adj>=0.5: return (1.0,0.0)
-            if adj==0.25: return (0.5,0.0)
-            if adj==0: return (0.0,0.0)
-            if adj==-0.25: return (0.0,0.5)
-            return (0.0,1.0)
+            return settle_ah_ou(side, ah, ou, hg, ag)
 
         n_settled = len(settled)
         n_pending = len([p for p in log if not is_settled(p)])
