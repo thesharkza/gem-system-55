@@ -233,27 +233,26 @@ def compute_best_side(p):
 # ════════════════════════════════════════════════════════════════════════
 # 🧪 EDGE SIGNALS — อัปเดตจากการวิเคราะห์ 150 เคส (settled)
 # ────────────────────────────────────────────────────────────────────────
-# บทเรียนสำคัญ: สัญญาณเดี่ยวที่เคยดูดีตอน 94 เคส อ่อนลงเมื่อข้อมูลโต
-#   • ah_overround เดี่ยว: 61%→57% (p 0.008→0.17) อ่อนลงชัด
-#   • away_wr_5g เดี่ยว: ยัง 58% (p=0.036) แต่ไม่ผ่าน Bonferroni + split-half ผันผวน
-# ⭐ การค้นพบใหม่ที่แข็งแกร่งสุด — COMBO 2 เงื่อนไข:
-#   "OU overround สูง (>104.8%) + ทีมเยือนฟอร์มแย่ (≤40%)" → เล่นตาม Stat
-#   WR 71% (n=42, ROI +32%) · split-half นิ่ง (74%/70%) · เทียบไม่เข้า combo แค่ 40%
-#   ⚠️ p=0.004 เกือบผ่าน Bonferroni(0.0025), 5-fold ±17% → ยังต้องเฝ้าดู
-# หลักการ: แสดงเป็นสัญญาณให้คนตัดสินใจ ไม่บังคับเป็น Gate จนกว่าจะ 30+ บิล/กลุ่ม
+# บทเรียนสำคัญ: สัญญาณทุกตัว regress เข้าหา 50% เมื่อข้อมูลโต (edge เล็กกว่าที่เห็นตอนแรก)
+#   • ah_overround เดี่ยว: 61%→57% อ่อนลงชัด
+#   • COMBO เงื่อนไขเดียวก็อ่อนลง — ค่า WR ที่ track ล่าสุด (225 เคส) ต่ำกว่าตอน 94-150 เคส
+# ⭐ COMBO 2 เงื่อนไข — "OU overround สูง (>104.8%) + ทีมเยือนฟอร์มแย่ (≤40%)" → เล่นตาม Stat
+#   ล่าสุด (225 เคส): WR ~61% (n=64, p=0.05) [เคย 71% ตอน 42 เคส] — regress แต่ยังบวก
+#   ⚠️ ยังไม่ผ่าน Bonferroni → เป็นสัญญาณช่วยตัดสินใจ ไม่บังคับ
+# หลักการ: แสดงเป็นสัญญาณให้คนตัดสินใจ ไม่บังคับเป็น Gate
 # ════════════════════════════════════════════════════════════════════════
 OVERROUND_EDGE_THRESHOLD = 104.7    # ah_overround (สัญญาณเดี่ยว — อ่อนลงแล้ว)
 OU_OVERROUND_EDGE_THRESHOLD = 104.8 # ou_overround (ใช้ใน combo ที่แข็งกว่า)
 AWAY_FORM_EDGE_THRESHOLD = 0.40     # away_wr_5g ต่ำกว่าหรือเท่านี้ = ฟอร์มแย่
 
 # ════════════════════════════════════════════════════════════════════════
-# 🏠 AH HOME CONFIDENCE SCORE — จากวิเคราะห์ 150 เคส
+# 🏠 AH HOME CONFIDENCE SCORE — track ต่อเนื่องถึง 225 เคส
 # ────────────────────────────────────────────────────────────────────────
-# ค้นพบ: home advantage ในบอล niche แรง (AH Home เสมอ = 59%)
-# ยิ่งเข้าหลายเงื่อนไข WR ยิ่งสูงแบบ monotonic:
-#   0 สัญญาณ→45% · 1→56% · 2→57% · 3→64% · 4→62%
-# AH Home + ค่าน้ำ O/U สูง เดี่ยว: WR 65% (n=72, 5-fold ±6% นิ่งสุด, p=0.006)
-# เล่น AH Home เมื่อ ≥3 สัญญาณ: WR 63% (n=65, p=0.023)
+# ค้นพบ: home advantage ในบอล niche แรง (AH Home เสมอ ~57-59%)
+# ยิ่งเข้าหลายเงื่อนไข WR ยิ่งสูงแบบ monotonic (แต่ค่าลดลงเมื่อ sample โต)
+# AH Home + ค่าน้ำ O/U สูง เดี่ยว: WR 65%→62%→61% (n=97, 5-fold ±6% นิ่งสุด)
+#   = สัญญาณที่ทนทานสุด (ลดช้า ไม่พังเหมือนตัวอื่น) p=0.021 ยังไม่ผ่าน Bonferroni
+# เล่น AH Home เมื่อ ≥3 สัญญาณ: WR 63%→57% (n=97, p=0.11) — อ่อนลง
 # 4 สัญญาณ: ค่าน้ำ O/U สูง, stat เชียร์ home, home ฟอร์มดี, home λ สูง
 # ════════════════════════════════════════════════════════════════════════
 def ah_home_confidence(p):
@@ -298,7 +297,7 @@ def compute_edge_signals(p):
         signals.append({
             'label': f'🏠 AH HOME มั่นใจสูง ({ah_score}/4 สัญญาณ)',
             'status': 'strong',
-            'detail': f'≥3 สัญญาณหนุนเจ้าบ้าน (อดีต WR 63-64%) → เล่น AH Home น่าสนใจ'
+            'detail': f'≥3 สัญญาณหนุนเจ้าบ้าน (อดีต WR ~57-61%) → เล่น AH Home น่าสนใจ'
         })
     elif ah_score == 2:
         signals.append({
@@ -313,7 +312,7 @@ def compute_edge_signals(p):
             signals.append({
                 'label': '⭐ AH COMBO: ค่าน้ำ O/U สูง + เยือนฟอร์มแย่',
                 'status': 'strong',
-                'detail': f'อดีต WR 71% (เทียบไม่เข้า combo 40%) → เล่น AH ตาม Stat น่าสนใจ'
+                'detail': f'อดีต WR ~61% (เทียบไม่เข้า combo ~45%) → เล่น AH ตาม Stat น่าสนใจ'
             })
 
     # ⭐ OU OVER COMBO — OU overround สูง + ทั้งคู่เสียประตูเยอะ → เล่น Over
@@ -325,7 +324,7 @@ def compute_edge_signals(p):
             signals.append({
                 'label': '⭐ OU COMBO: ค่าน้ำ O/U สูง + ทั้งคู่เสียเยอะ',
                 'status': 'strong',
-                'detail': f'อดีต Over WR 65% (เทียบ Over ทั่วไป 52%) → เล่น สูง (Over) น่าสนใจ'
+                'detail': f'อดีต Over WR ~58% (เทียบ Over ทั่วไป ~50%) → เล่น สูง (Over) น่าสนใจ'
             })
 
     # สัญญาณเดี่ยว (อ่อนลงแล้ว — แสดงเป็นข้อมูลประกอบ)
@@ -1711,7 +1710,7 @@ with tab_pre:
             # ── AH HOME CONFIDENCE OVERRIDE ──
             # ถ้า Best Bet = AH Home และมีสัญญาณหนุนเจ้าบ้านสูง (≥3/4)
             # → ไม่ skip แม้อยู่โซน moderate (home advantage แข็งกว่าความเสี่ยง moderate)
-            # หลักฐาน: AH Home conf≥3 → WR 63-64% (5-fold ±6% นิ่งสุด)
+            # หลักฐาน: AH Home conf≥3 → WR ~57-61% (5-fold ±6% นิ่งสุด, อ่อนลงจาก 63%)
             ah_conf_score = 0
             if best['name'] == 'AH Home':
                 ah_conf_score = sum([
@@ -1735,7 +1734,7 @@ with tab_pre:
                     f'🏠 GATE 5 OVERRIDE — เล่น AH Home ได้</div>'
                     f'<div style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;margin-top:6px;">'
                     f'แม้อยู่โซนเสี่ยง แต่ AH Home มีสัญญาณหนุนเจ้าบ้าน {ah_conf_score}/4 '
-                    f'(home advantage แข็ง — อดีต WR 63-64%, 5-fold นิ่งสุด) '
+                    f'(home advantage — อดีต WR ~57-61%, 5-fold ±6% นิ่งสุด) '
                     f'จึงไม่ข้ามคู่นี้</div></div>',
                     unsafe_allow_html=True
                 )
@@ -2020,19 +2019,19 @@ with tab_scan:
                 if 'AH HOME' in s['label']:
                     # ⚠️ เช็คว่า AH Home ผ่าน Gate ไหม — ถ้า best_side เป็นฝั่งอื่น ให้เตือน
                     if best == 'AH Home':
-                        recs.append(('AH Home (เจ้าบ้าน)', 'AH Home ✓ ผ่าน Gate', '63-65%'))
+                        recs.append(('AH Home (เจ้าบ้าน)', 'AH Home ✓ ผ่าน Gate', '~57-61%'))
                     elif best is not None:
                         # signal บอก home แต่ gate บอกฝั่งอื่น → เตือน
                         recs.append(('⚠️ AH Home (signal) ขัดกับ Gate',
                                     f'Gate แนะนำ {best} — เชื่อ Gate ก่อน', 'ดู LOG'))
                     else:
                         # ไม่มีฝั่งไหนผ่าน gate — signal เป็นข้อมูลเสริมล้วน
-                        recs.append(('AH Home (signal เท่านั้น)', 'AH Home — ยังไม่ผ่าน Gate', '63-65%'))
+                        recs.append(('AH Home (signal เท่านั้น)', 'AH Home — ยังไม่ผ่าน Gate', '~57-61%'))
                 elif 'AH COMBO' in s['label']:
                     bs = best or ('AH Home' if (p.get('divergence_wl') or 0) > 0 else 'AH Away')
-                    recs.append(('AH ตาม Stat', bs, '71%'))
+                    recs.append(('AH ตาม Stat', bs, '~61%'))
                 elif 'OU COMBO' in s['label']:
-                    recs.append(('Total Goals', 'OU Over (สูง)', '65%'))
+                    recs.append(('Total Goals', 'OU Over (สูง)', '~58%'))
 
             rec_html = ""
             for rtype, rside, rwr in recs:
@@ -3163,7 +3162,21 @@ with tab_dash:
             + '</div>', unsafe_allow_html=True
         )
 
-        # ── PHASE 1 CALIBRATION (progress bar HTML) ──
+        # ── 💡 บทเรียนจากข้อมูล (regression to mean) ──
+        if total_bets >= 15:
+            st.markdown(
+                '<div style="background:#1a1505;border-left:3px solid #ffd600;padding:10px 14px;'
+                'border-radius:0 6px 6px 0;margin:8px 0;">'
+                '<div style="font-family:\'Rajdhani\';font-size:0.78rem;color:#ffd600;font-weight:600;'
+                'margin-bottom:4px;">💡 บทเรียนจากข้อมูล (อัปเดต 225 เคส)</div>'
+                '<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#c8e6d4;line-height:1.5;">'
+                'สัญญาณทุกตัวมีแนวโน้ม regress เข้าหา 50% เมื่อข้อมูลโตขึ้น — '
+                'edge จริงในตลาด niche เล็กกว่าที่เห็นตอน sample เล็ก (~58-61% ไม่ใช่ 65-71%)<br>'
+                '• Gate System: เคย 70% → ตอนนี้ ~53% (สาเหตุ: ไม่มีเงื่อนไข "ค่าน้ำ O/U สูง" + แนะนำ AH Away มาก)<br>'
+                '• สัญญาณที่ทนสุด: <b style="color:#00ff88;">AH Home + ค่าน้ำ O/U สูง</b> (~61%, 5-fold นิ่ง ±6%)<br>'
+                '→ ใช้ bet คงที่ 2% ต่อไป อย่าเพิ่ม size จนกว่าจะมั่นใจ edge จริง</div></div>',
+                unsafe_allow_html=True
+            )
         progress_pct = min(total_bets / 50 * 100, 100)
         if total_bets >= 50:
             phase_msg = (f"✅ ครบ 50 บิล! Win Rate {wr:.0f}% — "
