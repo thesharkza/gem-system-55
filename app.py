@@ -2362,10 +2362,15 @@ with tab_log:
                     aligns = (stat_home == is_home_side) if best['side'] in ('AH Home','AH Away') else None
                     if abs(div) >= 0.15 and abs(div) < 0.40 and aligns:
                         g5_note = ("<br><span style='color:#ff8c00;'>⚠️ Gate 5: ฝั่งนี้ตรงกับ Stat "
-                                  "ในโซน Moderate ที่ตลาดมักถูกกว่า — พิจารณาลดเงินหรือข้าม</span>")
+                                  "ในโซน Moderate — โซนนี้เกือบ 50/50 ไม่มี edge ชัด</span>")
                     elif abs(div) >= 0.40 and aligns:
                         g5_note = ("<br><span style='color:#ff3b5c;'>🚨 Gate 5: Divergence สูงมาก "
                                   "(ข้อมูลน้อย) — ระวัง</span>")
+                    # ⚠️ เตือนพิเศษเมื่อ best=AH Away (เยือนไม่มี edge เชิงโครงสร้าง)
+                    if best['side'] == 'AH Away':
+                        g5_note += ("<br><span style='color:#ff8c00;'>⚠️ AH Away: ข้อมูล 236 เคสชี้ว่า"
+                                   "ทีมเยือนในบอล niche เสียเปรียบเชิงโครงสร้าง (WR ~45%) "
+                                   "แม้ผ่าน Gate ก็ควรระวัง/ลดเงิน</span>")
 
                     verdict_html = (
                         f'<div style="background:linear-gradient(135deg,#0a2a18,#0d1e2e);'
