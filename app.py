@@ -212,7 +212,13 @@ def is_settled(p):
 def compute_best_side(p):
     """คำนวณ Best Bet สดจาก gate scanner data (win_rate + gates_passed ของ 4 ฝั่ง)
     แทนการพึ่ง recommended_side ใน DB ที่อาจผิดจากโค้ดเวอร์ชันเก่า (เช่น FLIP bug)
-    คืน side name ('AH Home'/'AH Away'/'OU Over'/'OU Under') หรือ None ถ้าไม่มีฝั่งผ่าน"""
+    คืน side name ('AH Home'/'AH Away'/'OU Over'/'OU Under') หรือ None ถ้าไม่มีฝั่งผ่าน
+
+    ⚠️ AH Away ถูกลดความสำคัญ: ข้อมูล 236 เคส (ยืนยัน 4 รอบ) ชี้ว่าทีมเยือนในบอล
+    niche เสียเปรียบเชิงโครงสร้าง (AH Away เสมอ ~45% vs AH Home ~55%). Gate ที่เคย
+    แนะนำ AH Away ได้ WR แค่ 40% (ฉุด ROI). จึง:
+      - ถ้ามีฝั่งอื่น (Home/Over/Under) ที่ qualified → ใช้ฝั่งนั้นแทน AH Away เสมอ
+      - ถ้า AH Away เป็นฝั่งเดียวที่ qualified → คืน None (ข้ามคู่นั้น)"""
     def _nz(v, d=0):
         if v is None: return d
         try:
@@ -227,7 +233,13 @@ def compute_best_side(p):
     ]
     qualified = sorted([s for s in sides if s[2] >= 4 and s[1] >= 55],
                        key=lambda x: x[1], reverse=True)
-    return qualified[0][0] if qualified else None
+    # เลือกฝั่งที่ไม่ใช่ AH Away ก่อน (home advantage เชิงโครงสร้าง)
+    non_away = [s for s in qualified if s[0] != 'AH Away']
+    if non_away:
+        return non_away[0][0]
+    # เหลือแต่ AH Away → ข้าม (คืน None)
+    return None
+
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -2141,9 +2153,11 @@ with tab_log:
                 ('OU Over', _nz_local(p.get('ou_over_win_rate'))*100, int(_nz_local(p.get('ou_over_gates_passed')))),
                 ('OU Under', _nz_local(p.get('ou_under_win_rate'))*100, int(_nz_local(p.get('ou_under_gates_passed')))),
             ]
+            # ใช้ compute_best_side กลาง (รวม logic ลด AH Away) แทน logic ซ้ำ
+            computed_best_side = compute_best_side(p)
+            # _qualified ยังใช้สำหรับแสดง ranking ทางเลือกรอง
             _qualified = sorted([s for s in _sides_calc if s[2] >= 4 and s[1] >= 55],
                                key=lambda x: x[1], reverse=True)
-            computed_best_side = _qualified[0][0] if _qualified else None
 
             # ใช้ best ที่คำนวณสดเป็นหลัก; ถ้าไม่มี qualified → No Signal
             # (recommended_side ใน DB เก็บไว้เทียบ แต่ไม่ใช้ตัดสิน)
@@ -2349,9 +2363,16 @@ with tab_log:
 
                 # ฝั่งที่ผ่านครบ 4 gates (ลงได้จริง)
                 qualified = [r for r in ranked if r['pass_all'] and r['wr'] >= 55]
+                # ลด AH Away ไปท้าย (home advantage เชิงโครงสร้าง — สอดคล้อง compute_best_side)
+                qualified.sort(key=lambda r: (r['side'] == 'AH Away', -r['wr']))
                 thai_name = {'AH Home': 'ต่อ/รอง เจ้าบ้าน (AH Home)',
                             'AH Away': 'ต่อ/รอง ทีมเยือน (AH Away)',
                             'OU Over': 'สูง (Over)', 'OU Under': 'ต่ำ (Under)'}
+
+                # ถ้าเหลือแต่ AH Away → ถือว่าไม่มีฝั่งน่าเล่น (ข้าม)
+                only_away = bool(qualified) and all(r['side'] == 'AH Away' for r in qualified)
+                if only_away:
+                    qualified = []
 
                 if qualified:
                     best = qualified[0]
@@ -2391,7 +2412,19 @@ with tab_log:
                 else:
                     # ไม่มีฝั่งไหนผ่านครบ — แสดงฝั่งที่ใกล้สุด
                     top = ranked[0]
-                    verdict_html = (
+                    if only_away:
+                        # เหลือแต่ AH Away → ข้ามเพราะเยือนไม่มี edge
+                        verdict_html = (
+                            f'<div style="background:#1e1505;border:1px solid #ff8c0055;'
+                            f'border-left:4px solid #ff8c00;border-radius:8px;padding:12px 16px;margin-bottom:8px;">'
+                            f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.05rem;color:#ff8c00;">'
+                            f'🛡️ ข้ามคู่นี้ — เหลือแต่ AH Away</div>'
+                            f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:#c8e6d4;margin-top:4px;">'
+                            f'ฝั่งเดียวที่ผ่าน Gate คือ AH Away แต่ข้อมูล 236 เคส (4 รอบ) ชี้ว่า'
+                            f'ทีมเยือน niche เสียเปรียบเชิงโครงสร้าง (~45%) — ระบบจึงข้ามเพื่อเลี่ยงฝั่งที่ไม่มี edge</div></div>'
+                        )
+                    else:
+                        verdict_html = (
                         f'<div style="background:#1e0d0d;border:1px solid #ff3b5c55;'
                         f'border-left:4px solid #ff3b5c;border-radius:8px;padding:12px 16px;margin-bottom:8px;">'
                         f'<div style="font-family:\'Exo 2\';font-weight:800;font-size:1.05rem;color:#ff3b5c;">'
