@@ -2735,18 +2735,106 @@ with tab_log:
 
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
 
-        # ── SETTLED SECTION ──
+        # ── SETTLED SECTION (มีตัวกรองช่วงเวลา) ──
+        # คำนวณจำนวนในแต่ละช่วงเพื่อแสดงบนปุ่ม
+        _now = pd.Timestamp.now(tz='UTC')
+        def _within_days(p_created, days):
+            if pd.isna(p_created):
+                return False
+            ts = pd.to_datetime(p_created, utc=True, errors='coerce')
+            if pd.isna(ts):
+                return False
+            return (_now - ts) <= pd.Timedelta(days=days)
+
+        settled_records = settled_df_raw.to_dict('records')
+        n_1d = sum(1 for p in settled_records if _within_days(p.get('created_at'), 1))
+        n_3d = sum(1 for p in settled_records if _within_days(p.get('created_at'), 3))
+        n_all = len(settled_records)
+
         st.markdown(
-            f'<div style="font-family:\'Share Tech Mono\';font-size:0.78rem;color:#00ff88;'
-            f'border-left:3px solid #00ff88;padding:6px 10px;margin-bottom:8px;">'
-            f'✅ SETTLED — มีผลแล้ว ({len(settled_df_raw)} คู่)</div>',
+            f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">'
+            f'<div style="font-family:\'Share Tech Mono\';font-size:0.82rem;color:#00ff88;'
+            f'border-left:3px solid #00ff88;padding:6px 12px;background:linear-gradient(90deg,#0a2418,transparent);'
+            f'border-radius:0 6px 6px 0;">✅ SETTLED — มีผลแล้ว ({n_all} คู่)</div></div>',
             unsafe_allow_html=True
         )
-        if len(settled_df_raw) == 0:
+
+        # ตัวกรองช่วงเวลา — ค่าเริ่มต้น "ไม่โชว์"
+        _filter_opts = {
+            "🔒 ไม่โชว์": "none",
+            f"📅 1 วัน ({n_1d})": "1d",
+            f"📆 3 วัน ({n_3d})": "3d",
+            f"📚 ทั้งหมด ({n_all})": "all",
+        }
+        _picked = st.radio(
+            "เลือกช่วงเวลาที่ต้องการแสดง",
+            options=list(_filter_opts.keys()),
+            index=0,  # default = ไม่โชว์
+            horizontal=True,
+            key='settled_time_filter',
+            label_visibility='collapsed',
+        )
+        _filter_val = _filter_opts[_picked]
+
+        if _filter_val == "none":
+            st.markdown(
+                '<div style="text-align:center;padding:24px 16px;background:#0a1520;'
+                'border:1px dashed #2a3a4a;border-radius:10px;margin:8px 0;">'
+                '<div style="font-size:1.6rem;margin-bottom:6px;">🔒</div>'
+                '<div style="font-family:\'Rajdhani\';font-size:0.86rem;color:#7a9a88;">'
+                'รายการที่ settle แล้วถูกซ่อนไว้ — เลือกช่วงเวลาด้านบนเพื่อแสดง</div></div>',
+                unsafe_allow_html=True
+            )
+        elif n_all == 0:
             st.caption("ยังไม่มี prediction ที่ settle แล้ว")
         else:
-            for _, p in settled_df_raw.iterrows():
-                render_prediction_card(p.to_dict(), mode='settled')
+            # กรองตามช่วงที่เลือก
+            if _filter_val == "1d":
+                shown = [p for p in settled_records if _within_days(p.get('created_at'), 1)]
+            elif _filter_val == "3d":
+                shown = [p for p in settled_records if _within_days(p.get('created_at'), 3)]
+            else:
+                shown = settled_records
+
+            # เรียงใหม่สุดก่อน
+            shown = sorted(shown, key=lambda p: pd.to_datetime(p.get('created_at'), utc=True, errors='coerce') or pd.Timestamp.min.tz_localize('UTC'), reverse=True)
+
+            if not shown:
+                st.caption("ไม่มีรายการในช่วงเวลาที่เลือก")
+            else:
+                # สรุปผลช่วงที่แสดง (mini stats)
+                _w = _l = _p = 0
+                for p in shown:
+                    side_x = compute_best_side(p)
+                    if not side_x:
+                        continue
+                    wf, lf = settle_ah_ou(side_x, p.get('ah_line'), p.get('ou_line'),
+                                          p.get('actual_home_goals'), p.get('actual_away_goals'))
+                    if wf > lf: _w += 1
+                    elif lf > wf: _l += 1
+                    else: _p += 1
+                _total = _w + _l
+                _wr = (_w / _total * 100) if _total else 0
+                st.markdown(
+                    f'<div style="display:flex;gap:8px;margin-bottom:12px;">'
+                    f'<div style="flex:1;background:#0a1f14;border:1px solid #00ff8833;border-radius:8px;'
+                    f'padding:8px 12px;text-align:center;">'
+                    f'<div style="font-family:\'Share Tech Mono\';font-size:1.3rem;color:#00ff88;">{_wr:.0f}%</div>'
+                    f'<div style="font-family:\'Rajdhani\';font-size:0.66rem;color:#7a9a88;">Win Rate</div></div>'
+                    f'<div style="flex:1;background:#0d1825;border:1px solid #2a3a4a;border-radius:8px;'
+                    f'padding:8px 12px;text-align:center;">'
+                    f'<div style="font-family:\'Share Tech Mono\';font-size:1.3rem;color:#c8e6d4;">{len(shown)}</div>'
+                    f'<div style="font-family:\'Rajdhani\';font-size:0.66rem;color:#7a9a88;">รายการ</div></div>'
+                    f'<div style="flex:1;background:#0d1825;border:1px solid #2a3a4a;border-radius:8px;'
+                    f'padding:8px 12px;text-align:center;">'
+                    f'<div style="font-family:\'Share Tech Mono\';font-size:1.3rem;color:#c8e6d4;">'
+                    f'{_w}-{_l}{("-"+str(_p)) if _p else ""}</div>'
+                    f'<div style="font-family:\'Rajdhani\';font-size:0.66rem;color:#7a9a88;">W-L{"-P" if _p else ""}</div></div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+                for p in shown:
+                    render_prediction_card(p, mode='settled')
 
         st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
         if st.button("🗑️ ล้าง Predictions Log ทั้งหมด (ลบจากฐานข้อมูลถาวร!)"):
