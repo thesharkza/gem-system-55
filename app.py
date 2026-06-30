@@ -245,12 +245,12 @@ def compute_best_side(p):
 # ════════════════════════════════════════════════════════════════════════
 # 🧪 EDGE SIGNALS — อัปเดตจากการวิเคราะห์ 150 เคส (settled)
 # ────────────────────────────────────────────────────────────────────────
-# บทเรียนสำคัญ: สัญญาณทุกตัว regress เข้าหา 50% เมื่อข้อมูลโต (edge เล็กกว่าที่เห็นตอนแรก)
-#   • ah_overround เดี่ยว: 61%→57% อ่อนลงชัด
-#   • COMBO เงื่อนไขเดียวก็อ่อนลง — ค่า WR ที่ track ล่าสุด (225 เคส) ต่ำกว่าตอน 94-150 เคส
+# บทเรียนสำคัญ: สัญญาณ regress ช่วงแรก แต่ "นิ่ง" แล้วที่ ~59-62% (249 เคส = edge จริง)
+#   • ah_overround เดี่ยว: 61%→57% อ่อนลงชัด (สัญญาณเดี่ยวอ่อน)
+#   • สัญญาณ COMBO ตอนนี้นิ่งข้าม 3 รอบ (225→236→249): ลดช้ามากแล้วหยุด = edge จริง
 # ⭐ COMBO 2 เงื่อนไข — "OU overround สูง (>104.8%) + ทีมเยือนฟอร์มแย่ (≤40%)" → เล่นตาม Stat
-#   ล่าสุด (225 เคส): WR ~61% (n=64, p=0.05) [เคย 71% ตอน 42 เคส] — regress แต่ยังบวก
-#   ⚠️ ยังไม่ผ่าน Bonferroni → เป็นสัญญาณช่วยตัดสินใจ ไม่บังคับ
+#   ล่าสุด (249 เคส): WR ~62% (n=71, p=0.028, 5-fold ±7%) [เคย 71% ตอน 42 เคส] — นิ่งแล้ว
+#   ⚠️ p=0.028 ใกล้ Bonferroni(0.0071) แต่ยังไม่ผ่าน → สัญญาณช่วยตัดสินใจ ไม่บังคับ
 # หลักการ: แสดงเป็นสัญญาณให้คนตัดสินใจ ไม่บังคับเป็น Gate
 # ════════════════════════════════════════════════════════════════════════
 OVERROUND_EDGE_THRESHOLD = 104.7    # ah_overround (สัญญาณเดี่ยว — อ่อนลงแล้ว)
@@ -1151,18 +1151,17 @@ def evaluate_gate5(league_name, home_rank, away_rank, temp,
             'type': 'warning', 'level': 'high',
             'title': f"EXTREME DIVERGENCE (D{divergence_wl*100:+.0f}%)",
             'detail': (f"Stat บอก {favored_side} ได้เปรียบกว่าตลาดมาก (≥40%) — เคสแบบนี้พบน้อย "
-                      f"(9 เคสในข้อมูลล่าสุด, เล่นตาม Stat ชนะ ~62% แต่ sample ยังเล็กเกินสรุป) "
+                      f"(11 เคสในข้อมูลล่าสุด, เล่นตาม Stat ชนะ ~70% แต่ sample ยังเล็กเกินสรุป) "
                       f"ความต่างที่สูงผิดปกติอาจมาจาก small-sample noise ใน 5 นัด "
-                      f"แนะนำลดขนาดเดิมพันและตรวจ stat input ซ้ำว่าผิดปกติไหม")
+                      f"แนะนำตรวจ stat input ซ้ำว่าผิดปกติไหม")
         })
     elif abs_div >= MODERATE_DIVERGENCE_THRESHOLD:
         favored_side = "Home" if divergence_wl > 0 else "Away"
         signals.append({
-            'type': 'warning', 'level': 'medium',
+            'type': 'info', 'level': 'low',
             'title': f"Moderate Divergence (D{divergence_wl*100:+.0f}%)",
-            'detail': (f"Stat เชียร์ {favored_side} ต่างจากตลาด 15-40% — จากข้อมูลล่าสุด 59 เคส "
-                      f"โซนนี้เล่นตาม Stat ใน AH ได้ WR ~48% (เกือบ 50/50, ไม่มี edge ชัด) "
-                      f"สัญญาณ 'ตลาดถูกกว่า' ที่เคยเห็นตอน sample เล็กได้จางหายไปแล้ว "
+            'detail': (f"Stat เชียร์ {favored_side} ต่างจากตลาด 15-40% — จากข้อมูลล่าสุด 97 เคส "
+                      f"โซนนี้เกือบ 50/50 ทั้งเล่นตาม Stat และตาม Market (ไม่มี edge ชัด) "
                       f"แนะนำใช้สัญญาณอื่น (COMBO/AH Home confidence) ประกอบการตัดสินใจแทน")
         })
     else:
@@ -1222,16 +1221,17 @@ def gate5_confidence_adjustment(gate5_result, recommended_side_is_home):
 
     if abs_div >= EXTREME_DIVERGENCE_THRESHOLD:
         if aligns_with_stat:
-            return ("⚠️ ลด Bet เล็กน้อย — Diverge สูง (≥40%) ข้อมูลล่าสุด 9 เคสเล่นตาม Stat 62% (ยังเล็ก)",
-                    "#ff8c00", MULT_EXTREME_AGAINST)
+            return ("ℹ️ Diverge สูง (≥40%) — ข้อมูลล่าสุด 11 เคสเล่นตาม Stat ~70% (ยังน้อย เฝ้าดู)",
+                    "#4a7a60", MULT_EXTREME_AGAINST)
         return ("ℹ️ Extreme Divergence แต่ Best Bet ฝั่งตรงข้าม Stat — สอดคล้องตลาด",
                 "#4a7a60", 1.0)
     elif abs_div >= MODERATE_DIVERGENCE_THRESHOLD:
         if aligns_with_stat:
-            return ("⚠️ ลด Bet ครึ่งหนึ่ง — Best Bet ตามฝั่ง Stat ในโซน 15-40% (ตลาดถูก ~64%)",
-                    "#ff8c00", MULT_MODERATE_AGAINST)
-        return ("✅ Best Bet สอดคล้องกับตลาด (Stat เชียร์ฝั่งตรงข้าม) — โซนนี้ตลาดแม่น",
-                "#00ff88", 1.0)
+            return ("ℹ️ Best Bet ตามฝั่ง Stat ในโซน 15-40% — ข้อมูลล่าสุด 97 เคส เกือบ 50/50 "
+                    "(ไม่มี edge ชัด ไม่ต้องลดเงินเป็นพิเศษ)",
+                    "#4a7a60", 1.0)
+        return ("ℹ️ Best Bet ฝั่งตรงข้าม Stat ในโซน Moderate — โซนนี้เกือบ 50/50",
+                "#4a7a60", 1.0)
     else:
         # Low divergence — stat เชื่อถือได้ (WR~57% ใน AH)
         if has_opportunity:
@@ -1340,7 +1340,7 @@ with st.sidebar:
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.markdown('<div class="gem-label">◈ GATE 5 STRATEGY</div>', unsafe_allow_html=True)
-    st.caption("จากข้อมูลจริง 60 เคส: เมื่อ Stat สวนตลาด 15-40% ตลาดมักถูกกว่า")
+    st.caption("จากข้อมูลล่าสุด 97 เคส: โซน Stat สวนตลาด 15-40% เกือบ 50/50 (ไม่มี edge ชัด)")
     gate5_mode = st.radio(
         "โหมด Gate 5 (Stat-Divergence)",
         options=[GATE5_MODE_SKIP, GATE5_MODE_REDUCE, GATE5_MODE_FLIP],
@@ -1352,8 +1352,8 @@ with st.sidebar:
         key='gate5_mode',
     )
     if gate5_mode == GATE5_MODE_FLIP:
-        st.warning("⚡ โหมด FLIP: เคยให้ ROI ดีตอน sample เล็ก แต่ข้อมูลล่าสุด 59 เคส "
-                  "โซน Moderate กลับมาเกือบ 50/50 (เล่นตาม Stat 48%) — สัญญาณ 'ตลาดถูกกว่า' "
+        st.warning("⚡ โหมด FLIP: เคยให้ ROI ดีตอน sample เล็ก แต่ข้อมูลล่าสุด 97 เคส "
+                  "โซน Moderate กลับมาเกือบ 50/50 — สัญญาณ 'ตลาดถูกกว่า' "
                   "จางหายแล้ว ไม่แนะนำ FLIP อีกต่อไป ใช้ SKIP จะปลอดภัยกว่า")
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
@@ -3303,13 +3303,15 @@ with tab_dash:
                 '<div style="background:#1a1505;border-left:3px solid #ffd600;padding:10px 14px;'
                 'border-radius:0 6px 6px 0;margin:8px 0;">'
                 '<div style="font-family:\'Rajdhani\';font-size:0.78rem;color:#ffd600;font-weight:600;'
-                'margin-bottom:4px;">💡 บทเรียนจากข้อมูล (อัปเดต 225 เคส)</div>'
+                'margin-bottom:4px;">💡 บทเรียนจากข้อมูล (อัปเดต 249 เคส)</div>'
                 '<div style="font-family:\'Rajdhani\';font-size:0.74rem;color:#c8e6d4;line-height:1.5;">'
-                'สัญญาณทุกตัวมีแนวโน้ม regress เข้าหา 50% เมื่อข้อมูลโตขึ้น — '
-                'edge จริงในตลาด niche เล็กกว่าที่เห็นตอน sample เล็ก (~58-61% ไม่ใช่ 65-71%)<br>'
-                '• Gate System: เคย 70% → ตอนนี้ ~53% (สาเหตุ: ไม่มีเงื่อนไข "ค่าน้ำ O/U สูง" + แนะนำ AH Away มาก)<br>'
-                '• สัญญาณที่ทนสุด: <b style="color:#00ff88;">AH Home + ค่าน้ำ O/U สูง</b> (~61%, 5-fold นิ่ง ±6%)<br>'
-                '→ ใช้ bet คงที่ 2% ต่อไป อย่าเพิ่ม size จนกว่าจะมั่นใจ edge จริง</div></div>',
+                'สัญญาณ regress ช่วงแรก แต่ตอนนี้ <b style="color:#00ff88;">นิ่งแล้วที่ ~59-62%</b> '
+                '(ข้าม 3 รอบไม่ลดต่อ = edge จริง ไม่ใช่ noise)<br>'
+                '• Gate System: แก้แล้วโดยลด AH Away → ROI -11% กลับเป็น +3% '
+                '(ทีมเยือน niche เสียเปรียบเชิงโครงสร้าง ~45%)<br>'
+                '• สัญญาณที่ทนสุด: <b style="color:#00ff88;">AH Home + ค่าน้ำ O/U สูง</b> (~59%) '
+                'และ AH Home conf≥4/5 (~62%)<br>'
+                '→ ใช้ bet คงที่ 2% ต่อไป สัญญาณใกล้ผ่าน Bonferroni (p~0.03) เก็บถึง 300 เคสยืนยัน</div></div>',
                 unsafe_allow_html=True
             )
         progress_pct = min(total_bets / 50 * 100, 100)
