@@ -3440,4 +3440,162 @@ with tab_dash:
                 )
 
     st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
+
+    # ════════════════════════════════════════════════════════════════
+    # 📅 สถิติแพ้/ชนะรายวัน (ทุกคู่ที่ระบบแนะนำได้ — ไม่จำกัดว่าลงเงินจริงไหม)
+    # ════════════════════════════════════════════════════════════════
+    st.markdown('<div class="gem-label">◈ 📅 สถิติรายวัน (WIN RATE รายวัน)</div>',
+               unsafe_allow_html=True)
+    st.caption("ⓘ สถิติแพ้/ชนะของทุกคู่ที่วิเคราะห์และ settle แล้ว — แบ่งตามวันที่")
+
+    _all_log = db_load_predictions()
+    _all_records = _all_log.to_dict('records') if not _all_log.empty else []
+
+    # ตัวเลือกขอบเขต: ทุกคู่ หรือ เฉพาะที่ผ่าน Gate
+    _daily_scope = st.radio(
+        "ขอบเขตสถิติ",
+        options=["📊 ทุกคู่ที่วิเคราะห์", "🎯 เฉพาะที่ผ่าน Gate"],
+        index=0,
+        horizontal=True,
+        key='daily_scope',
+        label_visibility='collapsed',
+    )
+    _gate_only = ("Gate" in _daily_scope)
+
+    def _daily_side(p):
+        """ฝั่งที่ใช้วัดผล: มี Best Bet (ผ่าน Gate) ใช้ตัวนั้น
+        ไม่งั้นใช้ฝั่งที่ Stat เชียร์ (AH Home ถ้า divergence>0) — เพื่อวัดทุกคู่"""
+        b = compute_best_side(p)
+        if b:
+            return b
+        if _gate_only:
+            return None  # โหมดผ่าน Gate → ข้ามคู่ที่ไม่มี Best Bet
+        dv = p.get('divergence_wl')
+        try:
+            dv = 0 if (dv is None or pd.isna(dv)) else float(dv)
+        except (TypeError, ValueError):
+            dv = 0
+        return 'AH Home' if dv > 0 else 'AH Away'
+
+    # สร้างสถิติรายวัน
+    from collections import defaultdict
+    daily = defaultdict(lambda: {'w': 0, 'l': 0, 'p': 0, 'pnl': 0.0, 'matches': []})
+    for p in _all_records:
+        if not (is_settled(p) and _has_goals(p)):
+            continue
+        side = _daily_side(p)
+        if not side:
+            continue
+        # วันที่ (ใช้ created_at)
+        ts = pd.to_datetime(p.get('created_at'), utc=True, errors='coerce')
+        if pd.isna(ts):
+            continue
+        day_key = ts.strftime('%Y-%m-%d')
+        wf, lf = settle_ah_ou(side, p.get('ah_line'), p.get('ou_line'),
+                              p.get('actual_home_goals'), p.get('actual_away_goals'))
+        d = daily[day_key]
+        if wf > lf:
+            d['w'] += 1
+        elif lf > wf:
+            d['l'] += 1
+        else:
+            d['p'] += 1
+        d['matches'].append((p.get('match_name', '-'), side, wf, lf))
+
+    if not daily:
+        st.info("ยังไม่มีข้อมูลที่ settle แล้วสำหรับสถิติรายวัน")
+    else:
+        # เรียงวันใหม่→เก่า
+        sorted_days = sorted(daily.keys(), reverse=True)
+
+        # กราฟ WR รายวัน (bar chart)
+        chart_days = sorted(daily.keys())  # เก่า→ใหม่ สำหรับกราฟ
+        wr_series = []
+        for dk in chart_days:
+            d = daily[dk]
+            dec = d['w'] + d['l']
+            wr_series.append(round(d['w'] / dec * 100) if dec else 0)
+
+        if len(chart_days) >= 2:
+            fig_daily = go.Figure()
+            bar_colors = ['#00ff88' if wr >= 60 else ('#ffd700' if wr >= 50 else '#ff6b6b')
+                          for wr in wr_series]
+            fig_daily.add_trace(go.Bar(
+                x=[d[5:] for d in chart_days],
+                y=wr_series,
+                marker_color=bar_colors,
+                text=[f'{wr}%' for wr in wr_series],
+                textposition='outside',
+            ))
+            fig_daily.add_hline(y=50, line_dash="dash", line_color="#5a7a68",
+                               annotation_text="50% (เสมอตัว)", annotation_position="right")
+            fig_daily.update_layout(
+                title='Win Rate รายวัน (%)',
+                paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(10,20,30,0.3)',
+                font=dict(color='#c8e6d4', family='Rajdhani'),
+                yaxis=dict(range=[0, 105], title='Win Rate %', gridcolor='#1e3a2a'),
+                xaxis=dict(title='วันที่ (เดือน-วัน)'),
+                height=280, margin=dict(l=40, r=20, t=40, b=40),
+                showlegend=False,
+            )
+            st.plotly_chart(fig_daily, use_container_width=True)
+
+        # สรุปแต่ละวัน (การ์ด)
+        for dk in sorted_days:
+            d = daily[dk]
+            dec = d['w'] + d['l']
+            wr_day = (d['w'] / dec * 100) if dec else 0
+            # สี WR
+            if wr_day >= 60:
+                wr_color = '#00ff88'
+            elif wr_day >= 50:
+                wr_color = '#ffd700'
+            else:
+                wr_color = '#ff6b6b'
+            total_day = d['w'] + d['l'] + d['p']
+            # แถบสัดส่วน W/L
+            w_pct = (d['w'] / total_day * 100) if total_day else 0
+            l_pct = (d['l'] / total_day * 100) if total_day else 0
+            p_pct = (d['p'] / total_day * 100) if total_day else 0
+
+            st.markdown(
+                f'<div style="background:#0d1825;border:1px solid #1e3a2a;border-radius:10px;'
+                f'padding:12px 16px;margin-bottom:10px;">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:0.92rem;color:#c8e6d4;">📅 {dk}</span>'
+                f'<span style="font-family:\'Share Tech Mono\';font-size:1.15rem;color:{wr_color};font-weight:700;">'
+                f'{wr_day:.0f}%</span></div>'
+                # แถบสัดส่วน
+                f'<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;margin-bottom:8px;background:#0a0f14;">'
+                f'<div style="width:{w_pct}%;background:#00ff88;"></div>'
+                f'<div style="width:{l_pct}%;background:#ff6b6b;"></div>'
+                f'<div style="width:{p_pct}%;background:#5a7a68;"></div></div>'
+                f'<div style="display:flex;gap:14px;font-family:\'Rajdhani\';font-size:0.78rem;">'
+                f'<span style="color:#00ff88;">ชนะ {d["w"]}</span>'
+                f'<span style="color:#ff6b6b;">แพ้ {d["l"]}</span>'
+                f'<span style="color:#7a9a88;">คืนทุน {d["p"]}</span>'
+                f'<span style="color:#c8e6d4;margin-left:auto;">รวม {total_day} คู่</span></div>'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+        # สรุปรวมท้ายสุด
+        tot_w = sum(d['w'] for d in daily.values())
+        tot_l = sum(d['l'] for d in daily.values())
+        tot_p = sum(d['p'] for d in daily.values())
+        tot_dec = tot_w + tot_l
+        tot_wr = (tot_w / tot_dec * 100) if tot_dec else 0
+        best_day = max(sorted_days, key=lambda dk: (daily[dk]['w']/(daily[dk]['w']+daily[dk]['l'])) if (daily[dk]['w']+daily[dk]['l']) else 0)
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,#0a2418,#0d1825);border:1px solid #00ff8844;'
+            f'border-radius:10px;padding:14px 18px;margin-top:6px;">'
+            f'<div style="font-family:\'Rajdhani\';font-size:0.8rem;color:#7a9a88;margin-bottom:4px;">สรุปรวมทุกวัน</div>'
+            f'<div style="display:flex;gap:20px;align-items:baseline;">'
+            f'<span style="font-family:\'Share Tech Mono\';font-size:1.6rem;color:#00ff88;font-weight:700;">{tot_wr:.0f}%</span>'
+            f'<span style="font-family:\'Rajdhani\';font-size:0.85rem;color:#c8e6d4;">'
+            f'ชนะ {tot_w} · แพ้ {tot_l} · คืนทุน {tot_p} ({len(daily)} วัน)</span></div></div>',
+            unsafe_allow_html=True
+        )
+
+    st.markdown('<div class="gem-divider"></div>', unsafe_allow_html=True)
     st.caption("ℹ️ ข้อมูลทั้งหมดเก็บถาวรใน Supabase — เปิดแอพใหม่ข้อมูลยังอยู่ครบ")
